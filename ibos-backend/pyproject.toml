@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "ibos-backend"
+version = "0.1.0"
+description = "AI-Powered Informal Business OS Backend"
+authors = ["Olayinka Daniel Oyedola <oolayinkadaniel@gmail.com>"]
+readme = "README.md"
+packages = [{include = "app"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.115.0"
+uvicorn = {extras = ["standard"], version = "^0.30.6"}
+pydantic = "^2.8.2"
+pydantic-settings = "^2.4.0"
+sqlalchemy = "^2.0.32"
+psycopg = {extras = ["binary"], version = "^3.2.1"}
+alembic = "^1.13.2"
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-multipart = "^0.0.9"
+shortuuid = "^1.0.13"
+openai = "^1.63.2"
+google-auth = "^2.38.0"
+email-validator = "^2.3.0"
+bcrypt = "^5.0.0"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.5.7"
+pytest = "^8.3.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
