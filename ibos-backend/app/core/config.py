@@ -1,5 +1,6 @@
+import json
 from typing import List, Union
-from pydantic import field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,17 +27,55 @@ class Settings(BaseSettings):
     # GOOGLE AUTH
     google_client_id: str | None = None
 
+    # AUTH HARDENING
+    auth_rate_limit_max_attempts: int = Field(default=5, ge=1)
+    auth_rate_limit_window_seconds: int = Field(default=300, ge=1)
+    auth_rate_limit_lock_seconds: int = Field(default=900, ge=1)
+
+    # INVENTORY
+    low_stock_default_threshold: int = Field(default=5, ge=0)
+
     # CORS
-    cors_origins: List[str] = ["http://localhost:3000"]
+    cors_origins: List[str] = Field(default_factory=lambda: ["http://localhost:3000"])
 
     @field_validator("cors_origins", mode="before")
     @classmethod
-    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
-        if isinstance(v, str) and not v.startswith("["):
-            return [i.strip() for i in v.split(",")]
-        elif isinstance(v, (list, str)):
-            return v
+    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            if not v.strip():
+                return []
+            if v.startswith("["):
+                parsed = json.loads(v)
+                if not isinstance(parsed, list):
+                    raise ValueError("CORS_ORIGINS JSON value must be a list")
+                return [str(i).strip() for i in parsed if str(i).strip()]
+            if not v.startswith("["):
+                return [i.strip() for i in v.split(",") if i.strip()]
+        if isinstance(v, list):
+            return [str(i).strip() for i in v if str(i).strip()]
         raise ValueError(v)
+
+    @model_validator(mode="after")
+    def validate_production_safety(self) -> "Settings":
+        env_value = self.env.lower().strip()
+        if env_value not in {"prod", "production"}:
+            return self
+
+        weak_secrets = {
+            "",
+            "change_me",
+            "change_me_please_to_a_long_random_string",
+            "dev-secret-key-change-before-prod",
+        }
+        if self.secret_key.strip() in weak_secrets or len(self.secret_key.strip()) < 32:
+            raise ValueError("SECRET_KEY must be a strong random value in production")
+
+        if "*" in self.cors_origins:
+            raise ValueError("CORS_ORIGINS cannot contain '*' in production")
+
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",

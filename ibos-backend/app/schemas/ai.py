@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class AIAskIn(BaseModel):
@@ -13,6 +13,14 @@ class AIAskIn(BaseModel):
         if not cleaned:
             raise ValueError("question cannot be empty")
         return cleaned
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "question": "What is my current profit and one action to improve it this week?"
+            }
+        }
+    )
 
 
 class AITokenUsageOut(BaseModel):

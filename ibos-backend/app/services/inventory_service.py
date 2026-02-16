@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from app.models.inventory import InventoryLedger
@@ -18,7 +20,8 @@ def add_ledger_entry(
     qty_delta: int,
     reason: str,
     reference_id: str | None = None,
-    unit_cost: float | None = None,
+    note: str | None = None,
+    unit_cost: Decimal | None = None,
 ) -> InventoryLedger:
     entry = InventoryLedger(
         id=ledger_id,
@@ -27,6 +30,7 @@ def add_ledger_entry(
         qty_delta=qty_delta,
         reason=reason,
         reference_id=reference_id,
+        note=note,
         unit_cost=unit_cost,
     )
     db.add(entry)

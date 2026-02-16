@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.money import to_money
 from app.models.ai_insight import AIInsightLog
 from app.models.expense import Expense
 from app.models.sales import Sale
@@ -274,7 +275,10 @@ def _load_permitted_snapshot(db: Session, business_id: str) -> PermittedBusiness
         select(func.coalesce(func.sum(Sale.total_amount), 0)).where(Sale.business_id == business_id)
     ).scalar_one()
     sales_count = db.execute(
-        select(func.count(Sale.id)).where(Sale.business_id == business_id)
+        select(func.count(Sale.id)).where(
+            Sale.business_id == business_id,
+            Sale.kind == "sale",
+        )
     ).scalar_one()
     expense_total = db.execute(
         select(func.coalesce(func.sum(Expense.amount), 0)).where(Expense.business_id == business_id)
@@ -286,7 +290,7 @@ def _load_permitted_snapshot(db: Session, business_id: str) -> PermittedBusiness
     channel_count = func.count(Sale.id).label("channel_count")
     top_channel_row = db.execute(
         select(Sale.channel, channel_count)
-        .where(Sale.business_id == business_id)
+        .where(Sale.business_id == business_id, Sale.kind == "sale")
         .group_by(Sale.channel)
         .order_by(channel_count.desc())
         .limit(1)
@@ -295,14 +299,14 @@ def _load_permitted_snapshot(db: Session, business_id: str) -> PermittedBusiness
     payment_count = func.count(Sale.id).label("payment_count")
     top_payment_row = db.execute(
         select(Sale.payment_method, payment_count)
-        .where(Sale.business_id == business_id)
+        .where(Sale.business_id == business_id, Sale.kind == "sale")
         .group_by(Sale.payment_method)
         .order_by(payment_count.desc())
         .limit(1)
     ).first()
 
-    sales_total_f = float(sales_total)
-    expense_total_f = float(expense_total)
+    sales_total_f = float(to_money(sales_total))
+    expense_total_f = float(to_money(expense_total))
     sales_count_i = int(sales_count)
 
     average_sale_value = 0.0

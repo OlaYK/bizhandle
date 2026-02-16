@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.api_docs import error_responses
 from app.core.deps import get_db
 from app.core.security_current import get_current_business
 from app.schemas.ai import AIAskIn, AIResponseOut, AITokenUsageOut
@@ -9,7 +10,34 @@ from app.services.ai_service import answer_business_question, generate_insight
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 
-@router.post("/ask", response_model=AIResponseOut)
+@router.post(
+    "/ask",
+    response_model=AIResponseOut,
+    summary="Ask AI about your business",
+    responses={
+        200: {
+            "description": "AI answer",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": "log-id",
+                        "insight_type": "question_answer",
+                        "response": "Simple profit is 850.00 (sales 1200.00 minus expenses 350.00).",
+                        "provider": "local:stub",
+                        "model": "ibos-rule-v1",
+                        "token_usage": {
+                            "prompt_tokens": 100,
+                            "completion_tokens": 25,
+                            "total_tokens": 125,
+                        },
+                        "estimated_cost_usd": 0.0,
+                    }
+                }
+            },
+        },
+        **error_responses(400, 401, 404, 422, 500),
+    },
+)
 def ask_business_question(
     payload: AIAskIn,
     db: Session = Depends(get_db),
@@ -39,7 +67,34 @@ def ask_business_question(
     )
 
 
-@router.get("/insights/daily", response_model=AIResponseOut)
+@router.get(
+    "/insights/daily",
+    response_model=AIResponseOut,
+    summary="Generate daily AI insight",
+    responses={
+        200: {
+            "description": "Daily AI insight",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": "log-id",
+                        "insight_type": "daily_insight",
+                        "response": "- Profit is 850.00 on sales of 1200.00...\n- Top channel is whatsapp...\n- Top payment method is transfer...",
+                        "provider": "local:stub",
+                        "model": "ibos-rule-v1",
+                        "token_usage": {
+                            "prompt_tokens": 90,
+                            "completion_tokens": 40,
+                            "total_tokens": 130,
+                        },
+                        "estimated_cost_usd": 0.0,
+                    }
+                }
+            },
+        },
+        **error_responses(400, 401, 404, 422, 500),
+    },
+)
 def get_daily_insight(
     db: Session = Depends(get_db),
     biz=Depends(get_current_business),

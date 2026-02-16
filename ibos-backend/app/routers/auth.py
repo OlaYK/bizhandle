@@ -1,18 +1,61 @@
 import re
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, select
+from datetime import datetime, timezone
 
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy.orm import Session
+
+from app.core.api_docs import error_responses
+from app.core.config import settings
 from app.core.deps import get_db
 from app.core.google_auth import verify_google_identity_token
 from app.core.id_utils import generate_short_token
-from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token
-from app.models.user import User
+from app.core.rate_limit import LoginRateLimiter
+from app.core.security import (
+    TokenValidationError,
+    create_access_token,
+    create_refresh_token,
+    get_token_metadata,
+    hash_password,
+    verify_password,
+)
+from app.core.security_current import get_current_user
 from app.models.business import Business
-from app.schemas.auth import GoogleAuthIn, LoginIn, RegisterIn, TokenOut
+from app.models.refresh_token import RefreshToken
+from app.models.user import User
+from app.schemas.auth import (
+    ChangePasswordIn,
+    GoogleAuthIn,
+    LoginIn,
+    LogoutIn,
+    RefreshIn,
+    RegisterIn,
+    TokenOut,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+TOKEN_PAIR_RESPONSE = {
+    200: {
+        "description": "Access and refresh tokens",
+        "content": {
+            "application/json": {
+                "example": {
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token",
+                    "token_type": "bearer",
+                }
+            }
+        },
+    }
+}
+
+login_rate_limiter = LoginRateLimiter(
+    max_attempts=settings.auth_rate_limit_max_attempts,
+    window_seconds=settings.auth_rate_limit_window_seconds,
+    lock_seconds=settings.auth_rate_limit_lock_seconds,
+)
 
 
 def _slugify_username(seed: str) -> str:
@@ -53,8 +96,85 @@ def _ensure_business(db: Session, user_id: str, business_name: str | None) -> No
     db.add(Business(id=str(uuid.uuid4()), owner_user_id=user_id, name=name))
 
 
-@router.post("/register", response_model=TokenOut)
-def register(payload: RegisterIn, db: Session = Depends(get_db)):
+def _client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "").strip()
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def _rate_key(identifier: str, client_ip: str) -> str:
+    return f"{identifier.strip().lower()}:{client_ip}"
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _enforce_rate_limit(identifier: str, client_ip: str) -> str:
+    key = _rate_key(identifier, client_ip)
+    retry_after = login_rate_limiter.check(key)
+    if retry_after > 0:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed attempts. Try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    return key
+
+
+def _authenticate_user(db: Session, identifier: str, password: str) -> User:
+    normalized_identifier = identifier.strip().lower()
+    user = db.execute(
+        select(User).where(
+            or_(
+                func.lower(User.email) == normalized_identifier,
+                func.lower(User.username) == normalized_identifier,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if not user or not verify_password(password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    return user
+
+
+def _issue_token_pair(
+    db: Session, *, user_id: str, client_ip: str | None = None
+) -> tuple[TokenOut, str]:
+    access_token = create_access_token(user_id)
+    refresh_token = create_refresh_token(user_id)
+    refresh_meta = get_token_metadata(refresh_token, expected_type="refresh")
+
+    db.add(
+        RefreshToken(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            token_jti=refresh_meta.jti,
+            expires_at=refresh_meta.expires_at,
+            created_by_ip=client_ip,
+        )
+    )
+
+    return (
+        TokenOut(access_token=access_token, refresh_token=refresh_token),
+        refresh_meta.jti,
+    )
+
+
+@router.post(
+    "/register",
+    response_model=TokenOut,
+    summary="Register a user",
+    description="Creates a user and default business, then returns access + refresh tokens.",
+    responses={**TOKEN_PAIR_RESPONSE, **error_responses(400, 422, 500)},
+)
+def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db)):
     normalized_email = payload.email.lower()
     exists = db.execute(
         select(User).where(func.lower(User.email) == normalized_email)
@@ -78,57 +198,70 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
     db.flush()
 
     _ensure_business(db, user.id, payload.business_name)
+    token_pair, _ = _issue_token_pair(db, user_id=user.id, client_ip=_client_ip(request))
     db.commit()
-
-    return TokenOut(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
-    )
+    return token_pair
 
 
-@router.post("/login", response_model=TokenOut)
-def login(payload: LoginIn, db: Session = Depends(get_db)):
-    """
-    Login with identifier (email or username) and password using JSON.
-    """
-    return _authenticate(db, payload.identifier, payload.password)
+@router.post(
+    "/login",
+    response_model=TokenOut,
+    summary="Login with JSON",
+    description="Authenticate with email/username and password.",
+    responses={**TOKEN_PAIR_RESPONSE, **error_responses(401, 422, 429, 500)},
+)
+def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)):
+    key = _enforce_rate_limit(payload.identifier, _client_ip(request))
+    try:
+        user = _authenticate_user(db, payload.identifier, payload.password)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            login_rate_limiter.register_failure(key)
+        raise
+
+    login_rate_limiter.register_success(key)
+    token_pair, _ = _issue_token_pair(db, user_id=user.id, client_ip=_client_ip(request))
+    db.commit()
+    return token_pair
 
 
-from fastapi.security import OAuth2PasswordRequestForm
-
-
-@router.post("/token", response_model=TokenOut, include_in_schema=False)
+@router.post(
+    "/token",
+    response_model=TokenOut,
+    summary="OAuth2 password token (Swagger Authorize)",
+    description=(
+        "Form-data login endpoint used by Swagger Authorize. "
+        "Use your email or username in the `username` field."
+    ),
+    responses={**TOKEN_PAIR_RESPONSE, **error_responses(401, 422, 429, 500)},
+)
 def login_for_swagger(
-    db: Session = Depends(get_db), form_data: OAuth2PasswordRequestForm = Depends()
+    request: Request,
+    db: Session = Depends(get_db),
+    form_data: OAuth2PasswordRequestForm = Depends(),
 ):
-    """
-    Helper endpoint for Swagger's 'Authorize' button (uses Form Data).
-    """
-    return _authenticate(db, form_data.username, form_data.password)
+    key = _enforce_rate_limit(form_data.username, _client_ip(request))
+    try:
+        user = _authenticate_user(db, form_data.username, form_data.password)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            login_rate_limiter.register_failure(key)
+        raise
+
+    login_rate_limiter.register_success(key)
+    token_pair, _ = _issue_token_pair(db, user_id=user.id, client_ip=_client_ip(request))
+    db.commit()
+    return token_pair
 
 
-def _authenticate(db: Session, identifier: str, password: str):
-    identifier = identifier.strip().lower()
-    user = db.execute(
-        select(User).where(
-            or_(
-                func.lower(User.email) == identifier,
-                func.lower(User.username) == identifier,
-            )
-        )
-    ).scalar_one_or_none()
-
-    if not user or not verify_password(password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    return TokenOut(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
-    )
-
-
-@router.post("/google", response_model=TokenOut)
-def google_auth(payload: GoogleAuthIn, db: Session = Depends(get_db)):
+@router.post(
+    "/google",
+    response_model=TokenOut,
+    summary="Login/Register with Google",
+    description="Verifies Google ID token and returns access + refresh tokens.",
+    responses={**TOKEN_PAIR_RESPONSE, **error_responses(400, 401, 422, 500)},
+)
+def google_auth(payload: GoogleAuthIn, request: Request, db: Session = Depends(get_db)):
     try:
         identity = verify_google_identity_token(payload.id_token)
     except ValueError as exc:
@@ -172,10 +305,94 @@ def google_auth(payload: GoogleAuthIn, db: Session = Depends(get_db)):
         or (f"{identity.full_name}'s Business" if identity.full_name else "My Business")
     )
     _ensure_business(db, user.id, default_biz_name)
-
+    token_pair, _ = _issue_token_pair(db, user_id=user.id, client_ip=_client_ip(request))
     db.commit()
+    return token_pair
 
-    return TokenOut(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
+
+@router.post(
+    "/refresh",
+    response_model=TokenOut,
+    summary="Refresh access token",
+    description="Uses a valid refresh token to issue a fresh token pair.",
+    responses={**TOKEN_PAIR_RESPONSE, **error_responses(401, 422, 500)},
+)
+def refresh_tokens(payload: RefreshIn, request: Request, db: Session = Depends(get_db)):
+    try:
+        refresh_meta = get_token_metadata(payload.refresh_token, expected_type="refresh")
+    except TokenValidationError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    now = datetime.now(timezone.utc)
+    token_row = db.execute(
+        select(RefreshToken).where(
+            and_(
+                RefreshToken.token_jti == refresh_meta.jti,
+                RefreshToken.user_id == refresh_meta.subject,
+            )
+        )
+    ).scalar_one_or_none()
+    expires_at = _as_utc(token_row.expires_at) if token_row else None
+    if not token_row or token_row.revoked_at is not None or not expires_at or expires_at <= now:
+        raise HTTPException(status_code=401, detail="Refresh token is invalid or expired")
+
+    token_row.revoked_at = now
+    token_pair, new_jti = _issue_token_pair(
+        db, user_id=refresh_meta.subject, client_ip=_client_ip(request)
     )
+    token_row.replaced_by_jti = new_jti
+    db.commit()
+    return token_pair
+
+
+@router.post(
+    "/logout",
+    summary="Logout (revoke refresh token)",
+    description="Revokes the provided refresh token.",
+    responses=error_responses(422, 500),
+)
+def logout(payload: LogoutIn, db: Session = Depends(get_db)):
+    try:
+        refresh_meta = get_token_metadata(payload.refresh_token, expected_type="refresh")
+    except TokenValidationError:
+        return {"ok": True}
+
+    db.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.token_jti == refresh_meta.jti,
+            RefreshToken.revoked_at.is_(None),
+        )
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
+    db.commit()
+    return {"ok": True}
+
+
+@router.post(
+    "/change-password",
+    summary="Change password",
+    description="Changes password and revokes all active refresh tokens for the user.",
+    responses=error_responses(400, 401, 422, 500),
+)
+def change_password(
+    payload: ChangePasswordIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if not verify_password(payload.current_password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    if payload.current_password == payload.new_password:
+        raise HTTPException(status_code=400, detail="New password must be different")
+
+    user.hashed_password = hash_password(payload.new_password)
+    db.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.user_id == user.id,
+            RefreshToken.revoked_at.is_(None),
+        )
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
+    db.commit()
+    return {"ok": True}

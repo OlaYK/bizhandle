@@ -17,6 +17,7 @@ import app.models.inventory
 import app.models.sales
 import app.models.expense
 import app.models.ai_insight
+import app.models.refresh_token
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
