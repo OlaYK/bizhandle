@@ -23,6 +23,9 @@ export function LoginPage() {
   const navigate = useNavigate();
   const { setSession, isAuthenticated } = useAuth();
   const { showToast } = useToast();
+  const authInputClassName =
+    "border-surface-300 bg-white text-black placeholder:text-black/60 focus:border-black focus:ring-black/10 dark:border-surface-300 dark:bg-white dark:text-black dark:placeholder:text-black/60 dark:focus:border-black dark:focus:ring-black/10";
+  const authLabelClassName = "text-black dark:text-black";
 
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -75,8 +78,8 @@ export function LoginPage() {
         </div>
 
         <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-soft sm:p-8">
-          <h2 className="font-heading text-2xl font-bold text-surface-800">Sign in</h2>
-          <p className="mt-1 text-sm text-surface-500">Use your email/username and password.</p>
+          <h2 className="font-heading text-2xl font-bold text-black">Sign in</h2>
+          <p className="mt-1 text-sm text-black">Use your email/username and password.</p>
 
           <form
             className="mt-6 space-y-4"
@@ -85,6 +88,8 @@ export function LoginPage() {
             <Input
               label="Email or Username"
               placeholder="owner@example.com"
+              labelClassName={authLabelClassName}
+              className={authInputClassName}
               {...form.register("identifier")}
               error={form.formState.errors.identifier?.message}
             />
@@ -92,6 +97,8 @@ export function LoginPage() {
               label="Password"
               placeholder="********"
               type="password"
+              labelClassName={authLabelClassName}
+              className={authInputClassName}
               {...form.register("password")}
               error={form.formState.errors.password?.message}
             />
@@ -100,9 +107,9 @@ export function LoginPage() {
             </Button>
           </form>
 
-          <p className="mt-4 text-sm text-surface-500">
+          <p className="mt-4 text-sm text-black">
             No account?{" "}
-            <Link className="font-semibold text-surface-700 underline" to="/register">
+            <Link className="font-semibold text-black underline" to="/register">
               Create one
             </Link>
           </p>

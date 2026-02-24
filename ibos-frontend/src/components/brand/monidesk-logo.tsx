@@ -1,6 +1,6 @@
 import { cn } from "../../lib/cn";
 
-type LogoTone = "default" | "light";
+type LogoTone = "default" | "light" | "auth";
 type LogoSize = "sm" | "md" | "lg";
 
 const sizeMap: Record<LogoSize, { icon: string; title: string; subtitle: string }> = {
@@ -43,6 +43,14 @@ export function MoniDeskLogo({
           iconStroke: "#d2f9df",
           iconFill: "url(#logoBubbleLight)"
         }
+      : tone === "auth"
+        ? {
+            moni: "text-black",
+            desk: "text-black",
+            subtitle: "text-black",
+            iconStroke: "#0f5e30",
+            iconFill: "url(#logoBubbleDark)"
+          }
       : {
           moni: "text-mint-700",
           desk: "text-surface-800",

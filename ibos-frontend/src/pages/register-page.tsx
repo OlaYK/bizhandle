@@ -40,6 +40,9 @@ export function RegisterPage() {
   const [searchParams] = useSearchParams();
   const { setSession, isAuthenticated } = useAuth();
   const { showToast } = useToast();
+  const authInputClassName =
+    "border-surface-300 bg-white text-black placeholder:text-black/60 focus:border-black focus:ring-black/10 dark:border-surface-300 dark:bg-white dark:text-black dark:placeholder:text-black/60 dark:focus:border-black dark:focus:ring-black/10";
+  const authLabelClassName = "text-black dark:text-black";
 
   const form = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
@@ -106,9 +109,9 @@ export function RegisterPage() {
       <div className="pointer-events-none absolute bottom-0 left-1/3 h-56 w-56 rounded-full bg-accent-300/20 blur-3xl animate-pulse-glow" />
       <div className="mx-auto flex min-h-[92vh] w-full max-w-5xl items-center justify-center">
         <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-soft sm:p-8">
-          <MoniDeskLogo size="md" className="mb-4" />
-          <h1 className="font-heading text-2xl font-bold text-surface-800">Create account</h1>
-          <p className="mt-1 text-sm text-surface-500">Set up your MoniDesk workspace.</p>
+          <MoniDeskLogo tone="auth" size="md" className="mb-4" />
+          <h1 className="font-heading text-2xl font-bold text-black">Create account</h1>
+          <p className="mt-1 text-sm text-black">Set up your MoniDesk workspace.</p>
 
           <form
             className="mt-6 grid gap-4"
@@ -117,6 +120,8 @@ export function RegisterPage() {
             <Input
               label="Full Name"
               placeholder="Jane Owner"
+              className={authInputClassName}
+              labelClassName={authLabelClassName}
               {...form.register("full_name")}
               error={form.formState.errors.full_name?.message}
             />
@@ -124,6 +129,8 @@ export function RegisterPage() {
               label="Email"
               placeholder="owner@example.com"
               type="email"
+              className={authInputClassName}
+              labelClassName={authLabelClassName}
               {...form.register("email")}
               error={form.formState.errors.email?.message}
             />
@@ -131,12 +138,16 @@ export function RegisterPage() {
               label="Password"
               placeholder="********"
               type="password"
+              className={authInputClassName}
+              labelClassName={authLabelClassName}
               {...form.register("password")}
               error={form.formState.errors.password?.message}
             />
             <Input
               label="Invitation Token (optional)"
               placeholder="ti_xxx"
+              className={authInputClassName}
+              labelClassName={authLabelClassName}
               {...form.register("invitation_token")}
               error={form.formState.errors.invitation_token?.message}
             />
@@ -144,20 +155,27 @@ export function RegisterPage() {
               <Input
                 label="Business Name"
                 placeholder="My Shop"
+                className={authInputClassName}
+                labelClassName={authLabelClassName}
                 {...form.register("business_name")}
                 error={form.formState.errors.business_name?.message}
               />
             ) : null}
-            <Input label="Username (optional)" {...form.register("username")} />
+            <Input
+              label="Username (optional)"
+              className={authInputClassName}
+              labelClassName={authLabelClassName}
+              {...form.register("username")}
+            />
 
             <Button type="submit" className="w-full" loading={registerMutation.isPending}>
               Create account
             </Button>
           </form>
 
-          <p className="mt-4 text-sm text-surface-500">
+          <p className="mt-4 text-sm text-black">
             Already registered?{" "}
-            <Link className="font-semibold text-surface-700 underline" to="/login">
+            <Link className="font-semibold text-black underline" to="/login">
               Sign in
             </Link>
           </p>

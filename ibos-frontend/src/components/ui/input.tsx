@@ -4,15 +4,20 @@ import { cn } from "../../lib/cn";
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
+  labelClassName?: string;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, error, className, ...props },
+  { label, error, className, labelClassName, ...props },
   ref
 ) {
   return (
     <label className="block space-y-1.5">
-      {label ? <span className="text-sm font-semibold text-surface-700 dark:text-surface-100">{label}</span> : null}
+      {label ? (
+        <span className={cn("text-sm font-semibold text-surface-700 dark:text-surface-100", labelClassName)}>
+          {label}
+        </span>
+      ) : null}
       <input
         ref={ref}
         className={cn(
