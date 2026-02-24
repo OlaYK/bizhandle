@@ -1,0 +1,95 @@
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  color: #17314e;
+  background-color: #f2f6fb;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  transition: background 250ms ease, color 250ms ease;
+  background:
+    radial-gradient(circle at 8% 20%, rgba(39, 194, 92, 0.08), transparent 42%),
+    radial-gradient(circle at 88% 10%, rgba(73, 124, 242, 0.09), transparent 36%),
+    linear-gradient(180deg, #f2f6fb 0%, #eef3f8 100%);
+}
+
+.dark body {
+  color: #e2eaf4;
+  background:
+    radial-gradient(circle at 18% 22%, rgba(39, 194, 92, 0.15), transparent 36%),
+    radial-gradient(circle at 82% 18%, rgba(73, 124, 242, 0.2), transparent 30%),
+    linear-gradient(180deg, #0c1d31 0%, #102843 100%);
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.brand-grid {
+  background-image:
+    linear-gradient(to right, rgba(15, 34, 56, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 34, 56, 0.05) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+
+.dark .brand-grid {
+  background-image:
+    linear-gradient(to right, rgba(226, 234, 244, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(226, 234, 244, 0.06) 1px, transparent 1px);
+}
+
+@layer utilities {
+  .dark .text-surface-800 {
+    color: #eef4fb;
+  }
+
+  .dark .text-surface-700 {
+    color: #d7e5f4;
+  }
+
+  .dark .text-surface-600 {
+    color: #bed0e8;
+  }
+
+  .dark .text-surface-500 {
+    color: #9bb5cf;
+  }
+
+  .dark .bg-surface-50 {
+    background-color: rgba(31, 56, 84, 0.72);
+  }
+
+  .dark .bg-surface-100 {
+    background-color: rgba(43, 72, 104, 0.7);
+  }
+
+  .dark .border-surface-100 {
+    border-color: rgba(122, 154, 188, 0.34);
+  }
+
+  .dark .divide-surface-50 > :not([hidden]) ~ :not([hidden]) {
+    border-color: rgba(122, 154, 188, 0.24);
+  }
+
+  .dark .divide-surface-100 > :not([hidden]) ~ :not([hidden]) {
+    border-color: rgba(122, 154, 188, 0.34);
+  }
+}

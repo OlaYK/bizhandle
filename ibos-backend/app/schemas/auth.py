@@ -1,4 +1,5 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
+from datetime import datetime
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, model_validator
 from typing import Optional
 
 class RegisterIn(BaseModel):
@@ -47,6 +48,57 @@ class RegisterIn(BaseModel):
                 "password": "password123",
                 "business_name": "Jane Fabrics",
                 "username": "jane_owner",
+            }
+        }
+    )
+
+
+class RegisterWithInviteIn(BaseModel):
+    invitation_token: str
+    email: EmailStr
+    full_name: str
+    password: str
+    username: Optional[str] = None
+
+    @field_validator("invitation_token")
+    @classmethod
+    def validate_invitation_token(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("invitation_token is required")
+        return cleaned
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("full_name is required")
+        return cleaned
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        if len(value) < 8:
+            raise ValueError("password must be at least 8 characters")
+        return value
+
+    @field_validator("username")
+    @classmethod
+    def normalize_username(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "invitation_token": "ti_abc123",
+                "email": "staff@example.com",
+                "full_name": "Jane Staff",
+                "password": "password123",
+                "username": "jane_staff",
             }
         }
     )
@@ -162,6 +214,100 @@ class ChangePasswordIn(BaseModel):
             "example": {
                 "current_password": "password123",
                 "new_password": "new-password-456",
+            }
+        }
+    )
+
+
+class UserProfileOut(BaseModel):
+    id: str
+    email: EmailStr
+    username: str
+    full_name: Optional[str] = None
+    business_name: Optional[str] = None
+    pending_order_timeout_minutes: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": "abc123",
+                "email": "owner@example.com",
+                "username": "jane_owner",
+                "full_name": "Jane Owner",
+                "business_name": "Jane Fabrics",
+                "pending_order_timeout_minutes": 60,
+                "created_at": "2026-02-01T12:00:00Z",
+                "updated_at": "2026-02-01T12:00:00Z",
+            }
+        }
+    )
+
+
+class UpdateProfileIn(BaseModel):
+    full_name: Optional[str] = None
+    username: Optional[str] = None
+    business_name: Optional[str] = None
+    pending_order_timeout_minutes: Optional[int] = None
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("full_name cannot be empty")
+        return cleaned
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("username cannot be empty")
+        return cleaned
+
+    @field_validator("business_name")
+    @classmethod
+    def validate_business_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("business_name cannot be empty")
+        return cleaned
+
+    @field_validator("pending_order_timeout_minutes")
+    @classmethod
+    def validate_pending_order_timeout_minutes(cls, value: Optional[int]) -> Optional[int]:
+        if value is None:
+            return None
+        if value < 1:
+            raise ValueError("pending_order_timeout_minutes must be at least 1")
+        return value
+
+    @model_validator(mode="after")
+    def validate_any_field_present(self) -> "UpdateProfileIn":
+        if (
+            self.full_name is None
+            and self.username is None
+            and self.business_name is None
+            and self.pending_order_timeout_minutes is None
+        ):
+            raise ValueError("At least one field must be provided")
+        return self
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "full_name": "Jane Updated",
+                "username": "jane_updated",
+                "business_name": "Jane Fabrics Pro",
+                "pending_order_timeout_minutes": 120,
             }
         }
     )
