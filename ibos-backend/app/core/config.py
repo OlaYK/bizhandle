@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "IBOS Backend"
+    app_name: str = "MoniDesk Backend"
     env: str = "dev"
     secret_key: str
     access_token_expire_minutes: int = 60
@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     # AI
     ai_provider: str = "stub"
-    ai_model: str = "ibos-rule-v1"
+    ai_model: str = "monidesk-rule-v1"
     ai_vendor: str = "local"
     ai_temperature: float = 0.2
     ai_max_question_chars: int = 500
@@ -31,9 +31,19 @@ class Settings(BaseSettings):
     auth_rate_limit_max_attempts: int = Field(default=5, ge=1)
     auth_rate_limit_window_seconds: int = Field(default=300, ge=1)
     auth_rate_limit_lock_seconds: int = Field(default=900, ge=1)
+    storefront_public_rate_limit_requests: int = Field(default=120, ge=1)
+    storefront_public_rate_limit_window_seconds: int = Field(default=60, ge=1)
+    payment_provider_default: str = "stub"
+    payment_webhook_secret: str = "dev-webhook-secret"
+    checkout_retry_expiry_extension_minutes: int = Field(default=30, ge=1, le=10080)
+    shipping_provider_default: str = "stub_carrier"
+    messaging_provider_default: str = "whatsapp_stub"
+    integration_outbox_max_attempts: int = Field(default=5, ge=1, le=20)
+    integration_outbox_retry_seconds: int = Field(default=300, ge=1, le=86400)
 
     # INVENTORY
     low_stock_default_threshold: int = Field(default=5, ge=0)
+    orders_pending_timeout_minutes: int = Field(default=60, ge=1)
 
     # CORS
     cors_origins: List[str] = Field(default_factory=lambda: ["http://localhost:3000"])

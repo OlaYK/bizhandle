@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="-")
-logger = logging.getLogger("ibos.api")
+logger = logging.getLogger("monidesk.api")
 
 
 def setup_observability() -> None:

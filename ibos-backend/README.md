@@ -1,120 +1,114 @@
-# IBOS Backend - AI-Powered Informal Business OS
+# MoniDesk Backend
 
-## Overview
-This is the backend for IBOS, an informal business operating system designed to help micro-entrepreneurs manage their products, sales, inventory, and expenses.
+FastAPI backend for MoniDesk (informal business operating system).
+
+## Current Feature Surface
+- Auth and profile: register/login/refresh/logout/password change/Google auth
+- Team and security: memberships, RBAC, audit logs, privacy workflows
+- Commerce core: products, variants, inventory, sales, refunds, expenses
+- Order and receivables: orders, invoices, reminders, statements, AR aging
+- Online commerce: storefront, checkout sessions, payment webhooks, shipping
+- Operations scale: locations, stock transfers, POS offline sync and shifts
+- Growth: CRM, tags, segments, campaigns, retention triggers
+- Intelligence: analytics mart, AI insights/actions/risk/governance, credit intelligence
+- Automation and platform: workflow automation, integrations, developer API keys/webhooks/marketplace
 
 ## Tech Stack
-- **Framework:** FastAPI
-- **Database:** PostgreSQL (SQLAlchemy + Alembic)
-- **Environment Management:** Poetry
-- **Security:** JWT (python-jose) + Bcrypt (passlib)
+- FastAPI + Pydantic v2
+- SQLAlchemy + Alembic
+- PostgreSQL (primary)
+- Poetry for dependency management
+- Pytest for test coverage
 
-## Setup
-
-### Prerequisites
-- Docker & Docker Compose
+## Prerequisites
 - Python 3.11+
 - Poetry
+- Docker + Docker Compose (for local Postgres)
+- Node.js 18+ and npm (for frontend)
 
-### Local Development
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   poetry install
-   ```
-3. Copy environment variables:
-   ```bash
-   cp .env.example .env
-   ```
-4. Start with Docker Compose (API + Postgres):
-   ```bash
-   docker compose up -d --build
-   ```
-5. Run database migrations:
-   ```bash
-   poetry run alembic upgrade head
-   ```
-6. Or run API locally (DB can still run in Docker):
-   ```bash
-   poetry run uvicorn app.main:app --reload
-   ```
-7. Run tests:
-   ```bash
-   poetry run pytest -q
-   ```
-8. Optional integration tests (requires dedicated Postgres URL):
-   ```bash
-   set TEST_POSTGRES_DATABASE_URL=postgresql+psycopg://...
-   poetry run pytest -m integration -q
-   ```
+## Local Run (Recommended)
 
-## Required Environment Variables
-Fill these in `.env` before production deployment:
+### 1) Backend setup
+```powershell
+cd ibos-backend
+poetry install
+Copy-Item .env.example .env
+```
 
+### 2) Start Postgres
+```powershell
+docker compose up -d db
+```
+
+### 3) Run migrations
+```powershell
+poetry run alembic upgrade head
+```
+
+### 4) Start backend API
+```powershell
+poetry run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+### 5) Start frontend (new terminal)
+```powershell
+cd ..\ibos-frontend
+npm install
+Copy-Item .env.example .env
+npm run dev
+```
+
+## URLs
+- API docs (Swagger): `http://127.0.0.1:8000/docs`
+- API docs (ReDoc): `http://127.0.0.1:8000/redoc`
+- API health: `http://127.0.0.1:8000/health`
+- Frontend app: `http://127.0.0.1:5173`
+
+## Minimal Env Requirements
+Required:
 - `SECRET_KEY`
 - `DATABASE_URL`
-- `OPENAI_API_KEY` (only if `AI_PROVIDER=openai`)
-- `GOOGLE_CLIENT_ID` (only if using Google auth)
-- `AUTH_RATE_LIMIT_MAX_ATTEMPTS` (optional, default `5`)
-- `AUTH_RATE_LIMIT_WINDOW_SECONDS` (optional, default `300`)
-- `AUTH_RATE_LIMIT_LOCK_SECONDS` (optional, default `900`)
-- `LOW_STOCK_DEFAULT_THRESHOLD` (optional, default `5`)
 
-`AI_PROVIDER` defaults to `stub`, so OpenAI keys are optional for local development.
+Common optional:
+- `AI_PROVIDER` (default `stub`)
+- `OPENAI_API_KEY` (required only when `AI_PROVIDER=openai`)
+- `GOOGLE_CLIENT_ID`
+- `PAYMENT_WEBHOOK_SECRET`
+- `CORS_ORIGINS`
 
-## Core Endpoints
-- `POST /auth/register`
-- `POST /auth/login`
-- `POST /auth/token`
-- `POST /auth/google`
-- `POST /auth/refresh`
-- `POST /auth/logout`
-- `POST /auth/change-password`
-- `POST /products`
-- `POST /products/{product_id}/variants`
-- `GET /products`
-- `GET /products/{product_id}/variants`
-- `POST /inventory/stock-in`
-- `POST /inventory/adjust`
-- `GET /inventory/stock/{variant_id}`
-- `GET /inventory/ledger`
-- `GET /inventory/low-stock`
-- `POST /sales`
-- `POST /sales/{sale_id}/refund`
-- `GET /sales`
-- `POST /expenses`
-- `GET /expenses`
-- `GET /dashboard/summary`
-- `POST /ai/ask`
-- `GET /ai/insights/daily`
-- `GET /health`
-- `GET /ready`
+See `ibos-backend/.env.example` for baseline values.
 
-## API Documentation
-Once the server is running, visit:
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+## Test Commands
 
-## Response Conventions
-- Error responses use a uniform envelope:
-  - `{"error": {"code", "message", "request_id", "path", "details"}}`
-- Paginated list endpoints use:
-  - `{"items": [...], "pagination": {"total", "limit", "offset", "count", "has_next"}}`
+### Backend
+```powershell
+cd ibos-backend
+poetry run pytest -q -p no:cacheprovider
+```
+
+### Frontend build check
+```powershell
+cd ibos-frontend
+npm run build
+```
+
+## Quick API Smoke Flow
+1. `POST /auth/register`
+2. `POST /products`
+3. `POST /products/{product_id}/variants`
+4. `POST /inventory/stock-in`
+5. `POST /orders`
+6. `PATCH /orders/{order_id}/status` (set `paid`)
+7. `GET /dashboard/summary`
+
+## Common Local Issues
+- `SECRET_KEY` / `DATABASE_URL` missing:
+  - Ensure `.env` exists in `ibos-backend` and server is started from that directory.
+- Frontend error `VITE_API_BASE_URL is not configured`:
+  - Ensure `ibos-frontend/.env` exists (copy from `.env.example`).
+- Migration mismatch:
+  - Run `poetry run alembic upgrade head` after pulling new changes.
 
 ## Security Notes
-- `.env` is intentionally ignored and should never be committed.
-- Rotate secrets if they were ever exposed in chat, screenshots, logs, or commits.
-- To purge old secrets from git history, use a history-rewrite tool on a clean clone
-  (for example `git filter-repo`), then force-push and rotate credentials again.
-
-## Swagger Testing Flow
-1. Call `POST /auth/register` with the example payload.
-2. Click **Authorize** in Swagger UI.
-3. Enter your `email` (or `username`) in the `username` field and your password.
-4. Test protected endpoints in this order:
-   - `POST /products`
-   - `POST /products/{product_id}/variants`
-   - `POST /inventory/stock-in`
-   - `POST /sales`
-   - `POST /expenses`
-   - `GET /dashboard/summary`
+- Never commit `.env`.
+- Rotate secrets if exposed in logs/screenshots/commits.

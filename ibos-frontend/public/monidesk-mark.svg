@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="bubble" x1="4" y1="10" x2="52" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#27C25C" />
+      <stop offset="1" stop-color="#14823F" />
+    </linearGradient>
+    <linearGradient id="arrow" x1="14" y1="15" x2="46" y2="35" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE052" />
+      <stop offset="1" stop-color="#F8C20D" />
+    </linearGradient>
+  </defs>
+  <path
+    d="M13 14h28c6.6 0 12 5.4 12 12v16c0 6.6-5.4 12-12 12H24L12 62V50c-6.1-.5-11-5.7-11-12V26c0-6.6 5.4-12 12-12z"
+    fill="url(#bubble)"
+    stroke="#0F5E30"
+    stroke-width="1.4"
+  />
+  <rect x="18" y="35" width="4" height="10" rx="1.2" fill="#0F2238" fill-opacity=".8" />
+  <rect x="26" y="31" width="4" height="14" rx="1.2" fill="#0F2238" fill-opacity=".8" />
+  <rect x="34" y="26" width="4" height="19" rx="1.2" fill="#0F2238" fill-opacity=".8" />
+  <path d="M14 30c10-1 17-5 26-13l5 3-1 9-3-3c-9 9-16 13-30 16z" fill="url(#arrow)" />
+</svg>

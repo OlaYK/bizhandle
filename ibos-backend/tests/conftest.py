@@ -14,6 +14,7 @@ from app.core.deps import get_db
 from app.db.base import Base
 from app.main import app
 from app.routers.auth import login_rate_limiter
+from app.routers.storefront import storefront_rate_limiter
 
 
 @pytest.fixture()
@@ -45,3 +46,4 @@ def test_context():
     Base.metadata.drop_all(bind=engine)
     settings.secret_key = original_secret
     login_rate_limiter.clear()
+    storefront_rate_limiter.clear()

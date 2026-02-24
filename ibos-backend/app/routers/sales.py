@@ -9,11 +9,21 @@ from sqlalchemy.orm import Session
 from app.core.api_docs import error_responses
 from app.core.deps import get_db
 from app.core.money import ZERO_MONEY, to_money
-from app.core.security_current import get_current_business
-from app.models.product import ProductVariant
+from app.core.security_current import get_current_business, get_current_user
+from app.models.product import Product, ProductVariant
 from app.models.sales import Sale, SaleItem
+from app.models.user import User
 from app.schemas.common import PaginationMeta
-from app.schemas.sales import RefundCreate, SaleCreate, SaleCreateOut, SaleListOut, SaleOut
+from app.schemas.sales import (
+    RefundCreate,
+    SaleCreate,
+    SaleCreateOut,
+    SaleListOut,
+    SaleOut,
+    SaleRefundOptionsOut,
+    SaleRefundOptionOut,
+)
+from app.services.audit_service import log_audit_event
 from app.services.inventory_service import add_ledger_entry, get_variant_stock
 
 router = APIRouter(prefix="/sales", tags=["sales"])
@@ -39,6 +49,7 @@ def create_sale(
     payload: SaleCreate,
     db: Session = Depends(get_db),
     biz=Depends(get_current_business),
+    actor: User = Depends(get_current_user),
 ):
     if not payload.items:
         raise HTTPException(status_code=400, detail="No items")
@@ -102,6 +113,20 @@ def create_sale(
             note=payload.note,
         )
 
+    log_audit_event(
+        db,
+        business_id=biz.id,
+        actor_user_id=actor.id,
+        action="sale.create",
+        target_type="sale",
+        target_id=sale_id,
+        metadata_json={
+            "payment_method": payload.payment_method,
+            "channel": payload.channel,
+            "items_count": len(payload.items),
+            "total": float(to_money(total)),
+        },
+    )
     db.commit()
     return SaleCreateOut(id=sale_id, total=float(to_money(total)))
 
@@ -128,6 +153,28 @@ def _resolve_refund_unit_prices(
     return unit_prices
 
 
+def _sold_qty_by_variant(db: Session, *, sale_id: str) -> dict[str, int]:
+    sold_rows = db.execute(
+        select(SaleItem.variant_id, func.coalesce(func.sum(SaleItem.qty), 0))
+        .where(SaleItem.sale_id == sale_id)
+        .group_by(SaleItem.variant_id)
+    ).all()
+    return {variant_id: int(qty) for variant_id, qty in sold_rows}
+
+
+def _refunded_qty_by_variant(db: Session, *, sale_id: str) -> dict[str, int]:
+    refunded_rows = db.execute(
+        select(SaleItem.variant_id, func.coalesce(func.sum(SaleItem.qty), 0))
+        .join(Sale, SaleItem.sale_id == Sale.id)
+        .where(
+            Sale.parent_sale_id == sale_id,
+            Sale.kind == "refund",
+        )
+        .group_by(SaleItem.variant_id)
+    ).all()
+    return {variant_id: abs(int(qty)) for variant_id, qty in refunded_rows}
+
+
 @router.post(
     "/{sale_id}/refund",
     response_model=SaleCreateOut,
@@ -140,6 +187,7 @@ def create_refund(
     payload: RefundCreate,
     db: Session = Depends(get_db),
     biz=Depends(get_current_business),
+    actor: User = Depends(get_current_user),
 ):
     if not payload.items:
         raise HTTPException(status_code=400, detail="No items")
@@ -164,23 +212,8 @@ def create_refund(
         if variant_business != biz.id:
             raise HTTPException(status_code=403, detail="Variant is not in your business")
 
-    sold_rows = db.execute(
-        select(SaleItem.variant_id, func.coalesce(func.sum(SaleItem.qty), 0))
-        .where(SaleItem.sale_id == sale_id)
-        .group_by(SaleItem.variant_id)
-    ).all()
-    sold_by_variant = {variant_id: int(qty) for variant_id, qty in sold_rows}
-
-    refunded_rows = db.execute(
-        select(SaleItem.variant_id, func.coalesce(func.sum(SaleItem.qty), 0))
-        .join(Sale, SaleItem.sale_id == Sale.id)
-        .where(
-            Sale.parent_sale_id == sale_id,
-            Sale.kind == "refund",
-        )
-        .group_by(SaleItem.variant_id)
-    ).all()
-    refunded_by_variant = {variant_id: abs(int(qty)) for variant_id, qty in refunded_rows}
+    sold_by_variant = _sold_qty_by_variant(db, sale_id=sale_id)
+    refunded_by_variant = _refunded_qty_by_variant(db, sale_id=sale_id)
 
     source_unit_prices = _resolve_refund_unit_prices(db, sale_id=sale_id, variant_ids=variant_ids)
     refund_total = ZERO_MONEY
@@ -255,8 +288,130 @@ def create_refund(
             note=payload.note,
         )
 
+    log_audit_event(
+        db,
+        business_id=biz.id,
+        actor_user_id=actor.id,
+        action="sale.refund.create",
+        target_type="sale",
+        target_id=refund_sale_id,
+        metadata_json={
+            "original_sale_id": sale_id,
+            "items_count": len(payload.items),
+            "total": float(to_money(-refund_total)),
+        },
+    )
     db.commit()
     return SaleCreateOut(id=refund_sale_id, total=float(to_money(-refund_total)))
+
+
+@router.get(
+    "/{sale_id}/refund-options",
+    response_model=SaleRefundOptionsOut,
+    summary="Get refund options for a sale",
+    description="Lists refundable sale items and remaining quantities for the specified sale.",
+    responses={
+        200: {
+            "description": "Refund options for the sale",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "sale_id": "sale-id",
+                        "payment_method": "cash",
+                        "channel": "walk-in",
+                        "items": [
+                            {
+                                "variant_id": "variant-id",
+                                "product_id": "product-id",
+                                "product_name": "Ankara Fabric",
+                                "size": "6x6",
+                                "label": "Plain",
+                                "sku": "ANK-6X6-PLN",
+                                "sold_qty": 3,
+                                "refunded_qty": 1,
+                                "refundable_qty": 2,
+                                "default_unit_price": 120.0,
+                            }
+                        ],
+                    }
+                }
+            },
+        },
+        **error_responses(401, 404, 422, 500),
+    },
+)
+def get_refund_options(
+    sale_id: str,
+    db: Session = Depends(get_db),
+    biz=Depends(get_current_business),
+):
+    original_sale = db.execute(
+        select(Sale).where(
+            Sale.id == sale_id,
+            Sale.business_id == biz.id,
+        )
+    ).scalar_one_or_none()
+    if not original_sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+    if original_sale.kind != "sale":
+        raise HTTPException(status_code=404, detail="Refund options are only available for normal sales")
+
+    sold_by_variant = _sold_qty_by_variant(db, sale_id=sale_id)
+    variant_ids = list(sold_by_variant.keys())
+    if not variant_ids:
+        return SaleRefundOptionsOut(
+            sale_id=sale_id,
+            payment_method=original_sale.payment_method,
+            channel=original_sale.channel,
+            items=[],
+        )
+
+    refunded_by_variant = _refunded_qty_by_variant(db, sale_id=sale_id)
+    source_unit_prices = _resolve_refund_unit_prices(db, sale_id=sale_id, variant_ids=variant_ids)
+
+    variant_rows = db.execute(
+        select(ProductVariant, Product.name)
+        .join(Product, Product.id == ProductVariant.product_id)
+        .where(
+            ProductVariant.id.in_(variant_ids),
+            ProductVariant.business_id == biz.id,
+        )
+    ).all()
+    variant_map = {variant.id: (variant, product_name) for variant, product_name in variant_rows}
+
+    items: list[SaleRefundOptionOut] = []
+    for variant_id in variant_ids:
+        variant_info = variant_map.get(variant_id)
+        if not variant_info:
+            continue
+        variant, product_name = variant_info
+        sold_qty = sold_by_variant.get(variant_id, 0)
+        refunded_qty = refunded_by_variant.get(variant_id, 0)
+        refundable_qty = max(0, sold_qty - refunded_qty)
+        if refundable_qty <= 0:
+            continue
+        unit_price = source_unit_prices.get(variant_id)
+        items.append(
+            SaleRefundOptionOut(
+                variant_id=variant.id,
+                product_id=variant.product_id,
+                product_name=product_name,
+                size=variant.size,
+                label=variant.label,
+                sku=variant.sku,
+                sold_qty=sold_qty,
+                refunded_qty=refunded_qty,
+                refundable_qty=refundable_qty,
+                default_unit_price=float(to_money(unit_price)) if unit_price is not None else None,
+            )
+        )
+
+    return SaleRefundOptionsOut(
+        sale_id=sale_id,
+        payment_method=original_sale.payment_method,
+        channel=original_sale.channel,
+        items=items,
+    )
 
 
 @router.get(

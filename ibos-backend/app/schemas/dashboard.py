@@ -12,3 +12,19 @@ class DashboardSummaryOut(BaseModel):
     profit_simple: float
     start_date: date | None = None
     end_date: date | None = None
+
+
+class DashboardTopCustomerOut(BaseModel):
+    customer_id: str
+    customer_name: str
+    total_spent: float
+    transactions: int
+
+
+class DashboardCustomerInsightsOut(BaseModel):
+    repeat_buyers: int
+    active_customers: int
+    total_customers: int
+    top_customers: list[DashboardTopCustomerOut]
+    start_date: date | None = None
+    end_date: date | None = None

@@ -7,11 +7,11 @@ services:
     depends_on:
       - db
     environment:
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/ibos
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/monidesk
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-before-prod}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:19006}
       AI_PROVIDER: ${AI_PROVIDER:-stub}
-      AI_MODEL: ${AI_MODEL:-ibos-rule-v1}
+      AI_MODEL: ${AI_MODEL:-monidesk-rule-v1}
       AI_VENDOR: ${AI_VENDOR:-local}
       AI_TEMPERATURE: ${AI_TEMPERATURE:-0.2}
       AI_MAX_QUESTION_CHARS: ${AI_MAX_QUESTION_CHARS:-500}
@@ -29,11 +29,11 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: ibos
+      POSTGRES_DB: monidesk
     ports:
       - "5432:5432"
     volumes:
-      - ibos_pg:/var/lib/postgresql/data
+      - monidesk_pg:/var/lib/postgresql/data
 
 volumes:
-  ibos_pg:
+  monidesk_pg:

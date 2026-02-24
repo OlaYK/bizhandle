@@ -6,19 +6,26 @@ from sqlalchemy.orm import Session
 
 from app.core.api_docs import error_responses
 from app.core.deps import get_db
-from app.schemas.common import PaginationMeta
-from app.core.security_current import get_current_business
+from app.core.permissions import require_business_roles
+from app.core.security_current import BusinessAccess, get_current_business, get_current_user
 from app.models.inventory import InventoryLedger
 from app.models.product import Product, ProductVariant
+from app.models.user import User
+from app.schemas.common import PaginationMeta
 from app.schemas.product import (
     ProductCreate,
     ProductCreateOut,
+    ProductPublishIn,
+    ProductPublishOut,
     ProductListOut,
     VariantCreate,
     VariantCreateOut,
+    VariantPublishIn,
+    VariantPublishOut,
     VariantListOut,
     VariantOut,
 )
+from app.services.audit_service import log_audit_event
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -27,13 +34,15 @@ router = APIRouter(prefix="/products", tags=["products"])
     "",
     response_model=ProductCreateOut,
     summary="Create product",
-    responses=error_responses(400, 401, 404, 422, 500),
+    responses=error_responses(400, 401, 403, 404, 422, 500),
 )
 def create_product(
     payload: ProductCreate,
     db: Session = Depends(get_db),
-    biz=Depends(get_current_business),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin")),
+    actor: User = Depends(get_current_user),
 ):
+    biz = access.business
     p = Product(
         id=str(uuid.uuid4()),
         business_id=biz.id,
@@ -41,6 +50,15 @@ def create_product(
         category=payload.category,
     )
     db.add(p)
+    log_audit_event(
+        db,
+        business_id=biz.id,
+        actor_user_id=actor.id,
+        action="product.create",
+        target_type="product",
+        target_id=p.id,
+        metadata_json={"name": p.name, "category": p.category},
+    )
     db.commit()
     return ProductCreateOut(id=p.id)
 
@@ -49,14 +67,16 @@ def create_product(
     "/{product_id}/variants",
     response_model=VariantCreateOut,
     summary="Create product variant",
-    responses=error_responses(400, 401, 404, 422, 500),
+    responses=error_responses(400, 401, 403, 404, 422, 500),
 )
 def create_variant(
     product_id: str,
     payload: VariantCreate,
     db: Session = Depends(get_db),
-    biz=Depends(get_current_business),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin")),
+    actor: User = Depends(get_current_user),
 ):
+    biz = access.business
     prod = db.execute(
         select(Product).where(Product.id == product_id, Product.business_id == biz.id)
     ).scalar_one_or_none()
@@ -85,6 +105,21 @@ def create_variant(
         selling_price=payload.selling_price,
     )
     db.add(v)
+    log_audit_event(
+        db,
+        business_id=biz.id,
+        actor_user_id=actor.id,
+        action="product.variant.create",
+        target_type="product_variant",
+        target_id=v.id,
+        metadata_json={
+            "product_id": v.product_id,
+            "size": v.size,
+            "label": v.label,
+            "sku": v.sku,
+            "reorder_level": v.reorder_level,
+        },
+    )
     db.commit()
     return VariantCreateOut(id=v.id)
 
@@ -138,7 +173,13 @@ def list_products(
         .limit(limit)
     ).scalars().all()
     items = [
-        {"id": r.id, "name": r.name, "category": r.category, "active": r.active}
+        {
+            "id": r.id,
+            "name": r.name,
+            "category": r.category,
+            "active": r.active,
+            "is_published": r.is_published,
+        }
         for r in rows
     ]
     count = len(items)
@@ -253,6 +294,7 @@ def list_product_variants(
             reorder_level=v.reorder_level,
             cost_price=float(v.cost_price) if v.cost_price is not None else None,
             selling_price=float(v.selling_price) if v.selling_price is not None else None,
+            is_published=v.is_published,
             stock=stock_by_variant.get(v.id, 0),
             created_at=v.created_at,
         )
@@ -268,4 +310,87 @@ def list_product_variants(
             count=count,
             has_next=(offset + count) < total,
         ),
+    )
+
+
+@router.patch(
+    "/{product_id}/publish",
+    response_model=ProductPublishOut,
+    summary="Set product publish status",
+    responses=error_responses(401, 403, 404, 422, 500),
+)
+def set_product_publish_status(
+    product_id: str,
+    payload: ProductPublishIn,
+    db: Session = Depends(get_db),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin")),
+    actor: User = Depends(get_current_user),
+):
+    biz = access.business
+    product = db.execute(
+        select(Product).where(Product.id == product_id, Product.business_id == biz.id)
+    ).scalar_one_or_none()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    product.is_published = payload.is_published
+    log_audit_event(
+        db,
+        business_id=biz.id,
+        actor_user_id=actor.id,
+        action="product.publish.update",
+        target_type="product",
+        target_id=product.id,
+        metadata_json={"is_published": product.is_published},
+    )
+    db.commit()
+    return ProductPublishOut(id=product.id, is_published=product.is_published)
+
+
+@router.patch(
+    "/{product_id}/variants/{variant_id}/publish",
+    response_model=VariantPublishOut,
+    summary="Set variant publish status",
+    responses=error_responses(401, 403, 404, 422, 500),
+)
+def set_variant_publish_status(
+    product_id: str,
+    variant_id: str,
+    payload: VariantPublishIn,
+    db: Session = Depends(get_db),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin")),
+    actor: User = Depends(get_current_user),
+):
+    biz = access.business
+    product = db.execute(
+        select(Product).where(Product.id == product_id, Product.business_id == biz.id)
+    ).scalar_one_or_none()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    variant = db.execute(
+        select(ProductVariant).where(
+            ProductVariant.id == variant_id,
+            ProductVariant.product_id == product.id,
+            ProductVariant.business_id == biz.id,
+        )
+    ).scalar_one_or_none()
+    if not variant:
+        raise HTTPException(status_code=404, detail="Variant not found")
+
+    variant.is_published = payload.is_published
+    log_audit_event(
+        db,
+        business_id=biz.id,
+        actor_user_id=actor.id,
+        action="product.variant.publish.update",
+        target_type="product_variant",
+        target_id=variant.id,
+        metadata_json={"product_id": product.id, "is_published": variant.is_published},
+    )
+    db.commit()
+    return VariantPublishOut(
+        id=variant.id,
+        product_id=product.id,
+        is_published=variant.is_published,
     )

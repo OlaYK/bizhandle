@@ -84,3 +84,23 @@ class RefundCreate(BaseModel):
             }
         }
     )
+
+
+class SaleRefundOptionOut(BaseModel):
+    variant_id: str
+    product_id: str
+    product_name: str
+    size: str
+    label: str | None = None
+    sku: str | None = None
+    sold_qty: int
+    refunded_qty: int
+    refundable_qty: int
+    default_unit_price: float | None = None
+
+
+class SaleRefundOptionsOut(BaseModel):
+    sale_id: str
+    payment_method: PaymentMethod
+    channel: SalesChannel
+    items: list[SaleRefundOptionOut]

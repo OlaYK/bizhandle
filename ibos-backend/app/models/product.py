@@ -16,6 +16,7 @@ class Product(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -38,6 +39,7 @@ class ProductVariant(Base):
 
     cost_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
     selling_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
+    is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -8,9 +8,11 @@ from app.core.api_docs import error_responses
 from app.core.config import settings
 from app.core.deps import get_db
 from app.core.money import to_money
-from app.core.security_current import get_current_business
+from app.core.permissions import require_business_roles
+from app.core.security_current import BusinessAccess, get_current_business, get_current_user
 from app.models.inventory import InventoryLedger
 from app.models.product import Product, ProductVariant
+from app.models.user import User
 from app.schemas.common import PaginationMeta
 from app.schemas.inventory import (
     InventoryLedgerEntryOut,
@@ -22,6 +24,7 @@ from app.schemas.inventory import (
     StockLevelOut,
     StockOut,
 )
+from app.services.audit_service import log_audit_event
 from app.services.inventory_service import add_ledger_entry, get_variant_stock
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
@@ -43,13 +46,15 @@ def _get_variant_in_business(db: Session, *, business_id: str, variant_id: str) 
     "/stock-in",
     response_model=StockOut,
     summary="Add stock to a variant",
-    responses=error_responses(400, 401, 404, 422, 500),
+    responses=error_responses(400, 401, 403, 404, 422, 500),
 )
 def stock_in(
     payload: StockIn,
     db: Session = Depends(get_db),
-    biz=Depends(get_current_business),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin")),
+    actor: User = Depends(get_current_user),
 ):
+    biz = access.business
     _get_variant_in_business(db, business_id=biz.id, variant_id=payload.variant_id)
 
     add_ledger_entry(
@@ -61,6 +66,18 @@ def stock_in(
         reason="stock_in",
         unit_cost=to_money(payload.unit_cost) if payload.unit_cost is not None else None,
     )
+    log_audit_event(
+        db,
+        business_id=biz.id,
+        actor_user_id=actor.id,
+        action="inventory.stock_in",
+        target_type="product_variant",
+        target_id=payload.variant_id,
+        metadata_json={
+            "qty": payload.qty,
+            "unit_cost": float(to_money(payload.unit_cost)) if payload.unit_cost is not None else None,
+        },
+    )
     db.commit()
     return StockOut()
 
@@ -69,13 +86,15 @@ def stock_in(
     "/adjust",
     response_model=StockOut,
     summary="Manual stock adjustment",
-    responses=error_responses(400, 401, 404, 422, 500),
+    responses=error_responses(400, 401, 403, 404, 422, 500),
 )
 def adjust_stock(
     payload: StockAdjustIn,
     db: Session = Depends(get_db),
-    biz=Depends(get_current_business),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin")),
+    actor: User = Depends(get_current_user),
 ):
+    biz = access.business
     _get_variant_in_business(db, business_id=biz.id, variant_id=payload.variant_id)
 
     if payload.qty_delta < 0:
@@ -92,6 +111,20 @@ def adjust_stock(
         reason="adjustment",
         note=f"{payload.reason}: {payload.note}" if payload.note else payload.reason,
         unit_cost=to_money(payload.unit_cost) if payload.unit_cost is not None else None,
+    )
+    log_audit_event(
+        db,
+        business_id=biz.id,
+        actor_user_id=actor.id,
+        action="inventory.adjust",
+        target_type="product_variant",
+        target_id=payload.variant_id,
+        metadata_json={
+            "qty_delta": payload.qty_delta,
+            "reason": payload.reason,
+            "note": payload.note,
+            "unit_cost": float(to_money(payload.unit_cost)) if payload.unit_cost is not None else None,
+        },
     )
     db.commit()
     return StockOut()

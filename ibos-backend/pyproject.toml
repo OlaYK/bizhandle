@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "ibos-backend"
+name = "monidesk-backend"
 version = "0.1.0"
-description = "AI-Powered Informal Business OS Backend"
+description = "MoniDesk - AI-Powered Informal Business OS Backend"
 authors = ["Olayinka Daniel Oyedola <oolayinkadaniel@gmail.com>"]
 readme = "README.md"
 packages = [{include = "app"}]

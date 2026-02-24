@@ -8,10 +8,13 @@ from sqlalchemy.orm import Session
 from app.core.api_docs import error_responses
 from app.core.deps import get_db
 from app.core.money import to_money
-from app.core.security_current import get_current_business
+from app.core.permissions import require_business_roles
+from app.core.security_current import BusinessAccess, get_current_business, get_current_user
+from app.models.expense import Expense
+from app.models.user import User
 from app.schemas.common import PaginationMeta
 from app.schemas.expense import ExpenseCreate, ExpenseCreateOut, ExpenseListOut, ExpenseOut
-from app.models.expense import Expense
+from app.services.audit_service import log_audit_event
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 
@@ -20,13 +23,15 @@ router = APIRouter(prefix="/expenses", tags=["expenses"])
     "",
     response_model=ExpenseCreateOut,
     summary="Create expense",
-    responses=error_responses(400, 401, 422, 500),
+    responses=error_responses(400, 401, 403, 422, 500),
 )
 def create_expense(
     payload: ExpenseCreate,
     db: Session = Depends(get_db),
-    biz=Depends(get_current_business),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin")),
+    actor: User = Depends(get_current_user),
 ):
+    biz = access.business
     e = Expense(
         id=str(uuid.uuid4()),
         business_id=biz.id,
@@ -35,6 +40,15 @@ def create_expense(
         note=payload.note,
     )
     db.add(e)
+    log_audit_event(
+        db,
+        business_id=biz.id,
+        actor_user_id=actor.id,
+        action="expense.create",
+        target_type="expense",
+        target_id=e.id,
+        metadata_json={"category": e.category, "amount": float(to_money(e.amount))},
+    )
     db.commit()
     return ExpenseCreateOut(id=e.id)
 

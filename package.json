@@ -1,0 +1,18 @@
+{
+  "name": "bizhandle",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "frontend:install": "npm --prefix ibos-frontend install",
+    "backend:install": "cd ibos-backend && poetry install",
+    "setup": "npm run frontend:install && npm run backend:install",
+    "dev:frontend": "npm --prefix ibos-frontend run dev",
+    "dev:backend": "cd ibos-backend && poetry run uvicorn app.main:app --reload",
+    "dev": "concurrently -n frontend,backend -c cyan,green \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "build:frontend": "npm --prefix ibos-frontend run build",
+    "preview:frontend": "npm --prefix ibos-frontend run preview"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

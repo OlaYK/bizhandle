@@ -82,6 +82,7 @@ class ProductOut(BaseModel):
     name: str
     category: Optional[str] = None
     active: bool
+    is_published: bool = False
 
 
 class VariantCreateOut(BaseModel):
@@ -98,8 +99,28 @@ class VariantOut(BaseModel):
     reorder_level: int
     cost_price: Optional[float] = None
     selling_price: Optional[float] = None
+    is_published: bool = False
     stock: int
     created_at: datetime
+
+
+class ProductPublishIn(BaseModel):
+    is_published: bool
+
+
+class ProductPublishOut(BaseModel):
+    id: str
+    is_published: bool
+
+
+class VariantPublishIn(BaseModel):
+    is_published: bool
+
+
+class VariantPublishOut(BaseModel):
+    id: str
+    product_id: str
+    is_published: bool
 
 
 class ProductListOut(BaseModel):
