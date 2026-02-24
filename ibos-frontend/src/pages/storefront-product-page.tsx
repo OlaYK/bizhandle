@@ -69,7 +69,7 @@ export function StorefrontProductPage() {
   const product = productQuery.data;
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbff_0%,#ecf3f8_100%)] px-4 py-8 sm:px-8">
+    <div className="min-h-screen bg-[linear-gradient(180deg,#f7fbff_0%,#ecf3f8_100%)] px-4 py-8 dark:bg-[linear-gradient(180deg,#0f2238_0%,#132b45_100%)] sm:px-8">
       <div className="mx-auto max-w-4xl space-y-6">
         <Link
           to={`/store/${slug}`}

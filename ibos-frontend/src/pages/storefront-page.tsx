@@ -112,7 +112,7 @@ export function StorefrontPage() {
           </div>
         </Card>
 
-        <Card className="bg-white/90 backdrop-blur">
+        <Card className="bg-white/90 backdrop-blur dark:bg-surface-900/85">
           <div className="grid gap-3 md:grid-cols-[2fr_1fr]">
             <Input
               label="Search Products"
@@ -148,7 +148,7 @@ export function StorefrontPage() {
                 className="animate-fade-up"
                 style={{ animationDelay: `${index * 40}ms` }}
               >
-                <Card className="h-full border border-surface-100 bg-white/95 transition duration-300 hover:-translate-y-0.5 hover:shadow-glow">
+                <Card className="h-full border border-surface-100 bg-white/95 transition duration-300 hover:-translate-y-0.5 hover:shadow-glow dark:border-surface-700 dark:bg-surface-900/85">
                   <p className="text-xs uppercase tracking-wide text-surface-500">{product.category ?? "General"}</p>
                   <h3 className="mt-2 font-heading text-xl font-bold text-surface-800">{product.name}</h3>
                   <p className="mt-2 text-sm text-surface-600">
@@ -158,7 +158,7 @@ export function StorefrontPage() {
                   <p className="mt-3 text-lg font-black text-surface-800">
                     {product.starting_price != null ? `From ${formatCurrency(product.starting_price)}` : "Price on request"}
                   </p>
-                  <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-cobalt-700">
+                  <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-cobalt-700 dark:text-cobalt-200">
                     View Details
                   </p>
                 </Card>
@@ -167,7 +167,7 @@ export function StorefrontPage() {
           </div>
         )}
 
-        <Card className="bg-white/90">
+        <Card className="bg-white/90 dark:bg-surface-900/85">
           <PaginationControls
             pagination={products.pagination}
             onPrev={() => setOffset(Math.max(0, offset - limit))}

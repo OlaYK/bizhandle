@@ -888,7 +888,10 @@ export function AutomationPage() {
                 ) : null}
                 <div className="mt-2 grid gap-2">
                   {run.steps.map((step) => (
-                    <div key={`${run.id}-${step.step_index}`} className="rounded-lg border border-surface-200 bg-white p-2">
+                    <div
+                      key={`${run.id}-${step.step_index}`}
+                      className="rounded-lg border border-surface-200 bg-white p-2 dark:border-surface-600 dark:bg-surface-800/70"
+                    >
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-sm font-semibold text-surface-700">
                           {step.step_index}. {step.action_type}
