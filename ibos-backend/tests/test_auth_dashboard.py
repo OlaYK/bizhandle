@@ -17,6 +17,7 @@ from app.models.developer import MarketplaceAppListing, PublicApiKey, WebhookEve
 from app.models.expense import Expense
 from app.models.invoice import InvoiceEvent
 from app.models.order import Order
+from app.models.pos import PosShiftSession
 from app.models.sales import Sale
 from app.models.team_invitation import TeamInvitation
 from app.models.user import User
@@ -1583,6 +1584,45 @@ def test_orders_list_supports_channel_and_customer_filters(test_context):
     assert customer_a_only.json()["customer_id"] == customer_a_id
     assert customer_a_only.json()["pagination"]["total"] == 1
     assert customer_a_only.json()["items"][0]["id"] == order_a.json()["id"]
+
+
+def test_orders_list_tolerates_unexpected_legacy_payment_and_channel_values(test_context):
+    client, session_local = test_context
+
+    owner = _register(client, email="orders-legacy-values-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    _, variant_id = _create_product_with_variant(client, token)
+    create_order = client.post(
+        "/orders",
+        json={
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 75}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert create_order.status_code == 200, create_order.text
+    order_id = create_order.json()["id"]
+
+    db = session_local()
+    try:
+        db.execute(
+            update(Order)
+            .where(Order.id == order_id)
+            .values(payment_method="bank", channel="legacy_channel")
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    listed = client.get("/orders", headers=_auth_headers(token))
+    assert listed.status_code == 200, listed.text
+    row = next((item for item in listed.json()["items"] if item["id"] == order_id), None)
+    assert row is not None
+    assert row["payment_method"] == "cash"
+    assert row["channel"] == "walk-in"
 
 
 def test_orders_pending_timeout_auto_cancels_stale_order(test_context):
@@ -3893,6 +3933,56 @@ def test_analytics_pos_offline_and_privacy_hardening_flow(test_context):
     )
     assert archive.status_code == 200, archive.text
     assert archive.json()["records_count"] >= 1
+
+
+def test_pos_current_shift_tolerates_multiple_open_shift_rows(test_context):
+    client, session_local = test_context
+
+    owner = _register(client, email="pos-duplicate-open-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    open_shift = client.post(
+        "/pos/shifts/open",
+        json={"opening_cash": 100},
+        headers=_auth_headers(token),
+    )
+    assert open_shift.status_code == 200, open_shift.text
+
+    manual_shift_id = str(uuid.uuid4())
+    db = session_local()
+    try:
+        owner_user = db.execute(
+            select(User).where(User.email == "pos-duplicate-open-owner@example.com")
+        ).scalar_one()
+        business = db.execute(
+            select(Business).where(Business.owner_user_id == owner_user.id)
+        ).scalar_one()
+        db.add(
+            PosShiftSession(
+                id=manual_shift_id,
+                business_id=business.id,
+                opened_by_user_id=owner_user.id,
+                status="open",
+                opening_cash=250,
+                opened_at=datetime.now(timezone.utc) + timedelta(seconds=5),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    current_shift = client.get("/pos/shifts/current", headers=_auth_headers(token))
+    assert current_shift.status_code == 200, current_shift.text
+    assert current_shift.json()["shift"]["id"] == manual_shift_id
+    assert current_shift.json()["shift"]["status"] == "open"
+
+    open_again = client.post(
+        "/pos/shifts/open",
+        json={"opening_cash": 30},
+        headers=_auth_headers(token),
+    )
+    assert open_again.status_code == 400, open_again.text
 
 
 def test_ai_copilot_feature_store_insights_and_actions_flow(test_context):

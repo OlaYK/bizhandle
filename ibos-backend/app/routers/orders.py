@@ -42,6 +42,7 @@ ALLOWED_ORDER_TRANSITIONS: dict[str, set[str]] = {
     "refunded": set(),
 }
 ALLOWED_ORDER_CHANNELS = {"whatsapp", "instagram", "walk-in"}
+ALLOWED_ORDER_PAYMENT_METHODS = {"cash", "transfer", "pos"}
 
 
 def _normalize_order_status(status: str) -> str:
@@ -72,11 +73,19 @@ def _ensure_transition_allowed(current_status: str, next_status: str) -> None:
 
 
 def _order_out(order: Order) -> OrderOut:
+    normalized_payment_method = (order.payment_method or "").strip().lower()
+    if normalized_payment_method not in ALLOWED_ORDER_PAYMENT_METHODS:
+        normalized_payment_method = "cash"
+
+    normalized_channel = (order.channel or "").strip().lower()
+    if normalized_channel not in ALLOWED_ORDER_CHANNELS:
+        normalized_channel = "walk-in"
+
     return OrderOut(
         id=order.id,
         customer_id=order.customer_id,
-        payment_method=order.payment_method,
-        channel=order.channel,
+        payment_method=normalized_payment_method,
+        channel=normalized_channel,
         status=order.status,
         total_amount=float(to_money(order.total_amount)),
         sale_id=order.sale_id,

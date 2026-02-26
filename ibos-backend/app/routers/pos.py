@@ -45,6 +45,19 @@ def _shift_out(shift: PosShiftSession) -> PosShiftOut:
     )
 
 
+def _latest_open_shift(db: Session, *, business_id: str) -> PosShiftSession | None:
+    # Defensive against legacy/dirty data where multiple open shifts may exist.
+    return db.execute(
+        select(PosShiftSession)
+        .where(
+            PosShiftSession.business_id == business_id,
+            PosShiftSession.status == "open",
+        )
+        .order_by(PosShiftSession.opened_at.desc(), PosShiftSession.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
 @router.post(
     "/shifts/open",
     response_model=PosShiftOut,
@@ -57,12 +70,7 @@ def open_shift(
     access: BusinessAccess = Depends(require_permission("pos.shift.manage")),
     actor: User = Depends(get_current_user),
 ):
-    active_shift = db.execute(
-        select(PosShiftSession).where(
-            PosShiftSession.business_id == access.business.id,
-            PosShiftSession.status == "open",
-        )
-    ).scalar_one_or_none()
+    active_shift = _latest_open_shift(db, business_id=access.business.id)
     if active_shift:
         raise HTTPException(status_code=400, detail="A POS shift is already open for this business")
 
@@ -100,12 +108,7 @@ def current_shift(
     db: Session = Depends(get_db),
     access: BusinessAccess = Depends(require_permission("pos.shift.manage")),
 ):
-    shift = db.execute(
-        select(PosShiftSession).where(
-            PosShiftSession.business_id == access.business.id,
-            PosShiftSession.status == "open",
-        )
-    ).scalar_one_or_none()
+    shift = _latest_open_shift(db, business_id=access.business.id)
     return PosShiftCurrentOut(shift=_shift_out(shift) if shift else None)
 
 
