@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { z } from "zod";
 import { productService, salesService } from "../api/services";
@@ -56,6 +56,13 @@ const refundSchema = z.object({
 type SaleFormData = z.infer<typeof saleSchema>;
 type RefundFormData = z.infer<typeof refundSchema>;
 
+function defaultUnitPrice(price: number | null | undefined) {
+  if (typeof price !== "number" || Number.isNaN(price) || price <= 0) {
+    return 1;
+  }
+  return price;
+}
+
 export function SalesPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -105,6 +112,7 @@ export function SalesPage() {
     const firstVariant = variantsQuery.data?.items[0];
     if (firstVariant && saleForm.getValues("items.0.variant_id") === "") {
       saleForm.setValue("items.0.variant_id", firstVariant.id);
+      saleForm.setValue("items.0.unit_price", defaultUnitPrice(firstVariant.selling_price));
     }
   }, [variantsQuery.data, saleForm]);
 
@@ -112,6 +120,40 @@ export function SalesPage() {
     control: saleForm.control,
     name: "items"
   });
+
+  const watchedItems = saleForm.watch("items");
+  const saleTotal = useMemo(
+    () =>
+      (watchedItems ?? []).reduce((sum, item) => {
+        const qty = Number(item.qty) || 0;
+        const unitPrice = Number(item.unit_price) || 0;
+        return sum + qty * unitPrice;
+      }, 0),
+    [watchedItems]
+  );
+  const previousVariantByRowRef = useRef<Record<string, string>>({});
+  const variantsById = useMemo(() => {
+    return new Map((variantsQuery.data?.items ?? []).map((variant) => [variant.id, variant]));
+  }, [variantsQuery.data]);
+
+  useEffect(() => {
+    const nextByRow: Record<string, string> = {};
+    fields.forEach((field, index) => {
+      const selectedVariantId = watchedItems?.[index]?.variant_id ?? "";
+      nextByRow[field.id] = selectedVariantId;
+      const previousVariantId = previousVariantByRowRef.current[field.id];
+      if (!selectedVariantId || previousVariantId === selectedVariantId) {
+        return;
+      }
+      const variant = variantsById.get(selectedVariantId);
+      saleForm.setValue(
+        `items.${index}.unit_price`,
+        defaultUnitPrice(variant?.selling_price),
+        { shouldDirty: true, shouldValidate: true }
+      );
+    });
+    previousVariantByRowRef.current = nextByRow;
+  }, [fields, watchedItems, variantsById, saleForm]);
 
   const listQuery = useQuery({
     queryKey: ["sales", "list", startDate, endDate, includeRefunds, page, pageSize],
@@ -133,7 +175,13 @@ export function SalesPage() {
         payment_method: "cash",
         channel: "walk-in",
         note: "",
-        items: [{ variant_id: variantsQuery.data?.items[0]?.id ?? "", qty: 1, unit_price: 0 }]
+        items: [
+          {
+            variant_id: variantsQuery.data?.items[0]?.id ?? "",
+            qty: 1,
+            unit_price: defaultUnitPrice(variantsQuery.data?.items[0]?.selling_price)
+          }
+        ]
       });
       queryClient.invalidateQueries({ queryKey: ["sales"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -322,7 +370,7 @@ export function SalesPage() {
                   append({
                     variant_id: variantsQuery.data?.items[0]?.id ?? "",
                     qty: 1,
-                    unit_price: 0
+                    unit_price: defaultUnitPrice(variantsQuery.data?.items[0]?.selling_price)
                   })
                 }
               >
@@ -380,9 +428,12 @@ export function SalesPage() {
           </div>
 
           <Textarea label="Note" rows={3} {...saleForm.register("note")} />
-          <Button type="submit" loading={createSaleMutation.isPending}>
-            Save Sale
-          </Button>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Badge variant="positive">Sale Total: {formatCurrency(saleTotal)}</Badge>
+            <Button type="submit" loading={createSaleMutation.isPending}>
+              Save Sale
+            </Button>
+          </div>
         </form>
       </Card>
 

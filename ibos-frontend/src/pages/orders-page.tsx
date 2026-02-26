@@ -148,6 +148,30 @@ export function OrdersPage() {
     [orderItems]
   );
 
+  const previousVariantByRowRef = useRef<Record<string, string>>({});
+  const variantsById = useMemo(() => {
+    return new Map((variantsQuery.data?.items ?? []).map((variant) => [variant.id, variant]));
+  }, [variantsQuery.data]);
+
+  useEffect(() => {
+    const nextByRow: Record<string, string> = {};
+    fields.forEach((field, index) => {
+      const selectedVariantId = orderItems?.[index]?.variant_id ?? "";
+      nextByRow[field.id] = selectedVariantId;
+      const previousVariantId = previousVariantByRowRef.current[field.id];
+      if (!selectedVariantId || previousVariantId === selectedVariantId) {
+        return;
+      }
+      const variant = variantsById.get(selectedVariantId);
+      orderForm.setValue(
+        `items.${index}.unit_price`,
+        defaultUnitPrice(variant?.selling_price),
+        { shouldDirty: true, shouldValidate: true }
+      );
+    });
+    previousVariantByRowRef.current = nextByRow;
+  }, [fields, orderItems, variantsById, orderForm]);
+
   const listQuery = useQuery({
     queryKey: [
       "orders",
@@ -287,22 +311,15 @@ export function OrdersPage() {
     quickInputRef.current?.focus();
   }
 
-  if (productsQuery.isLoading || listQuery.isLoading) {
-    return <LoadingState label="Loading orders workspace..." />;
-  }
-
-  if (productsQuery.isError || variantsQuery.isError || listQuery.isError) {
-    return (
-      <ErrorState
-        message="Failed to load order workspace."
-        onRetry={() => {
-          productsQuery.refetch();
-          variantsQuery.refetch();
-          listQuery.refetch();
-        }}
-      />
-    );
-  }
+  const createPanelLoading =
+    productsQuery.isLoading || (Boolean(selectedProductId) && variantsQuery.isLoading);
+  const createPanelError = productsQuery.isError || variantsQuery.isError;
+  const createPanelErrorMessage = createPanelError
+    ? getApiErrorMessage(productsQuery.error ?? variantsQuery.error)
+    : "";
+  const listPanelLoading = listQuery.isLoading;
+  const listPanelError = listQuery.isError;
+  const listPanelErrorMessage = listPanelError ? getApiErrorMessage(listQuery.error) : "";
 
   return (
     <div className="space-y-6">
@@ -314,151 +331,167 @@ export function OrdersPage() {
         <p className="mt-1 text-sm text-surface-500">
           Pick a product, scan or type SKU/size/label, then press Enter to add to cart.
         </p>
-        <form
-          className="mt-4 space-y-4"
-          onSubmit={orderForm.handleSubmit((values) =>
-            createOrderMutation.mutate({
-              customer_id: values.customer_id?.trim() || undefined,
-              payment_method: values.payment_method,
-              channel: values.channel,
-              note: values.note?.trim() || undefined,
-              items: values.items
-            })
-          )}
-        >
-          <div className="grid gap-3 md:grid-cols-4">
-            <Select label="Product" value={selectedProductId} onChange={(event) => setSelectedProductId(event.target.value)}>
-              {(productsQuery.data?.items ?? []).map((product) => (
-                <option key={product.id} value={product.id}>
-                  {product.name}
-                </option>
-              ))}
-            </Select>
-            <Input label="Customer ID (optional)" placeholder="customer-001" {...orderForm.register("customer_id")} />
-            <Select
-              label="Payment Method"
-              {...orderForm.register("payment_method")}
-              error={orderForm.formState.errors.payment_method?.message}
-            >
-              <option value="cash">Cash</option>
-              <option value="transfer">Transfer</option>
-              <option value="pos">POS</option>
-            </Select>
-            <Select
-              label="Channel"
-              {...orderForm.register("channel")}
-              error={orderForm.formState.errors.channel?.message}
-            >
-              <option value="walk-in">Walk-in</option>
-              <option value="whatsapp">WhatsApp</option>
-              <option value="instagram">Instagram</option>
-            </Select>
+        {createPanelLoading ? (
+          <div className="mt-4">
+            <LoadingState label="Loading POS quick order tools..." />
           </div>
-
-          <div className="rounded-2xl border border-surface-100 p-3">
-            <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-              <Input
-                ref={quickInputRef}
-                label="Quick Add (SKU / size / label)"
-                placeholder="Scan barcode or type code and press Enter"
-                value={quickCode}
-                onChange={(event) => setQuickCode(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    handleQuickAdd();
-                  }
-                }}
-              />
-              <div className="md:self-end">
-                <Button type="button" variant="secondary" className="w-full md:w-auto" onClick={handleQuickAdd}>
-                  <ScanLine className="h-4 w-4" />
-                  Add
-                </Button>
-              </div>
-            </div>
+        ) : createPanelError ? (
+          <div className="mt-4">
+            <ErrorState
+              message={`Failed to load quick-order tools. ${createPanelErrorMessage}`}
+              onRetry={() => {
+                productsQuery.refetch();
+                variantsQuery.refetch();
+              }}
+            />
           </div>
-
-          <div className="space-y-3 rounded-2xl border border-surface-100 p-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-surface-700">Order Items</p>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() =>
-                  append({
-                    variant_id: variantsQuery.data?.items[0]?.id ?? "",
-                    qty: 1,
-                    unit_price: defaultUnitPrice(variantsQuery.data?.items[0]?.selling_price)
-                  })
-                }
+        ) : (
+          <form
+            className="mt-4 space-y-4"
+            onSubmit={orderForm.handleSubmit((values) =>
+              createOrderMutation.mutate({
+                customer_id: values.customer_id?.trim() || undefined,
+                payment_method: values.payment_method,
+                channel: values.channel,
+                note: values.note?.trim() || undefined,
+                items: values.items
+              })
+            )}
+          >
+            <div className="grid gap-3 md:grid-cols-4">
+              <Select label="Product" value={selectedProductId} onChange={(event) => setSelectedProductId(event.target.value)}>
+                {(productsQuery.data?.items ?? []).map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name}
+                  </option>
+                ))}
+              </Select>
+              <Input label="Customer ID (optional)" placeholder="customer-001" {...orderForm.register("customer_id")} />
+              <Select
+                label="Payment Method"
+                {...orderForm.register("payment_method")}
+                error={orderForm.formState.errors.payment_method?.message}
               >
-                <Plus className="h-4 w-4" />
-                Add Row
-              </Button>
+                <option value="cash">Cash</option>
+                <option value="transfer">Transfer</option>
+                <option value="pos">POS</option>
+              </Select>
+              <Select
+                label="Channel"
+                {...orderForm.register("channel")}
+                error={orderForm.formState.errors.channel?.message}
+              >
+                <option value="walk-in">Walk-in</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="instagram">Instagram</option>
+              </Select>
             </div>
 
-            {fields.map((field, index) => (
-              <div key={field.id} className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12">
-                <div className="md:col-span-6">
-                  <Select
-                    label="Variant"
-                    {...orderForm.register(`items.${index}.variant_id`)}
-                    error={orderForm.formState.errors.items?.[index]?.variant_id?.message}
-                  >
-                    <option value="">Select variant</option>
-                    {(variantsQuery.data?.items ?? []).map((variant) => (
-                      <option key={variant.id} value={variant.id}>
-                        {variant.size}
-                        {variant.label ? ` - ${variant.label}` : ""}
-                        {variant.sku ? ` (${variant.sku})` : ""}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-                <div className="md:col-span-2">
-                  <Input
-                    label="Qty"
-                    type="number"
-                    {...orderForm.register(`items.${index}.qty`)}
-                    error={orderForm.formState.errors.items?.[index]?.qty?.message}
-                  />
-                </div>
-                <div className="md:col-span-3">
-                  <Input
-                    label="Unit Price"
-                    type="number"
-                    step="0.01"
-                    {...orderForm.register(`items.${index}.unit_price`)}
-                    error={orderForm.formState.errors.items?.[index]?.unit_price?.message}
-                  />
-                </div>
-                <div className="md:col-span-1 md:self-end">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="w-full"
-                    onClick={() => remove(index)}
-                    disabled={fields.length <= 1}
-                  >
-                    <Trash2 className="h-4 w-4" />
+            <div className="rounded-2xl border border-surface-100 p-3">
+              <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                <Input
+                  ref={quickInputRef}
+                  label="Quick Add (SKU / size / label)"
+                  placeholder="Scan barcode or type code and press Enter"
+                  value={quickCode}
+                  onChange={(event) => setQuickCode(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      handleQuickAdd();
+                    }
+                  }}
+                />
+                <div className="md:self-end">
+                  <Button type="button" variant="secondary" className="w-full md:w-auto" onClick={handleQuickAdd}>
+                    <ScanLine className="h-4 w-4" />
+                    Add
                   </Button>
                 </div>
               </div>
-            ))}
-          </div>
+            </div>
 
-          <Textarea label="Note" rows={3} {...orderForm.register("note")} />
+            <div className="space-y-3 rounded-2xl border border-surface-100 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-surface-700">Order Items</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    append({
+                      variant_id: variantsQuery.data?.items[0]?.id ?? "",
+                      qty: 1,
+                      unit_price: defaultUnitPrice(variantsQuery.data?.items[0]?.selling_price)
+                    })
+                  }
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Row
+                </Button>
+              </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <Badge variant="positive">Cart Total: {formatCurrency(orderTotal)}</Badge>
-            <Button type="submit" loading={createOrderMutation.isPending}>
-              Create Order
-            </Button>
-          </div>
-        </form>
+              {fields.map((field, index) => (
+                <div key={field.id} className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12">
+                  <div className="md:col-span-6">
+                    <Select
+                      label="Variant"
+                      {...orderForm.register(`items.${index}.variant_id`)}
+                      error={orderForm.formState.errors.items?.[index]?.variant_id?.message}
+                    >
+                      <option value="">Select variant</option>
+                      {(variantsQuery.data?.items ?? []).map((variant) => (
+                        <option key={variant.id} value={variant.id}>
+                          {variant.size}
+                          {variant.label ? ` - ${variant.label}` : ""}
+                          {variant.sku ? ` (${variant.sku})` : ""}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="md:col-span-2">
+                    <Input
+                      label="Qty"
+                      type="number"
+                      {...orderForm.register(`items.${index}.qty`)}
+                      error={orderForm.formState.errors.items?.[index]?.qty?.message}
+                    />
+                  </div>
+                  <div className="md:col-span-3">
+                    <Input
+                      label="Unit Price"
+                      type="number"
+                      step="0.01"
+                      {...orderForm.register(`items.${index}.unit_price`)}
+                      error={orderForm.formState.errors.items?.[index]?.unit_price?.message}
+                    />
+                  </div>
+                  <div className="md:col-span-1 md:self-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="w-full"
+                      onClick={() => remove(index)}
+                      disabled={fields.length <= 1}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <Textarea label="Note" rows={3} {...orderForm.register("note")} />
+
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Badge variant="positive">Cart Total: {formatCurrency(orderTotal)}</Badge>
+              <Button type="submit" loading={createOrderMutation.isPending}>
+                Create Order
+              </Button>
+            </div>
+          </form>
+        )}
       </Card>
 
       <Card>
@@ -496,7 +529,14 @@ export function OrdersPage() {
           </div>
         </div>
 
-        {!listQuery.data?.items.length ? (
+        {listPanelLoading ? (
+          <LoadingState label="Loading order lifecycle..." />
+        ) : listPanelError ? (
+          <ErrorState
+            message={`Failed to load order lifecycle. ${listPanelErrorMessage}`}
+            onRetry={() => listQuery.refetch()}
+          />
+        ) : !listQuery.data?.items.length ? (
           <EmptyState
             title="No orders found"
             description="Try changing filters or create a new order from the POS quick-order panel."

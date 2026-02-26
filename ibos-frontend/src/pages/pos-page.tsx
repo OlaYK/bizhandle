@@ -184,22 +184,15 @@ export function PosPage() {
     });
   }
 
-  if (productsQuery.isLoading || variantsQuery.isLoading || currentShiftQuery.isLoading) {
-    return <LoadingState label="Loading mobile POS..." />;
-  }
-
-  if (productsQuery.isError || variantsQuery.isError || currentShiftQuery.isError) {
-    return (
-      <ErrorState
-        message="Failed to load POS workspace."
-        onRetry={() => {
-          productsQuery.refetch();
-          variantsQuery.refetch();
-          currentShiftQuery.refetch();
-        }}
-      />
-    );
-  }
+  const posPanelLoading =
+    productsQuery.isLoading || (Boolean(selectedProductId) && variantsQuery.isLoading);
+  const posPanelError = productsQuery.isError || variantsQuery.isError;
+  const posPanelErrorMessage = posPanelError
+    ? getApiErrorMessage(productsQuery.error ?? variantsQuery.error)
+    : "";
+  const shiftPanelLoading = currentShiftQuery.isLoading;
+  const shiftPanelError = currentShiftQuery.isError;
+  const shiftPanelErrorMessage = shiftPanelError ? getApiErrorMessage(currentShiftQuery.error) : "";
 
   return (
     <div className="space-y-6">
@@ -211,70 +204,99 @@ export function PosPage() {
         <p className="mt-1 text-sm text-surface-500">
           Optimized for touch devices with local queueing and one-tap sync.
         </p>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <Select label="Product" value={selectedProductId} onChange={(event) => setSelectedProductId(event.target.value)}>
-            {(productsQuery.data?.items ?? []).map((product) => (
-              <option key={product.id} value={product.id}>
-                {product.name}
-              </option>
-            ))}
-          </Select>
-          <Select
-            label="Variant"
-            value={selectedVariantId}
-            onChange={(event) => {
-              setSelectedVariantId(event.target.value);
-              const found = variantsQuery.data?.items.find((item) => item.id === event.target.value);
-              if (found?.selling_price && found.selling_price > 0) {
-                setUnitPrice(found.selling_price);
-              }
-            }}
-          >
-            {(variantsQuery.data?.items ?? []).map((variant) => (
-              <option key={variant.id} value={variant.id}>
-                {variant.size}
-                {variant.label ? ` - ${variant.label}` : ""}
-              </option>
-            ))}
-          </Select>
-          <Input label="Qty" type="number" value={String(qty)} onChange={(event) => setQty(Number(event.target.value) || 0)} />
-          <Input
-            label="Unit Price"
-            type="number"
-            step="0.01"
-            value={String(unitPrice)}
-            onChange={(event) => setUnitPrice(Number(event.target.value) || 0)}
-          />
-          <Select label="Payment" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as "cash" | "transfer" | "pos")}>
-            <option value="cash">Cash</option>
-            <option value="transfer">Transfer</option>
-            <option value="pos">POS</option>
-          </Select>
-          <Select label="Channel" value={channel} onChange={(event) => setChannel(event.target.value as "walk-in" | "whatsapp" | "instagram")}>
-            <option value="walk-in">Walk-in</option>
-            <option value="whatsapp">WhatsApp</option>
-            <option value="instagram">Instagram</option>
-          </Select>
-        </div>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <Badge variant="positive">Order Total: {formatCurrency(cartTotal)}</Badge>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="ghost" onClick={() => printReceiptText(`MoniDesk POS Receipt\nTotal: ${cartTotal}`)}>
-              <Printer className="h-4 w-4" />
-              Print Hook
-            </Button>
-            <Button type="button" variant="secondary" onClick={queueOrder}>
-              <Radio className="h-4 w-4" />
-              Queue Offline
-            </Button>
+        {posPanelLoading ? (
+          <div className="mt-4">
+            <LoadingState label="Loading POS catalog..." />
           </div>
-        </div>
+        ) : posPanelError ? (
+          <div className="mt-4">
+            <ErrorState
+              message={`Failed to load POS catalog. ${posPanelErrorMessage}`}
+              onRetry={() => {
+                productsQuery.refetch();
+                variantsQuery.refetch();
+              }}
+            />
+          </div>
+        ) : (
+          <>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <Select label="Product" value={selectedProductId} onChange={(event) => setSelectedProductId(event.target.value)}>
+                {(productsQuery.data?.items ?? []).map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                label="Variant"
+                value={selectedVariantId}
+                onChange={(event) => {
+                  setSelectedVariantId(event.target.value);
+                  const found = variantsQuery.data?.items.find((item) => item.id === event.target.value);
+                  if (found?.selling_price && found.selling_price > 0) {
+                    setUnitPrice(found.selling_price);
+                  }
+                }}
+              >
+                {(variantsQuery.data?.items ?? []).map((variant) => (
+                  <option key={variant.id} value={variant.id}>
+                    {variant.size}
+                    {variant.label ? ` - ${variant.label}` : ""}
+                  </option>
+                ))}
+              </Select>
+              <Input label="Qty" type="number" value={String(qty)} onChange={(event) => setQty(Number(event.target.value) || 0)} />
+              <Input
+                label="Unit Price"
+                type="number"
+                step="0.01"
+                value={String(unitPrice)}
+                onChange={(event) => setUnitPrice(Number(event.target.value) || 0)}
+              />
+              <Select label="Payment" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as "cash" | "transfer" | "pos")}>
+                <option value="cash">Cash</option>
+                <option value="transfer">Transfer</option>
+                <option value="pos">POS</option>
+              </Select>
+              <Select label="Channel" value={channel} onChange={(event) => setChannel(event.target.value as "walk-in" | "whatsapp" | "instagram")}>
+                <option value="walk-in">Walk-in</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="instagram">Instagram</option>
+              </Select>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <Badge variant="positive">Order Total: {formatCurrency(cartTotal)}</Badge>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="ghost" onClick={() => printReceiptText(`MoniDesk POS Receipt\nTotal: ${cartTotal}`)}>
+                  <Printer className="h-4 w-4" />
+                  Print Hook
+                </Button>
+                <Button type="button" variant="secondary" onClick={queueOrder}>
+                  <Radio className="h-4 w-4" />
+                  Queue Offline
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <h3 className="font-heading text-lg font-bold">Shift Reconciliation</h3>
-          {!currentShiftQuery.data?.shift ? (
+          {shiftPanelLoading ? (
+            <div className="mt-3">
+              <LoadingState label="Loading shift status..." />
+            </div>
+          ) : shiftPanelError ? (
+            <div className="mt-3">
+              <ErrorState
+                message={`Failed to load shift status. ${shiftPanelErrorMessage}`}
+                onRetry={() => currentShiftQuery.refetch()}
+              />
+            </div>
+          ) : !currentShiftQuery.data?.shift ? (
             <div className="mt-3 space-y-3">
               <Input label="Opening Cash" type="number" value={openingCash} onChange={(event) => setOpeningCash(event.target.value)} />
               <Button type="button" onClick={() => openShiftMutation.mutate()} loading={openShiftMutation.isPending}>

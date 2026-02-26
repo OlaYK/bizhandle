@@ -1,4 +1,4 @@
-import type { PropsWithChildren } from "react";
+import type { HTMLAttributes, PropsWithChildren } from "react";
 import { cn } from "../../lib/cn";
 
 type BadgeVariant = "neutral" | "positive" | "negative" | "info";
@@ -10,13 +10,16 @@ const variants: Record<BadgeVariant, string> = {
   info: "bg-accent-100 text-accent-700"
 };
 
-interface BadgeProps extends PropsWithChildren {
+interface BadgeProps extends PropsWithChildren, HTMLAttributes<HTMLSpanElement> {
   variant?: BadgeVariant;
 }
 
-export function Badge({ variant = "neutral", children }: BadgeProps) {
+export function Badge({ variant = "neutral", children, className, ...props }: BadgeProps) {
   return (
-    <span className={cn("inline-flex rounded-full px-2.5 py-1 text-xs font-semibold", variants[variant])}>
+    <span
+      className={cn("inline-flex rounded-full px-2.5 py-1 text-xs font-semibold", variants[variant], className)}
+      {...props}
+    >
       {children}
     </span>
   );

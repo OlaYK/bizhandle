@@ -33,6 +33,11 @@ function toFloat(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function csvCell(value: string | number | null | undefined) {
+  const text = value === null || value === undefined ? "" : String(value);
+  return `"${text.replace(/"/g, "\"\"")}"`;
+}
+
 export function CreditProfilePage() {
   const [windowDays, setWindowDays] = useState("30");
   const [horizonDays, setHorizonDays] = useState("30");
@@ -104,11 +109,71 @@ export function CreditProfilePage() {
         horizon_days: toInt(horizonDays, 90)
       }),
     onSuccess: (pack) => {
-      const blob = new Blob([JSON.stringify(pack, null, 2)], { type: "application/json" });
+      const lines: string[] = ["section,metric,value,context"];
+      const pushRow = (
+        section: string,
+        metric: string,
+        value: string | number | null | undefined,
+        context?: string | null
+      ) => {
+        lines.push(
+          [csvCell(section), csvCell(metric), csvCell(value), csvCell(context ?? "")].join(",")
+        );
+      };
+
+      pushRow("pack", "pack_id", pack.pack_id);
+      pushRow("pack", "generated_at", pack.generated_at);
+      pushRow("pack", "window_days", pack.window_days);
+      pushRow("pack", "horizon_days", pack.horizon_days);
+      pushRow("profile", "overall_score", pack.profile.overall_score);
+      pushRow("profile", "grade", pack.profile.grade);
+      pushRow("profile", "current_net_sales", pack.profile.current_net_sales);
+      pushRow("profile", "current_expenses_total", pack.profile.current_expenses_total);
+      pushRow("profile", "current_net_cashflow", pack.profile.current_net_cashflow);
+
+      for (const factor of pack.profile.factors) {
+        pushRow("factor", factor.label, factor.score, `weight=${factor.weight}, trend=${factor.trend}`);
+      }
+
+      for (const recommendation of pack.profile.recommendations) {
+        pushRow("recommendation", "credit_profile", recommendation);
+      }
+
+      for (const interval of pack.forecast.intervals) {
+        pushRow(
+          "forecast_interval",
+          `interval_${interval.interval_index}`,
+          interval.projected_net_cashflow,
+          `${interval.interval_start_date} -> ${interval.interval_end_date}`
+        );
+      }
+
+      for (const statement of pack.statement_periods) {
+        pushRow(
+          "statement_period",
+          statement.period_label,
+          statement.net_cashflow,
+          `${statement.period_start_date} -> ${statement.period_end_date}`
+        );
+      }
+
+      for (const explanation of pack.score_explanation) {
+        pushRow("score_explanation", "line", explanation);
+      }
+
+      for (const recommendation of pack.recommendations) {
+        pushRow("recommendation", "lender_pack", recommendation);
+      }
+
+      for (const section of pack.bundle_sections) {
+        pushRow("bundle_section", "included", section);
+      }
+
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `lender-pack-${pack.pack_id.slice(0, 8)}.json`;
+      link.download = `lender-pack-${pack.pack_id.slice(0, 8)}.csv`;
       document.body.appendChild(link);
       link.click();
       link.remove();

@@ -39,6 +39,34 @@ const editCustomerSchema = z.object({
 type CreateCustomerFormData = z.infer<typeof createCustomerSchema>;
 type EditCustomerFormData = z.infer<typeof editCustomerSchema>;
 
+const TAG_COLOR_OPTIONS = [
+  { label: "Default", value: "" },
+  { label: "Gold", value: "#D4AF37" },
+  { label: "Silver", value: "#C0C0C0" },
+  { label: "Black", value: "#111111" },
+  { label: "Red", value: "#DC2626" },
+  { label: "Blue", value: "#2563EB" },
+  { label: "White", value: "#FFFFFF" },
+  { label: "Green", value: "#16A34A" },
+  { label: "Orange", value: "#EA580C" },
+  { label: "Purple", value: "#7C3AED" },
+  { label: "Custom", value: "__custom__" }
+] as const;
+
+function getTagChipStyle(color?: string | null) {
+  if (!color) {
+    return undefined;
+  }
+  const normalized = color.trim();
+  const low = normalized.toLowerCase();
+  const textColor = low === "#ffffff" ? "#111827" : normalized;
+  return {
+    borderColor: normalized,
+    color: textColor,
+    backgroundColor: `${normalized}22`
+  };
+}
+
 export function CustomersPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -46,6 +74,7 @@ export function CustomersPage() {
   const [tagFilter, setTagFilter] = useState("");
   const [newTagName, setNewTagName] = useState("");
   const [newTagColor, setNewTagColor] = useState("");
+  const [customTagColor, setCustomTagColor] = useState("");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [attachTagSelection, setAttachTagSelection] = useState<Record<string, string>>({});
   const [editingCustomer, setEditingCustomer] = useState<CustomerOut | null>(null);
@@ -168,6 +197,7 @@ export function CustomersPage() {
       showToast({ title: "Tag created", variant: "success" });
       setNewTagName("");
       setNewTagColor("");
+      setCustomTagColor("");
       queryClient.invalidateQueries({ queryKey: ["customers", "tags"] });
       queryClient.invalidateQueries({ queryKey: ["audit-logs"] });
     },
@@ -318,13 +348,26 @@ export function CustomersPage() {
                 value={newTagName}
                 onChange={(event) => setNewTagName(event.target.value)}
               />
-              <Input
-                label="Color (optional)"
-                placeholder="#16a34a"
+              <Select
+                label="Tag Color"
                 value={newTagColor}
                 onChange={(event) => setNewTagColor(event.target.value)}
-              />
+              >
+                {TAG_COLOR_OPTIONS.map((option) => (
+                  <option key={option.value || "default"} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
             </div>
+            {newTagColor === "__custom__" ? (
+              <Input
+                label="Custom Color (HEX)"
+                placeholder="#16a34a"
+                value={customTagColor}
+                onChange={(event) => setCustomTagColor(event.target.value)}
+              />
+            ) : null}
             <Button
               type="button"
               variant="secondary"
@@ -335,9 +378,11 @@ export function CustomersPage() {
                   showToast({ title: "Tag name is required", variant: "error" });
                   return;
                 }
+                const resolvedColor =
+                  newTagColor === "__custom__" ? customTagColor.trim() : newTagColor.trim();
                 createTagMutation.mutate({
                   name: normalizedName,
-                  color: newTagColor.trim() || undefined
+                  color: resolvedColor || undefined
                 });
               }}
             >
@@ -351,7 +396,7 @@ export function CustomersPage() {
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {tags.map((tag) => (
-                    <Badge key={tag.id} variant="info">
+                    <Badge key={tag.id} variant="info" style={getTagChipStyle(tag.color)}>
                       {tag.name}
                     </Badge>
                   ))}
@@ -421,6 +466,7 @@ export function CustomersPage() {
                           key={tag.id}
                           type="button"
                           className="inline-flex items-center gap-1 rounded-full border border-surface-200 bg-white px-2 py-1 text-xs font-semibold text-surface-700 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100"
+                          style={getTagChipStyle(tag.color)}
                           onClick={() => detachTagMutation.mutate({ customerId: customer.id, tagId: tag.id })}
                         >
                           {tag.name}
@@ -500,6 +546,7 @@ export function CustomersPage() {
                                 key={tag.id}
                                 type="button"
                                 className="inline-flex items-center gap-1 rounded-full border border-surface-200 bg-white px-2 py-1 text-xs font-semibold text-surface-700 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100"
+                                style={getTagChipStyle(tag.color)}
                                 onClick={() =>
                                   detachTagMutation.mutate({ customerId: customer.id, tagId: tag.id })
                                 }

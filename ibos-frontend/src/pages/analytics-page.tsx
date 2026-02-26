@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BarChart3, Download, RefreshCcw } from "lucide-react";
 import { useMemo, useState } from "react";
-import { analyticsService } from "../api/services";
+import { analyticsService, expenseService, inventoryService } from "../api/services";
 import { ErrorState } from "../components/state/error-state";
 import { LoadingState } from "../components/state/loading-state";
 import { Badge } from "../components/ui/badge";
@@ -50,6 +50,22 @@ export function AnalyticsPage() {
   const schedulesQuery = useQuery({
     queryKey: ["analytics", "schedules"],
     queryFn: () => analyticsService.listReportSchedules()
+  });
+
+  const expensesQuery = useQuery({
+    queryKey: ["analytics", "expenses", startDate, endDate],
+    queryFn: () =>
+      expenseService.list({
+        start_date: startDate,
+        end_date: endDate,
+        limit: 500,
+        offset: 0
+      })
+  });
+
+  const inventoryLedgerQuery = useQuery({
+    queryKey: ["analytics", "inventory-ledger"],
+    queryFn: () => inventoryService.ledger({ limit: 500, offset: 0 })
   });
 
   const refreshMutation = useMutation({
@@ -139,11 +155,68 @@ export function AnalyticsPage() {
     );
   }, [channelQuery.data]);
 
-  if (channelQuery.isLoading || cohortQuery.isLoading || inventoryAgingQuery.isLoading || schedulesQuery.isLoading) {
+  const expenseByCategory = useMemo(() => {
+    const bucket = new Map<string, number>();
+    for (const expense of expensesQuery.data?.items ?? []) {
+      const current = bucket.get(expense.category) ?? 0;
+      bucket.set(expense.category, current + expense.amount);
+    }
+    return Array.from(bucket.entries())
+      .map(([category, total]) => ({ category, total }))
+      .sort((a, b) => b.total - a.total);
+  }, [expensesQuery.data]);
+
+  const inventoryEntrySummary = useMemo(() => {
+    const rows = (inventoryLedgerQuery.data?.items ?? []).filter((entry) => {
+      const day = entry.created_at.slice(0, 10);
+      if (startDate && day < startDate) {
+        return false;
+      }
+      if (endDate && day > endDate) {
+        return false;
+      }
+      return true;
+    });
+    const inbound = rows.filter((entry) => entry.qty_delta > 0);
+    const outbound = rows.filter((entry) => entry.qty_delta < 0);
+    const reasonMap = new Map<string, number>();
+    for (const row of rows) {
+      reasonMap.set(row.reason, (reasonMap.get(row.reason) ?? 0) + 1);
+    }
+    const topReasons = Array.from(reasonMap.entries())
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    return {
+      totalEntries: rows.length,
+      inboundCount: inbound.length,
+      inboundQty: inbound.reduce((sum, row) => sum + row.qty_delta, 0),
+      outboundCount: outbound.length,
+      outboundQty: outbound.reduce((sum, row) => sum + Math.abs(row.qty_delta), 0),
+      topReasons
+    };
+  }, [inventoryLedgerQuery.data, startDate, endDate]);
+
+  if (
+    channelQuery.isLoading ||
+    cohortQuery.isLoading ||
+    inventoryAgingQuery.isLoading ||
+    schedulesQuery.isLoading ||
+    expensesQuery.isLoading ||
+    inventoryLedgerQuery.isLoading
+  ) {
     return <LoadingState label="Loading analytics workspace..." />;
   }
 
-  if (channelQuery.isError || cohortQuery.isError || inventoryAgingQuery.isError || schedulesQuery.isError) {
+  if (
+    channelQuery.isError ||
+    cohortQuery.isError ||
+    inventoryAgingQuery.isError ||
+    schedulesQuery.isError ||
+    expensesQuery.isError ||
+    inventoryLedgerQuery.isError
+  ) {
     return (
       <ErrorState
         message="Failed to load analytics data."
@@ -152,6 +225,8 @@ export function AnalyticsPage() {
           cohortQuery.refetch();
           inventoryAgingQuery.refetch();
           schedulesQuery.refetch();
+          expensesQuery.refetch();
+          inventoryLedgerQuery.refetch();
         }}
       />
     );
@@ -178,7 +253,7 @@ export function AnalyticsPage() {
             Refresh Mart
           </Button>
         </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <div className="mt-4 grid gap-3 md:grid-cols-6">
           <Input label="Start Date" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
           <Input label="End Date" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
           <div className="rounded-lg border border-surface-100 bg-surface-50 p-3">
@@ -188,6 +263,16 @@ export function AnalyticsPage() {
           <div className="rounded-lg border border-surface-100 bg-surface-50 p-3">
             <p className="text-xs uppercase text-surface-500">Net Profit</p>
             <p className="mt-1 font-semibold text-mint-700">{formatCurrency(totals.net)}</p>
+          </div>
+          <div className="rounded-lg border border-surface-100 bg-surface-50 p-3">
+            <p className="text-xs uppercase text-surface-500">Expenses</p>
+            <p className="mt-1 font-semibold text-red-600">
+              {formatCurrency((expensesQuery.data?.items ?? []).reduce((sum, row) => sum + row.amount, 0))}
+            </p>
+          </div>
+          <div className="rounded-lg border border-surface-100 bg-surface-50 p-3">
+            <p className="text-xs uppercase text-surface-500">Inventory Entries</p>
+            <p className="mt-1 font-semibold text-surface-700">{inventoryEntrySummary.totalEntries}</p>
           </div>
         </div>
       </Card>
@@ -255,6 +340,63 @@ export function AnalyticsPage() {
                 </p>
               </div>
             ))}
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <h3 className="font-heading text-lg font-bold">Expense Breakdown</h3>
+          {expenseByCategory.length === 0 ? (
+            <p className="mt-3 text-sm text-surface-500">No expenses recorded in this date range.</p>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {expenseByCategory.map((row) => {
+                const max = expenseByCategory[0]?.total ?? 1;
+                const widthPct = Math.max(8, Math.round((row.total / max) * 100));
+                return (
+                  <div key={row.category} className="rounded-lg border border-surface-100 bg-surface-50 p-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <p className="font-semibold text-surface-700">{row.category}</p>
+                      <p className="font-semibold text-red-600">{formatCurrency(row.total)}</p>
+                    </div>
+                    <div className="mt-2 h-2 rounded-full bg-surface-200">
+                      <div className="h-2 rounded-full bg-red-500" style={{ width: `${widthPct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <h3 className="font-heading text-lg font-bold">Inventory Entry Activity</h3>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg border border-surface-100 bg-surface-50 p-3">
+              <p className="text-xs uppercase text-surface-500">Inbound Entries</p>
+              <p className="mt-1 text-lg font-bold text-mint-700">{inventoryEntrySummary.inboundCount}</p>
+              <p className="text-xs text-surface-500">Qty added: {inventoryEntrySummary.inboundQty}</p>
+            </div>
+            <div className="rounded-lg border border-surface-100 bg-surface-50 p-3">
+              <p className="text-xs uppercase text-surface-500">Outbound Entries</p>
+              <p className="mt-1 text-lg font-bold text-red-600">{inventoryEntrySummary.outboundCount}</p>
+              <p className="text-xs text-surface-500">Qty removed: {inventoryEntrySummary.outboundQty}</p>
+            </div>
+          </div>
+          <div className="mt-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-surface-500">Top Entry Reasons</p>
+            {inventoryEntrySummary.topReasons.length === 0 ? (
+              <p className="mt-2 text-sm text-surface-500">No inventory ledger activity in this range.</p>
+            ) : (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {inventoryEntrySummary.topReasons.map((row) => (
+                  <Badge key={row.reason} variant="info">
+                    {row.reason}: {row.count}
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
         </Card>
       </div>

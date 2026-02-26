@@ -2090,6 +2090,8 @@ export interface TeamInvitationOut {
 
 export interface TeamInvitationCreateOut extends TeamInvitationOut {
   invitation_token: string;
+  email_delivery_status: "sent" | "not_configured" | "failed";
+  email_delivery_detail?: string | null;
 }
 
 export interface TeamInvitationListOut {
