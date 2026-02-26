@@ -420,7 +420,7 @@ export function CustomersPage() {
                         <button
                           key={tag.id}
                           type="button"
-                          className="inline-flex items-center gap-1 rounded-full border border-surface-200 bg-white px-2 py-1 text-xs font-semibold text-surface-700"
+                          className="inline-flex items-center gap-1 rounded-full border border-surface-200 bg-white px-2 py-1 text-xs font-semibold text-surface-700 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100"
                           onClick={() => detachTagMutation.mutate({ customerId: customer.id, tagId: tag.id })}
                         >
                           {tag.name}
@@ -430,7 +430,7 @@ export function CustomersPage() {
                     </div>
                     <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
                       <select
-                        className="h-9 rounded border border-surface-200 bg-white px-2 text-sm"
+                        className="h-9 rounded border border-surface-200 bg-white px-2 text-sm text-surface-700 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100"
                         value={selectedAttachTagId}
                         onChange={(event) =>
                           setAttachTagSelection((state) => ({
@@ -499,7 +499,7 @@ export function CustomersPage() {
                               <button
                                 key={tag.id}
                                 type="button"
-                                className="inline-flex items-center gap-1 rounded-full border border-surface-200 bg-white px-2 py-1 text-xs font-semibold text-surface-700"
+                                className="inline-flex items-center gap-1 rounded-full border border-surface-200 bg-white px-2 py-1 text-xs font-semibold text-surface-700 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100"
                                 onClick={() =>
                                   detachTagMutation.mutate({ customerId: customer.id, tagId: tag.id })
                                 }
@@ -515,7 +515,7 @@ export function CustomersPage() {
                         <td className="px-2 py-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <select
-                              className="h-9 rounded border border-surface-200 bg-white px-2 text-sm"
+                              className="h-9 rounded border border-surface-200 bg-white px-2 text-sm text-surface-700 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100"
                               value={selectedAttachTagId}
                               onChange={(event) =>
                                 setAttachTagSelection((state) => ({

@@ -537,7 +537,10 @@ export function DeveloperPortalPage() {
         ) : (
           <div className="mt-3 space-y-2">
             {deliveriesQuery.data.items.map((item) => (
-              <article key={item.id} className="rounded-lg border border-surface-100 bg-white p-3">
+              <article
+                key={item.id}
+                className="rounded-lg border border-surface-100 bg-white p-3 dark:border-surface-600 dark:bg-surface-800/70"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold text-surface-700">{item.event_type}</p>
                   <Badge

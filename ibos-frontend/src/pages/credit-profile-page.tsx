@@ -192,7 +192,7 @@ export function CreditProfilePage() {
         </div>
       </Card>
 
-      <Card className="animate-fade-up [animation-delay:80ms] bg-[linear-gradient(135deg,#ffffff_0,#ecfff3_58%,#fffde8_100%)]">
+      <Card className="animate-fade-up [animation-delay:80ms] bg-[linear-gradient(135deg,#ffffff_0,#ecfff3_58%,#fffde8_100%)] dark:bg-[linear-gradient(135deg,#17344f_0%,#143548_58%,#2a3e4c_100%)]">
         <p className="text-xs uppercase tracking-wide text-surface-500">Credit Intelligence 2.0</p>
         <h3 className="mt-1 font-heading text-3xl font-black text-surface-800">
           {profileQuery.data.overall_score} / 100

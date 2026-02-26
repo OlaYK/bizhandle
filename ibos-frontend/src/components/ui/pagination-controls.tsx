@@ -31,7 +31,7 @@ export function PaginationControls({
           <label className="flex items-center gap-2 text-xs text-surface-500">
             Rows
             <select
-              className="h-8 rounded border border-surface-200 bg-white px-2 text-xs"
+              className="h-8 rounded border border-surface-200 bg-white px-2 text-xs text-surface-700 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100"
               value={pageSize ?? pagination.limit}
               onChange={(event) => onPageSizeChange(Number(event.target.value))}
             >

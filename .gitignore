@@ -1,3 +1,14 @@
+node_modules/
+npm-debug.log*
+BUMPA_GAP_ANALYSIS.md
+MONIDESK_PHASE1_EXECUTION_BACKLOG.md
+docs/p3-e14-backup-restore-runbook.md
+.gitignore
+docs/p3-e14-observability-slo.md
+docs/p3-e14-security-testing-cycle.md
+docs/receipt-invoice-template-strategy.md
+.env.example
+
 node_modules
 dist
 .env

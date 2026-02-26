@@ -520,7 +520,7 @@ export function OrdersPage() {
                     <p className="mt-1 text-xs text-surface-500">Customer: {order.customer_id || "-"}</p>
                     <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
                       <select
-                        className="h-9 rounded border border-surface-200 bg-white px-2 text-sm"
+                        className="h-9 rounded border border-surface-200 bg-white px-2 text-sm text-surface-700 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100"
                         value={draftStatus}
                         onChange={(event) =>
                           setStatusDraftByOrderId((previous) => ({
@@ -588,7 +588,7 @@ export function OrdersPage() {
                         <td className="px-2 py-2">
                           <div className="flex items-center gap-2">
                             <select
-                              className="h-9 rounded border border-surface-200 bg-white px-2 text-sm"
+                              className="h-9 rounded border border-surface-200 bg-white px-2 text-sm text-surface-700 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100"
                               value={draftStatus}
                               onChange={(event) =>
                                 setStatusDraftByOrderId((previous) => ({

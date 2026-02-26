@@ -157,7 +157,7 @@ export function InsightsPage() {
 
   return (
     <div className="space-y-6">
-      <Card className="animate-fade-up bg-[linear-gradient(135deg,#fff_0,#ecfff3_60%,#eef4ff_100%)]">
+      <Card className="animate-fade-up bg-[linear-gradient(135deg,#fff_0,#ecfff3_60%,#eef4ff_100%)] dark:bg-[linear-gradient(135deg,#183550_0%,#133d4f_60%,#1f3350_100%)]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-surface-600">
