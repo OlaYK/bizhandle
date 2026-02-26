@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.core.api_docs import error_responses
@@ -108,7 +109,12 @@ def current_shift(
     db: Session = Depends(get_db),
     access: BusinessAccess = Depends(require_permission("pos.shift.manage")),
 ):
-    shift = _latest_open_shift(db, business_id=access.business.id)
+    try:
+        shift = _latest_open_shift(db, business_id=access.business.id)
+    except (OperationalError, ProgrammingError):
+        # Keeps POS page usable if DB migrations for shift tables were skipped.
+        db.rollback()
+        return PosShiftCurrentOut(shift=None)
     return PosShiftCurrentOut(shift=_shift_out(shift) if shift else None)
 
 

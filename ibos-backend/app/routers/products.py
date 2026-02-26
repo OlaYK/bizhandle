@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect as sa_inspect, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.api_docs import error_responses
@@ -28,6 +28,14 @@ from app.schemas.product import (
 from app.services.audit_service import log_audit_event
 
 router = APIRouter(prefix="/products", tags=["products"])
+
+
+def _table_has_column(db: Session, *, table_name: str, column_name: str) -> bool:
+    bind = db.get_bind()
+    if bind is None:
+        return False
+    inspector = sa_inspect(bind)
+    return any(column["name"] == column_name for column in inspector.get_columns(table_name))
 
 
 @router.post(
@@ -77,10 +85,10 @@ def create_variant(
     actor: User = Depends(get_current_user),
 ):
     biz = access.business
-    prod = db.execute(
-        select(Product).where(Product.id == product_id, Product.business_id == biz.id)
+    resolved_product_id = db.execute(
+        select(Product.id).where(Product.id == product_id, Product.business_id == biz.id)
     ).scalar_one_or_none()
-    if not prod:
+    if not resolved_product_id:
         raise HTTPException(status_code=404, detail="Product not found")
 
     if payload.sku:
@@ -96,7 +104,7 @@ def create_variant(
     v = ProductVariant(
         id=str(uuid.uuid4()),
         business_id=biz.id,
-        product_id=prod.id,
+        product_id=resolved_product_id,
         size=payload.size,
         label=payload.label,
         sku=payload.sku,
@@ -162,25 +170,36 @@ def list_products(
     db: Session = Depends(get_db),
     biz=Depends(get_current_business),
 ):
+    has_products_is_published = _table_has_column(
+        db, table_name="products", column_name="is_published"
+    )
     total = int(
         db.execute(select(func.count(Product.id)).where(Product.business_id == biz.id)).scalar_one()
     )
+    product_columns = [
+        Product.id.label("id"),
+        Product.name.label("name"),
+        Product.category.label("category"),
+        Product.active.label("active"),
+    ]
+    if has_products_is_published:
+        product_columns.append(Product.is_published.label("is_published"))
     rows = db.execute(
-        select(Product)
+        select(*product_columns)
         .where(Product.business_id == biz.id)
         .order_by(Product.created_at.desc())
         .offset(offset)
         .limit(limit)
-    ).scalars().all()
+    ).mappings().all()
     items = [
         {
-            "id": r.id,
-            "name": r.name,
-            "category": r.category,
-            "active": r.active,
-            "is_published": r.is_published,
+            "id": row["id"],
+            "name": row["name"],
+            "category": row["category"],
+            "active": bool(row["active"]) if row["active"] is not None else True,
+            "is_published": bool(row["is_published"]) if has_products_is_published else False,
         }
-        for r in rows
+        for row in rows
     ]
     count = len(items)
     return ProductListOut(
@@ -241,32 +260,68 @@ def list_product_variants(
     db: Session = Depends(get_db),
     biz=Depends(get_current_business),
 ):
-    product = db.execute(
-        select(Product).where(Product.id == product_id, Product.business_id == biz.id)
+    resolved_product_id = db.execute(
+        select(Product.id).where(Product.id == product_id, Product.business_id == biz.id)
     ).scalar_one_or_none()
-    if not product:
+    if not resolved_product_id:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    total = int(
-        db.execute(
-            select(func.count(ProductVariant.id)).where(
-                ProductVariant.product_id == product_id,
-                ProductVariant.business_id == biz.id,
-            )
-        ).scalar_one()
+    has_variant_business_id = _table_has_column(
+        db, table_name="product_variants", column_name="business_id"
+    )
+    has_variant_reorder_level = _table_has_column(
+        db, table_name="product_variants", column_name="reorder_level"
+    )
+    has_variant_is_published = _table_has_column(
+        db, table_name="product_variants", column_name="is_published"
     )
 
-    variants = db.execute(
-        select(ProductVariant)
-        .where(
-            ProductVariant.product_id == product_id,
-            ProductVariant.business_id == biz.id,
+    count_stmt = select(func.count(ProductVariant.id)).where(
+        ProductVariant.product_id == resolved_product_id,
+    )
+    if has_variant_business_id:
+        count_stmt = count_stmt.where(
+            or_(
+                ProductVariant.business_id == biz.id,
+                ProductVariant.business_id.is_(None),
+            )
         )
+    total = int(db.execute(count_stmt).scalar_one())
+
+    variant_columns = [
+        ProductVariant.id.label("id"),
+        ProductVariant.product_id.label("product_id"),
+        ProductVariant.size.label("size"),
+        ProductVariant.label.label("label"),
+        ProductVariant.sku.label("sku"),
+        ProductVariant.cost_price.label("cost_price"),
+        ProductVariant.selling_price.label("selling_price"),
+        ProductVariant.created_at.label("created_at"),
+    ]
+    if has_variant_business_id:
+        variant_columns.append(ProductVariant.business_id.label("business_id"))
+    if has_variant_reorder_level:
+        variant_columns.append(ProductVariant.reorder_level.label("reorder_level"))
+    if has_variant_is_published:
+        variant_columns.append(ProductVariant.is_published.label("is_published"))
+
+    variant_stmt = select(*variant_columns).where(
+        ProductVariant.product_id == resolved_product_id,
+    )
+    if has_variant_business_id:
+        variant_stmt = variant_stmt.where(
+            or_(
+                ProductVariant.business_id == biz.id,
+                ProductVariant.business_id.is_(None),
+            )
+        )
+    variants = db.execute(
+        variant_stmt
         .order_by(ProductVariant.created_at.desc())
         .offset(offset)
         .limit(limit)
-    ).scalars().all()
-    variant_ids = [v.id for v in variants]
+    ).mappings().all()
+    variant_ids = [row["id"] for row in variants]
 
     stock_by_variant: dict[str, int] = {}
     if variant_ids:
@@ -285,20 +340,20 @@ def list_product_variants(
 
     items = [
         VariantOut(
-            id=v.id,
-            product_id=v.product_id,
-            business_id=v.business_id,
-            size=v.size,
-            label=v.label,
-            sku=v.sku,
-            reorder_level=v.reorder_level,
-            cost_price=float(v.cost_price) if v.cost_price is not None else None,
-            selling_price=float(v.selling_price) if v.selling_price is not None else None,
-            is_published=v.is_published,
-            stock=stock_by_variant.get(v.id, 0),
-            created_at=v.created_at,
+            id=row["id"],
+            product_id=row["product_id"],
+            business_id=row.get("business_id") or biz.id,
+            size=row["size"],
+            label=row["label"],
+            sku=row["sku"],
+            reorder_level=int(row.get("reorder_level") or 0),
+            cost_price=float(row["cost_price"]) if row["cost_price"] is not None else None,
+            selling_price=float(row["selling_price"]) if row["selling_price"] is not None else None,
+            is_published=bool(row["is_published"]) if has_variant_is_published else False,
+            stock=stock_by_variant.get(row["id"], 0),
+            created_at=row["created_at"],
         )
-        for v in variants
+        for row in variants
     ]
     count = len(items)
     return VariantListOut(
