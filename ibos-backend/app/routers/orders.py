@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.api_docs import error_responses
@@ -206,6 +207,8 @@ def _convert_order_to_sale(
         kind="sale",
     )
     db.add(sale)
+    # Ensure the sale row exists before assigning order.sale_id (Postgres FK safety).
+    db.flush()
 
     for item in order_items:
         unit_price = to_money(item.unit_price)
@@ -468,6 +471,13 @@ def update_order_status(
             "converted_sale_id": converted_sale_id,
         },
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Order update failed due to related data constraints. Refresh and try again.",
+        ) from None
     db.refresh(order)
     return _order_out(order)
