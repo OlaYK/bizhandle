@@ -25,23 +25,27 @@ const profileSchema = z.object({
     .string()
     .min(3, "Username must be at least 3 characters")
     .regex(/^[a-zA-Z0-9_]+$/, "Use letters, numbers, or underscores"),
-  business_name: z.string().min(2, "Business name must be at least 2 characters"),
+  business_name: z
+    .string()
+    .min(2, "Business name must be at least 2 characters"),
   pending_order_timeout_minutes: z.coerce
     .number()
     .int("Use a whole number")
     .min(1, "Minimum is 1 minute")
-    .max(10080, "Maximum is 10080 minutes")
+    .max(10080, "Maximum is 10080 minutes"),
 });
 
 const passwordSchema = z
   .object({
     current_password: z.string().min(1, "Current password is required"),
-    new_password: z.string().min(8, "New password must be at least 8 characters"),
-    confirm_password: z.string().min(8, "Confirm the new password")
+    new_password: z
+      .string()
+      .min(8, "New password must be at least 8 characters"),
+    confirm_password: z.string().min(8, "Confirm the new password"),
   })
   .refine((value) => value.new_password === value.confirm_password, {
     path: ["confirm_password"],
-    message: "Passwords do not match"
+    message: "Passwords do not match",
   });
 
 type ProfileFormData = z.infer<typeof profileSchema>;
@@ -62,8 +66,8 @@ export function SettingsPage() {
       full_name: "",
       username: "",
       business_name: "",
-      pending_order_timeout_minutes: 60
-    }
+      pending_order_timeout_minutes: 60,
+    },
   });
 
   const passwordForm = useForm<PasswordFormData>({
@@ -71,13 +75,13 @@ export function SettingsPage() {
     defaultValues: {
       current_password: "",
       new_password: "",
-      confirm_password: ""
-    }
+      confirm_password: "",
+    },
   });
 
   const profileQuery = useQuery({
     queryKey: ["auth", "me"],
-    queryFn: authService.me
+    queryFn: authService.me,
   });
 
   useEffect(() => {
@@ -86,7 +90,8 @@ export function SettingsPage() {
       full_name: profileQuery.data.full_name ?? "",
       username: profileQuery.data.username ?? "",
       business_name: profileQuery.data.business_name ?? "",
-      pending_order_timeout_minutes: profileQuery.data.pending_order_timeout_minutes
+      pending_order_timeout_minutes:
+        profileQuery.data.pending_order_timeout_minutes,
     });
   }, [profileQuery.data, profileForm]);
 
@@ -97,22 +102,22 @@ export function SettingsPage() {
         full_name: profile.full_name ?? "",
         username: profile.username ?? "",
         business_name: profile.business_name ?? "",
-        pending_order_timeout_minutes: profile.pending_order_timeout_minutes
+        pending_order_timeout_minutes: profile.pending_order_timeout_minutes,
       });
       queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
       showToast({
         title: "Profile updated",
         description: "Your account details were saved.",
-        variant: "success"
+        variant: "success",
       });
     },
     onError: (error) => {
       showToast({
         title: "Profile update failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const changePasswordMutation = useMutation({
@@ -122,16 +127,16 @@ export function SettingsPage() {
       showToast({
         title: "Password updated",
         description: "All active refresh sessions are revoked.",
-        variant: "success"
+        variant: "success",
       });
     },
     onError: (error) => {
       showToast({
         title: "Password change failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const logoutMutation = useMutation({
@@ -143,7 +148,7 @@ export function SettingsPage() {
     onSettled: () => {
       clearAuth();
       navigate("/login", { replace: true });
-    }
+    },
   });
 
   const acceptInvitationMutation = useMutation({
@@ -156,16 +161,16 @@ export function SettingsPage() {
       showToast({
         title: "Invitation accepted",
         description: "You now have access to the invited workspace.",
-        variant: "success"
+        variant: "success",
       });
     },
     onError: (error) => {
       showToast({
         title: "Could not accept invitation",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   if (profileQuery.isLoading) {
@@ -201,8 +206,9 @@ export function SettingsPage() {
               full_name: values.full_name.trim(),
               username: values.username.trim(),
               business_name: values.business_name.trim(),
-              pending_order_timeout_minutes: values.pending_order_timeout_minutes
-            })
+              pending_order_timeout_minutes:
+                values.pending_order_timeout_minutes,
+            }),
           )}
         >
           <Input
@@ -230,10 +236,17 @@ export function SettingsPage() {
             label="Pending Order Timeout (mins)"
             type="number"
             {...profileForm.register("pending_order_timeout_minutes")}
-            error={profileForm.formState.errors.pending_order_timeout_minutes?.message}
+            error={
+              profileForm.formState.errors.pending_order_timeout_minutes
+                ?.message
+            }
           />
           <div className="md:col-span-2">
-            <Button type="submit" loading={updateProfileMutation.isPending} disabled={saveDisabled}>
+            <Button
+              type="submit"
+              loading={updateProfileMutation.isPending}
+              disabled={saveDisabled}
+            >
               Save Profile
             </Button>
           </div>
@@ -294,7 +307,8 @@ export function SettingsPage() {
               </button>
             </div>
             <p className="text-xs text-surface-500 dark:text-surface-300">
-              Active theme: <span className="font-semibold capitalize">{resolvedTheme}</span>
+              Active theme:{" "}
+              <span className="font-semibold capitalize">{resolvedTheme}</span>
             </p>
           </div>
         </Card>
@@ -305,19 +319,27 @@ export function SettingsPage() {
           </h3>
           <div className="mt-4 space-y-2 text-sm text-surface-600 dark:text-surface-200">
             <p>
-              <span className="font-semibold text-surface-700 dark:text-surface-100">Account ID:</span>{" "}
+              <span className="font-semibold text-surface-700 dark:text-surface-100">
+                Account ID:
+              </span>{" "}
               {profile.id}
             </p>
             <p>
-              <span className="font-semibold text-surface-700 dark:text-surface-100">Created:</span>{" "}
+              <span className="font-semibold text-surface-700 dark:text-surface-100">
+                Created:
+              </span>{" "}
               {formatDateTime(profile.created_at)}
             </p>
             <p>
-              <span className="font-semibold text-surface-700 dark:text-surface-100">Last Updated:</span>{" "}
+              <span className="font-semibold text-surface-700 dark:text-surface-100">
+                Last Updated:
+              </span>{" "}
               {formatDateTime(profile.updated_at)}
             </p>
             <p>
-              <span className="font-semibold text-surface-700 dark:text-surface-100">API Base URL:</span>{" "}
+              <span className="font-semibold text-surface-700 dark:text-surface-100">
+                API Base URL:
+              </span>{" "}
               <code className="rounded bg-surface-100 px-2 py-1 text-xs dark:bg-surface-800 dark:text-surface-100">
                 {import.meta.env.VITE_API_BASE_URL}
               </code>
@@ -346,8 +368,8 @@ export function SettingsPage() {
           onSubmit={passwordForm.handleSubmit((values) =>
             changePasswordMutation.mutate({
               current_password: values.current_password,
-              new_password: values.new_password
-            })
+              new_password: values.new_password,
+            }),
           )}
         >
           <Input
@@ -379,14 +401,19 @@ export function SettingsPage() {
           Access and Team Roles
         </h3>
         <p className="mt-2 text-sm text-surface-600 dark:text-surface-300">
-          Owner signup creates the business workspace. Team membership and roles are managed in Team Management.
+          Owner signup creates the business workspace. Team membership and roles
+          are managed in Team Management.
         </p>
         <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-surface-600 dark:text-surface-200">
           <li>Create owner account on the Register page.</li>
-          <li>Update owner details and business profile in this Settings page.</li>
+          <li>
+            Update owner details and business profile in this Settings page.
+          </li>
           <li>Open Team Management and add members by email.</li>
           <li>Assign roles: owner, admin, or staff.</li>
-          <li>Deactivate or reactivate access from Team Management when needed.</li>
+          <li>
+            Deactivate or reactivate access from Team Management when needed.
+          </li>
         </ol>
         <div className="mt-4 flex flex-wrap gap-2">
           <Link
@@ -396,10 +423,10 @@ export function SettingsPage() {
             Open Team Management
           </Link>
           <Link
-            to="/register"
+            to="/login"
             className="inline-flex rounded-lg bg-surface-100 px-3 py-2 text-xs font-semibold text-surface-800 transition hover:bg-surface-200 dark:bg-surface-800 dark:text-surface-100 dark:hover:bg-surface-700"
           >
-            Open Signup Page
+            Open Login Page
           </Link>
         </div>
       </Card>
@@ -409,7 +436,8 @@ export function SettingsPage() {
           Accept Team Invitation
         </h3>
         <p className="mt-2 text-sm text-surface-600 dark:text-surface-300">
-          If your account already exists, paste invitation token to join another business workspace.
+          If your account already exists, paste invitation token to join another
+          business workspace.
         </p>
         <div className="mt-4 grid gap-3 md:max-w-lg">
           <Input
@@ -422,7 +450,9 @@ export function SettingsPage() {
             type="button"
             loading={acceptInvitationMutation.isPending}
             disabled={!inviteTokenInput.trim()}
-            onClick={() => acceptInvitationMutation.mutate(inviteTokenInput.trim())}
+            onClick={() =>
+              acceptInvitationMutation.mutate(inviteTokenInput.trim())
+            }
           >
             Accept Invitation
           </Button>
@@ -446,12 +476,20 @@ export function SettingsPage() {
         </Button>
       </Card>
 
-      <Modal open={confirmLogout} title="Confirm Logout" onClose={() => setConfirmLogout(false)}>
+      <Modal
+        open={confirmLogout}
+        title="Confirm Logout"
+        onClose={() => setConfirmLogout(false)}
+      >
         <p className="text-sm text-surface-600 dark:text-surface-300">
           This will end your current session on this device.
         </p>
         <div className="mt-4 flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={() => setConfirmLogout(false)}>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setConfirmLogout(false)}
+          >
             Cancel
           </Button>
           <Button

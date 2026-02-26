@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { teamService } from "../api/services";
-import type { TeamInvitationCreateIn, TeamMemberCreateIn, TeamRole } from "../api/types";
+import type {
+  TeamInvitationCreateIn,
+  TeamMemberCreateIn,
+  TeamRole,
+} from "../api/types";
 import { EmptyState } from "../components/state/empty-state";
 import { ErrorState } from "../components/state/error-state";
 import { LoadingState } from "../components/state/loading-state";
@@ -41,13 +45,14 @@ export function TeamPage() {
       teamService.list({
         include_inactive: includeInactive,
         limit: pageSize,
-        offset
-      })
+        offset,
+      }),
   });
 
   const invitationsQuery = useQuery({
     queryKey: ["team", "invitations"],
-    queryFn: () => teamService.listInvitations({ status: "pending", limit: 100, offset: 0 })
+    queryFn: () =>
+      teamService.listInvitations({ status: "pending", limit: 100, offset: 0 }),
   });
 
   const addMutation = useMutation({
@@ -63,20 +68,25 @@ export function TeamPage() {
       showToast({
         title: "Could not add member",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const inviteMutation = useMutation({
-    mutationFn: (payload: TeamInvitationCreateIn) => teamService.createInvitation(payload),
+    mutationFn: (payload: TeamInvitationCreateIn) =>
+      teamService.createInvitation(payload),
     onSuccess: (response) => {
       setInviteEmail("");
       setInviteRole("staff");
       setInviteExpiryDays(7);
-      const inviteLink = `${window.location.origin}/register?invite=${encodeURIComponent(response.invitation_token)}`;
+      const inviteLink = `${window.location.origin}/login?invite=${encodeURIComponent(response.invitation_token)}`;
       setLatestInviteLink(inviteLink);
-      showToast({ title: "Invitation created", description: "Share the invite link with the team member.", variant: "success" });
+      showToast({
+        title: "Invitation created",
+        description: "Share the invite link with the team member.",
+        variant: "success",
+      });
       queryClient.invalidateQueries({ queryKey: ["team", "invitations"] });
       queryClient.invalidateQueries({ queryKey: ["audit-logs"] });
     },
@@ -84,13 +94,14 @@ export function TeamPage() {
       showToast({
         title: "Could not create invitation",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const revokeInvitationMutation = useMutation({
-    mutationFn: (invitationId: string) => teamService.revokeInvitation(invitationId),
+    mutationFn: (invitationId: string) =>
+      teamService.revokeInvitation(invitationId),
     onSuccess: () => {
       showToast({ title: "Invitation revoked", variant: "success" });
       queryClient.invalidateQueries({ queryKey: ["team", "invitations"] });
@@ -100,18 +111,23 @@ export function TeamPage() {
       showToast({
         title: "Could not revoke invitation",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ membershipId, payload }: { membershipId: string; payload: { role?: TeamRole; is_active?: boolean } }) =>
-      teamService.update(membershipId, payload),
+    mutationFn: ({
+      membershipId,
+      payload,
+    }: {
+      membershipId: string;
+      payload: { role?: TeamRole; is_active?: boolean };
+    }) => teamService.update(membershipId, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["team"] });
       queryClient.invalidateQueries({ queryKey: ["audit-logs"] });
-    }
+    },
   });
 
   const deactivateMutation = useMutation({
@@ -119,7 +135,7 @@ export function TeamPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["team"] });
       queryClient.invalidateQueries({ queryKey: ["audit-logs"] });
-    }
+    },
   });
 
   async function copyInviteLink(link: string) {
@@ -130,7 +146,7 @@ export function TeamPage() {
       showToast({
         title: "Copy failed",
         description: "Copy the invite link manually.",
-        variant: "error"
+        variant: "error",
       });
     }
   }
@@ -147,13 +163,13 @@ export function TeamPage() {
           showToast({
             title: "Role update failed",
             description: getApiErrorMessage(error),
-            variant: "error"
+            variant: "error",
           });
         },
         onSettled: () => {
           setBusyMembershipId(null);
-        }
-      }
+        },
+      },
     );
   }
 
@@ -168,12 +184,12 @@ export function TeamPage() {
           showToast({
             title: "Could not deactivate member",
             description: getApiErrorMessage(error),
-            variant: "error"
+            variant: "error",
           });
         },
         onSettled: () => {
           setBusyMembershipId(null);
-        }
+        },
       });
       return;
     }
@@ -188,13 +204,13 @@ export function TeamPage() {
           showToast({
             title: "Could not activate member",
             description: getApiErrorMessage(error),
-            variant: "error"
+            variant: "error",
           });
         },
         onSettled: () => {
           setBusyMembershipId(null);
-        }
-      }
+        },
+      },
     );
   }
 
@@ -216,7 +232,9 @@ export function TeamPage() {
   return (
     <div className="space-y-6">
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">Add Team Member</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Add Team Member
+        </h3>
         <form
           className="mt-4 grid gap-3 md:grid-cols-3"
           onSubmit={(event) => {
@@ -224,7 +242,7 @@ export function TeamPage() {
             if (!email.trim()) {
               showToast({
                 title: "Email is required",
-                variant: "error"
+                variant: "error",
               });
               return;
             }
@@ -248,7 +266,11 @@ export function TeamPage() {
             <option value="owner">Owner</option>
           </Select>
           <div className="md:pt-7">
-            <Button type="submit" loading={addMutation.isPending} className="w-full md:w-auto">
+            <Button
+              type="submit"
+              loading={addMutation.isPending}
+              className="w-full md:w-auto"
+            >
               Add Member
             </Button>
           </div>
@@ -256,22 +278,28 @@ export function TeamPage() {
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">Invite Team Member</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Invite Team Member
+        </h3>
         <p className="mt-1 text-sm text-surface-600">
-          Invite by email before account signup. Share generated link with the invitee.
+          Invite by email before account signup. Share generated link with the
+          invitee.
         </p>
         <form
           className="mt-4 grid gap-3 md:grid-cols-4"
           onSubmit={(event) => {
             event.preventDefault();
             if (!inviteEmail.trim()) {
-              showToast({ title: "Invite email is required", variant: "error" });
+              showToast({
+                title: "Invite email is required",
+                variant: "error",
+              });
               return;
             }
             inviteMutation.mutate({
               email: inviteEmail.trim(),
               role: inviteRole,
-              expires_in_days: inviteExpiryDays
+              expires_in_days: inviteExpiryDays,
             });
           }}
         >
@@ -297,10 +325,16 @@ export function TeamPage() {
             min={1}
             max={30}
             value={inviteExpiryDays}
-            onChange={(event) => setInviteExpiryDays(Number(event.target.value || "7"))}
+            onChange={(event) =>
+              setInviteExpiryDays(Number(event.target.value || "7"))
+            }
           />
           <div className="md:pt-7">
-            <Button type="submit" loading={inviteMutation.isPending} className="w-full md:w-auto">
+            <Button
+              type="submit"
+              loading={inviteMutation.isPending}
+              className="w-full md:w-auto"
+            >
               Create Invite
             </Button>
           </div>
@@ -308,10 +342,19 @@ export function TeamPage() {
 
         {latestInviteLink ? (
           <div className="mt-4 rounded-lg border border-surface-200 bg-surface-50 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-surface-500">Latest Invite Link</p>
-            <p className="mt-1 break-all text-sm text-surface-700">{latestInviteLink}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-surface-500">
+              Latest Invite Link
+            </p>
+            <p className="mt-1 break-all text-sm text-surface-700">
+              {latestInviteLink}
+            </p>
             <div className="mt-2">
-              <Button type="button" size="sm" variant="ghost" onClick={() => copyInviteLink(latestInviteLink)}>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => copyInviteLink(latestInviteLink)}
+              >
                 Copy Link
               </Button>
             </div>
@@ -319,26 +362,40 @@ export function TeamPage() {
         ) : null}
 
         <div className="mt-4">
-          <h4 className="text-sm font-semibold text-surface-700">Pending Invitations</h4>
+          <h4 className="text-sm font-semibold text-surface-700">
+            Pending Invitations
+          </h4>
           <p className="mt-1 text-xs text-surface-500">
             Invite links are only shown once at creation time for security.
           </p>
           {invitationsQuery.isLoading ? (
-            <p className="mt-2 text-sm text-surface-500">Loading invitations...</p>
+            <p className="mt-2 text-sm text-surface-500">
+              Loading invitations...
+            </p>
           ) : invitationsQuery.isError ? (
-            <p className="mt-2 text-sm text-red-600">Could not load invitations.</p>
+            <p className="mt-2 text-sm text-red-600">
+              Could not load invitations.
+            </p>
           ) : (invitationsQuery.data?.items.length ?? 0) === 0 ? (
-            <p className="mt-2 text-sm text-surface-500">No active invitations.</p>
+            <p className="mt-2 text-sm text-surface-500">
+              No active invitations.
+            </p>
           ) : (
             <div className="mt-2 space-y-2">
               {invitationsQuery.data!.items.map((invitation) => {
                 return (
-                  <div key={invitation.invitation_id} className="rounded-lg border border-surface-100 bg-surface-50 p-3">
+                  <div
+                    key={invitation.invitation_id}
+                    className="rounded-lg border border-surface-100 bg-surface-50 p-3"
+                  >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <p className="text-sm font-semibold text-surface-700">{invitation.email}</p>
+                        <p className="text-sm font-semibold text-surface-700">
+                          {invitation.email}
+                        </p>
                         <p className="text-xs text-surface-500">
-                          {invitation.role} • expires {formatDateTime(invitation.expires_at)}
+                          {invitation.role} • expires{" "}
+                          {formatDateTime(invitation.expires_at)}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -347,7 +404,11 @@ export function TeamPage() {
                           size="sm"
                           variant="danger"
                           loading={revokeInvitationMutation.isPending}
-                          onClick={() => revokeInvitationMutation.mutate(invitation.invitation_id)}
+                          onClick={() =>
+                            revokeInvitationMutation.mutate(
+                              invitation.invitation_id,
+                            )
+                          }
                         >
                           Revoke
                         </Button>
@@ -363,7 +424,9 @@ export function TeamPage() {
 
       <Card>
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h3 className="font-heading text-lg font-bold text-surface-800">Team Members</h3>
+          <h3 className="font-heading text-lg font-bold text-surface-800">
+            Team Members
+          </h3>
           <label className="inline-flex items-center gap-2 text-sm font-medium text-surface-700">
             <input
               type="checkbox"
@@ -375,24 +438,36 @@ export function TeamPage() {
         </div>
 
         {members.length === 0 ? (
-          <EmptyState title="No team members" description="Add members to collaborate on operations." />
+          <EmptyState
+            title="No team members"
+            description="Add members to collaborate on operations."
+          />
         ) : (
           <div className="space-y-2">
             <div className="space-y-2 sm:hidden">
               {members.map((member) => {
                 const busy = busyMembershipId === member.membership_id;
                 return (
-                  <article key={member.membership_id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+                  <article
+                    key={member.membership_id}
+                    className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+                  >
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-surface-700">{member.email}</p>
-                      <Badge variant={member.is_active ? "positive" : "negative"}>
+                      <p className="text-sm font-semibold text-surface-700">
+                        {member.email}
+                      </p>
+                      <Badge
+                        variant={member.is_active ? "positive" : "negative"}
+                      >
                         {member.is_active ? "active" : "inactive"}
                       </Badge>
                     </div>
                     <p className="mt-1 text-xs text-surface-500">
                       {member.full_name || member.username} - {member.role}
                     </p>
-                    <p className="mt-1 text-xs text-surface-500">{formatDateTime(member.created_at)}</p>
+                    <p className="mt-1 text-xs text-surface-500">
+                      {formatDateTime(member.created_at)}
+                    </p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {member.role !== "admin" ? (
                         <Button
@@ -400,7 +475,9 @@ export function TeamPage() {
                           size="sm"
                           variant="ghost"
                           loading={busy}
-                          onClick={() => updateMemberRole(member.membership_id, "admin")}
+                          onClick={() =>
+                            updateMemberRole(member.membership_id, "admin")
+                          }
                         >
                           Make Admin
                         </Button>
@@ -411,7 +488,9 @@ export function TeamPage() {
                           size="sm"
                           variant="ghost"
                           loading={busy}
-                          onClick={() => updateMemberRole(member.membership_id, "staff")}
+                          onClick={() =>
+                            updateMemberRole(member.membership_id, "staff")
+                          }
                         >
                           Make Staff
                         </Button>
@@ -422,7 +501,9 @@ export function TeamPage() {
                           size="sm"
                           variant="danger"
                           loading={busy}
-                          onClick={() => setMemberActiveState(member.membership_id, false)}
+                          onClick={() =>
+                            setMemberActiveState(member.membership_id, false)
+                          }
                         >
                           Deactivate
                         </Button>
@@ -432,7 +513,9 @@ export function TeamPage() {
                           size="sm"
                           variant="secondary"
                           loading={busy}
-                          onClick={() => setMemberActiveState(member.membership_id, true)}
+                          onClick={() =>
+                            setMemberActiveState(member.membership_id, true)
+                          }
                         >
                           Activate
                         </Button>
@@ -460,16 +543,26 @@ export function TeamPage() {
                     return (
                       <tr key={member.membership_id}>
                         <td className="px-2 py-2">
-                          <p className="font-semibold text-surface-700">{member.email}</p>
-                          <p className="text-xs text-surface-500">{member.full_name || member.username}</p>
+                          <p className="font-semibold text-surface-700">
+                            {member.email}
+                          </p>
+                          <p className="text-xs text-surface-500">
+                            {member.full_name || member.username}
+                          </p>
                         </td>
-                        <td className="px-2 py-2 capitalize text-surface-700">{member.role}</td>
+                        <td className="px-2 py-2 capitalize text-surface-700">
+                          {member.role}
+                        </td>
                         <td className="px-2 py-2">
-                          <Badge variant={member.is_active ? "positive" : "negative"}>
+                          <Badge
+                            variant={member.is_active ? "positive" : "negative"}
+                          >
                             {member.is_active ? "active" : "inactive"}
                           </Badge>
                         </td>
-                        <td className="px-2 py-2 text-surface-500">{formatDateTime(member.created_at)}</td>
+                        <td className="px-2 py-2 text-surface-500">
+                          {formatDateTime(member.created_at)}
+                        </td>
                         <td className="px-2 py-2">
                           <div className="flex flex-wrap gap-2">
                             {member.role !== "admin" ? (
@@ -478,7 +571,12 @@ export function TeamPage() {
                                 size="sm"
                                 variant="ghost"
                                 loading={busy}
-                                onClick={() => updateMemberRole(member.membership_id, "admin")}
+                                onClick={() =>
+                                  updateMemberRole(
+                                    member.membership_id,
+                                    "admin",
+                                  )
+                                }
                               >
                                 Admin
                               </Button>
@@ -489,7 +587,12 @@ export function TeamPage() {
                                 size="sm"
                                 variant="ghost"
                                 loading={busy}
-                                onClick={() => updateMemberRole(member.membership_id, "staff")}
+                                onClick={() =>
+                                  updateMemberRole(
+                                    member.membership_id,
+                                    "staff",
+                                  )
+                                }
                               >
                                 Staff
                               </Button>
@@ -500,7 +603,12 @@ export function TeamPage() {
                                 size="sm"
                                 variant="danger"
                                 loading={busy}
-                                onClick={() => setMemberActiveState(member.membership_id, false)}
+                                onClick={() =>
+                                  setMemberActiveState(
+                                    member.membership_id,
+                                    false,
+                                  )
+                                }
                               >
                                 Deactivate
                               </Button>
@@ -510,7 +618,12 @@ export function TeamPage() {
                                 size="sm"
                                 variant="secondary"
                                 loading={busy}
-                                onClick={() => setMemberActiveState(member.membership_id, true)}
+                                onClick={() =>
+                                  setMemberActiveState(
+                                    member.membership_id,
+                                    true,
+                                  )
+                                }
                               >
                                 Activate
                               </Button>
