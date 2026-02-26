@@ -9,6 +9,7 @@ import {
   LockKeyhole,
   LogOut,
   Megaphone,
+  Menu,
   Moon,
   Package,
   Radio,
@@ -18,9 +19,10 @@ import {
   User,
   Users,
   Workflow,
+  X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { authService } from "../../api/services";
 import { MoniDeskLogo } from "../brand/monidesk-logo";
@@ -50,7 +52,7 @@ const navItems = [
   { to: "/team", label: "Team", icon: Users },
   { to: "/audit-logs", label: "Audit", icon: ClipboardCheck },
   { to: "/privacy", label: "Privacy", icon: LockKeyhole },
-  { to: "/settings", label: "Settings", icon: Settings }
+  { to: "/settings", label: "Settings", icon: Settings },
 ];
 
 const titleByPath: Record<string, string> = {
@@ -76,16 +78,23 @@ const titleByPath: Record<string, string> = {
   "/audit-logs": "Audit Logs",
   "/privacy": "Security and Privacy",
   "/settings": "Settings",
-  "/storefront-settings": "Storefront Settings"
+  "/storefront-settings": "Storefront Settings",
 };
 
 export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const title = titleByPath[location.pathname] ?? "MoniDesk";
+  const mobileTitle = title.includes(" ") ? title.split(" ")[0] : title;
   const { resolvedTheme, toggleTheme } = useTheme();
   const { tokens, clearAuth } = useAuth();
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Close mobile sidebar on route change
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
   async function handleSignOut() {
     if (isSigningOut) return;
@@ -125,7 +134,7 @@ export function AppShell() {
                   "animate-fade-up flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition",
                   isActive
                     ? "bg-[linear-gradient(140deg,#203f62,#17314e)] text-white shadow-glow"
-                    : "text-surface-600 hover:bg-surface-100 hover:text-surface-800 hover:translate-x-1 dark:text-surface-200 dark:hover:bg-surface-700/40 dark:hover:text-surface-100"
+                    : "text-surface-600 hover:bg-surface-100 hover:text-surface-800 hover:translate-x-1 dark:text-surface-200 dark:hover:bg-surface-700/40 dark:hover:text-surface-100",
                 )
               }
               end={item.to === "/"}
@@ -147,12 +156,15 @@ export function AppShell() {
         </nav>
       </aside>
 
-      <div className="pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0 md:pl-64">
+      <div className="md:pl-64">
         <header className="safe-top sticky top-0 z-20 border-b border-surface-100 bg-white/85 backdrop-blur dark:border-surface-700 dark:bg-surface-900/80">
           <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6">
-            <p className="text-xs uppercase tracking-wide text-surface-500 dark:text-surface-300">Control Center</p>
+            {/* <p className="text-xs uppercase tracking-wide text-surface-500 dark:text-surface-300">Control Center</p> */}
             <div className="flex items-center justify-between gap-3">
-              <h2 className="font-heading text-xl font-bold text-surface-800 dark:text-surface-100">{title}</h2>
+              <h2 className="font-heading text-base md:text-xl font-bold text-surface-800 dark:text-surface-100">
+                <span className="md:hidden">{mobileTitle}</span>
+                <span className="hidden md:inline">{title}</span>
+              </h2>
               <div className="flex items-center gap-2">
                 <NavLink
                   to="/settings"
@@ -173,7 +185,18 @@ export function AppShell() {
                     <Moon className="h-4 w-4" />
                   )}
                 </button>
-                <MoniDeskLogo size="sm" showTagline={false} className="md:hidden" />
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-surface-200 bg-white text-xs font-semibold text-surface-700 transition hover:bg-surface-50 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100 dark:hover:bg-surface-700 md:hidden"
+                  aria-label="Toggle menu"
+                >
+                  {mobileMenuOpen ? (
+                    <X className="h-4 w-4" />
+                  ) : (
+                    <Menu className="h-4 w-4" />
+                  )}
+                </button>
               </div>
             </div>
           </div>
@@ -193,28 +216,70 @@ export function AppShell() {
         </AnimatePresence>
       </div>
 
-      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-surface-100 bg-white/95 backdrop-blur dark:border-surface-700 dark:bg-surface-900/95 md:hidden">
-        <div className="grid grid-cols-12">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                cn(
-                  "flex flex-col items-center gap-1 py-2 text-[10px] font-semibold transition",
-                  isActive
-                    ? "bg-surface-100/80 text-surface-800 dark:bg-surface-700/50 dark:text-surface-100"
-                    : "text-surface-400 hover:text-surface-700 dark:text-surface-400 dark:hover:text-surface-200"
-                )
-              }
-              end={item.to === "/"}
+      {/* Mobile sidebar overlay */}
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm md:hidden"
+              onClick={() => setMobileMenuOpen(false)}
+            />
+            <motion.aside
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+              className="fixed inset-y-0 left-0 z-50 w-64 overflow-y-auto border-r border-surface-100 bg-white/95 p-5 backdrop-blur dark:border-surface-700 dark:bg-surface-900/95 md:hidden"
             >
-              <item.icon className="h-4 w-4" />
-              {item.label}
-            </NavLink>
-          ))}
-        </div>
-      </nav>
+              <div className="mb-6 flex items-center justify-between">
+                <MoniDeskLogo size="md" />
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-surface-500 transition hover:bg-surface-100 hover:text-surface-700 dark:text-surface-300 dark:hover:bg-surface-700/40 dark:hover:text-surface-100"
+                  aria-label="Close menu"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <nav className="space-y-2">
+                {navItems.map((item, index) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    className={({ isActive }) =>
+                      cn(
+                        "animate-fade-up flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition",
+                        isActive
+                          ? "bg-[linear-gradient(140deg,#203f62,#17314e)] text-white shadow-glow"
+                          : "text-surface-600 hover:bg-surface-100 hover:text-surface-800 hover:translate-x-1 dark:text-surface-200 dark:hover:bg-surface-700/40 dark:hover:text-surface-100",
+                      )
+                    }
+                    end={item.to === "/"}
+                    style={{ animationDelay: `${index * 30}ms` }}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    {item.label}
+                  </NavLink>
+                ))}
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  disabled={isSigningOut}
+                  className="mt-4 flex w-full items-center gap-3 rounded-xl border border-red-300/60 bg-red-50/70 px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-70 dark:border-red-500/40 dark:bg-red-900/25 dark:text-red-200 dark:hover:bg-red-900/35"
+                >
+                  <LogOut className="h-4 w-4" />
+                  {isSigningOut ? "Signing out..." : "Logout"}
+                </button>
+              </nav>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
