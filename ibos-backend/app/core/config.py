@@ -13,6 +13,10 @@ class Settings(BaseSettings):
 
     # DATABASE
     database_url: str
+    db_pool_size: int = Field(default=10, ge=1, le=100)
+    db_max_overflow: int = Field(default=20, ge=0, le=200)
+    db_pool_timeout_seconds: int = Field(default=30, ge=1, le=300)
+    db_pool_recycle_seconds: int = Field(default=1800, ge=30, le=86_400)
 
     # AI
     ai_provider: str = "stub"

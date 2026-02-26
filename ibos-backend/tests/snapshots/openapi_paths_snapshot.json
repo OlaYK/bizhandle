@@ -132,6 +132,7 @@
   "/locations/{location_id}/stock-in",
   "/locations/{location_id}/stock/{variant_id}",
   "/orders",
+  "/orders/maintenance/auto-cancel-pending",
   "/orders/{order_id}/status",
   "/payment-webhooks/{provider}",
   "/pos/offline-orders/sync",

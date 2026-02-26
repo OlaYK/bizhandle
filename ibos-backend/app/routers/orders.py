@@ -23,6 +23,7 @@ from app.schemas.order import (
     OrderCreate,
     OrderCreateOut,
     OrderListOut,
+    OrderMaintenanceOut,
     OrderOut,
     OrderStatusUpdateIn,
 )
@@ -104,7 +105,7 @@ def _auto_cancel_expired_pending_orders(
     *,
     access: BusinessAccess,
     actor_user_id: str,
-) -> int:
+) -> tuple[int, int, datetime]:
     timeout_minutes = _pending_timeout_minutes(access)
     cutoff_at = datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes)
     pending_orders = db.execute(
@@ -132,7 +133,7 @@ def _auto_cancel_expired_pending_orders(
                 "cutoff_at": cutoff_at.isoformat(),
             },
         )
-    return len(pending_orders)
+    return len(pending_orders), timeout_minutes, cutoff_at
 
 
 def _variant_business_map(db: Session, variant_ids: list[str]) -> dict[str, str]:
@@ -339,7 +340,6 @@ def list_orders(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     access: BusinessAccess = Depends(require_business_roles("owner", "admin", "staff")),
-    actor: User = Depends(get_current_user),
 ):
     if start_date and end_date and end_date < start_date:
         raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
@@ -347,14 +347,6 @@ def list_orders(
     normalized_status = _normalize_order_status(status) if status else None
     normalized_channel = _normalize_order_channel(channel) if channel else None
     normalized_customer_id = customer_id.strip() if customer_id and customer_id.strip() else None
-
-    cancelled_count = _auto_cancel_expired_pending_orders(
-        db,
-        access=access,
-        actor_user_id=actor.id,
-    )
-    if cancelled_count > 0:
-        db.commit()
 
     count_stmt = select(func.count(Order.id)).where(Order.business_id == access.business.id)
     data_stmt = select(Order).where(Order.business_id == access.business.id)
@@ -399,6 +391,31 @@ def list_orders(
     )
 
 
+@router.post(
+    "/maintenance/auto-cancel-pending",
+    response_model=OrderMaintenanceOut,
+    summary="Auto-cancel expired pending orders",
+    responses=error_responses(401, 403, 422, 500),
+)
+def run_pending_order_auto_cancel(
+    db: Session = Depends(get_db),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin")),
+    actor: User = Depends(get_current_user),
+):
+    cancelled_count, timeout_minutes, cutoff_at = _auto_cancel_expired_pending_orders(
+        db,
+        access=access,
+        actor_user_id=actor.id,
+    )
+    if cancelled_count > 0:
+        db.commit()
+    return OrderMaintenanceOut(
+        cancelled_count=cancelled_count,
+        timeout_minutes=timeout_minutes,
+        cutoff_at=cutoff_at,
+    )
+
+
 @router.patch(
     "/{order_id}/status",
     response_model=OrderOut,
@@ -412,14 +429,6 @@ def update_order_status(
     access: BusinessAccess = Depends(require_business_roles("owner", "admin", "staff")),
     actor: User = Depends(get_current_user),
 ):
-    cancelled_count = _auto_cancel_expired_pending_orders(
-        db,
-        access=access,
-        actor_user_id=actor.id,
-    )
-    if cancelled_count > 0:
-        db.commit()
-
     order = db.execute(
         select(Order).where(Order.id == order_id, Order.business_id == access.business.id)
     ).scalar_one_or_none()

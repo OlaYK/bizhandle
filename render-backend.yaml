@@ -5,7 +5,8 @@ services:
     plan: free
     rootDir: ibos-backend
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: export PYTHONPATH="${PYTHONPATH}:."; DATABASE_URL=$(echo "$DATABASE_URL" | sed -e 's|^postgres://|postgresql+psycopg://|' -e 's|^postgresql://|postgresql+psycopg://|'); export DATABASE_URL; alembic upgrade head && python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    preDeployCommand: DATABASE_URL=$(echo "$DATABASE_URL" | sed -e 's|^postgres://|postgresql+psycopg://|' -e 's|^postgresql://|postgresql+psycopg://|'); export DATABASE_URL; alembic upgrade head
+    startCommand: export PYTHONPATH="${PYTHONPATH}:."; DATABASE_URL=$(echo "$DATABASE_URL" | sed -e 's|^postgres://|postgresql+psycopg://|' -e 's|^postgresql://|postgresql+psycopg://|'); export DATABASE_URL; python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION

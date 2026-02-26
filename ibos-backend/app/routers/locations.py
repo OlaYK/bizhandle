@@ -672,28 +672,56 @@ def list_location_low_stock(
     db: Session = Depends(get_db),
     access: BusinessAccess = Depends(require_business_roles("owner", "admin", "staff")),
 ):
-    locations_query = select(Location).where(Location.business_id == access.business.id, Location.is_active.is_(True))
+    locations_query = select(Location.id).where(
+        Location.business_id == access.business.id,
+        Location.is_active.is_(True),
+    )
     if location_id:
         locations_query = locations_query.where(Location.id == location_id)
-    locations = db.execute(locations_query).scalars().all()
+    location_ids = db.execute(locations_query).scalars().all()
+    if not location_ids:
+        return LocationLowStockListOut(
+            items=[],
+            pagination=PaginationMeta(total=0, limit=limit, offset=offset, count=0, has_next=False),
+        )
+
+    variant_rows = db.execute(
+        select(ProductVariant.id, ProductVariant.reorder_level).where(ProductVariant.business_id == access.business.id)
+    ).all()
+    if not variant_rows:
+        return LocationLowStockListOut(
+            items=[],
+            pagination=PaginationMeta(total=0, limit=limit, offset=offset, count=0, has_next=False),
+        )
+
+    variant_ids = [variant_id for variant_id, _reorder_level in variant_rows]
+    stock_rows = db.execute(
+        select(
+            LocationInventoryLedger.location_id,
+            LocationInventoryLedger.variant_id,
+            func.coalesce(func.sum(LocationInventoryLedger.qty_delta), 0),
+        )
+        .where(
+            LocationInventoryLedger.business_id == access.business.id,
+            LocationInventoryLedger.location_id.in_(location_ids),
+            LocationInventoryLedger.variant_id.in_(variant_ids),
+        )
+        .group_by(LocationInventoryLedger.location_id, LocationInventoryLedger.variant_id)
+    ).all()
+    stock_by_pair = {
+        (row_location_id, row_variant_id): int(stock_qty)
+        for row_location_id, row_variant_id, stock_qty in stock_rows
+    }
 
     items: list[LocationLowStockItemOut] = []
-    for location in locations:
-        variant_rows = db.execute(
-            select(ProductVariant.id, ProductVariant.reorder_level).where(ProductVariant.business_id == access.business.id)
-        ).all()
+    for location_row_id in location_ids:
         for variant_id, reorder_level in variant_rows:
-            stock = get_location_variant_stock(
-                db,
-                business_id=access.business.id,
-                location_id=location.id,
-                variant_id=variant_id,
-            )
+            stock = stock_by_pair.get((location_row_id, variant_id), 0)
             threshold_value = reorder_level if reorder_level > 0 else threshold
             if stock <= threshold_value:
                 items.append(
                     LocationLowStockItemOut(
-                        location_id=location.id,
+                        location_id=location_row_id,
                         variant_id=variant_id,
                         reorder_level=threshold_value,
                         stock=stock,

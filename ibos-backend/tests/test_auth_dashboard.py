@@ -1623,6 +1623,13 @@ def test_orders_pending_timeout_auto_cancels_stale_order(test_context):
     finally:
         db.close()
 
+    maintenance_run = client.post(
+        "/orders/maintenance/auto-cancel-pending",
+        headers=_auth_headers(token),
+    )
+    assert maintenance_run.status_code == 200, maintenance_run.text
+    assert maintenance_run.json()["cancelled_count"] >= 1
+
     mark_paid = client.patch(
         f"/orders/{order_id}/status",
         json={"status": "paid"},

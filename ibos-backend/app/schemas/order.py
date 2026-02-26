@@ -92,3 +92,9 @@ class OrderListOut(BaseModel):
     channel: SalesChannel | None = None
     customer_id: str | None = None
     items: list[OrderOut]
+
+
+class OrderMaintenanceOut(BaseModel):
+    cancelled_count: int
+    timeout_minutes: int
+    cutoff_at: datetime
