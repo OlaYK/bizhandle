@@ -28,6 +28,7 @@ from app.schemas.product import (
 from app.services.audit_service import log_audit_event
 
 router = APIRouter(prefix="/products", tags=["products"])
+MAX_PRODUCT_PAGE_SIZE = 500
 
 
 def _table_has_column(db: Session, *, table_name: str, column_name: str) -> bool:
@@ -165,7 +166,7 @@ def create_variant(
     },
 )
 def list_products(
-    limit: int = Query(default=50, ge=1, le=200, description="Page size"),
+    limit: int = Query(default=50, ge=1, le=MAX_PRODUCT_PAGE_SIZE, description="Page size"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     db: Session = Depends(get_db),
     biz=Depends(get_current_business),
@@ -255,7 +256,7 @@ def list_products(
 )
 def list_product_variants(
     product_id: str,
-    limit: int = Query(default=50, ge=1, le=200, description="Page size"),
+    limit: int = Query(default=50, ge=1, le=MAX_PRODUCT_PAGE_SIZE, description="Page size"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     db: Session = Depends(get_db),
     biz=Depends(get_current_business),

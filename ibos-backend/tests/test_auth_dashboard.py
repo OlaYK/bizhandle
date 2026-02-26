@@ -967,6 +967,23 @@ def test_inventory_adjustment_and_low_stock_listing(test_context):
     assert variants_res.json()["items"][0]["reorder_level"] == 4
 
 
+def test_products_variants_list_accepts_limit_300_for_frontend_prefetch(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="product-variants-limit-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    product_id, _variant_id = _create_product_with_variant(client, token)
+
+    variants_res = client.get(
+        f"/products/{product_id}/variants?limit=300&offset=0",
+        headers=_auth_headers(token),
+    )
+    assert variants_res.status_code == 200, variants_res.text
+    assert variants_res.json()["pagination"]["limit"] == 300
+
+
 def test_team_owner_can_manage_members_and_view_audit_logs(test_context):
     client, session_local = test_context
 
