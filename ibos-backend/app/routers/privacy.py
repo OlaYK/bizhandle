@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime, time, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
@@ -25,6 +25,7 @@ from app.schemas.privacy import (
     RolePermissionOut,
 )
 from app.services.audit_service import log_audit_event
+from app.services.pdf_export_service import build_text_pdf
 
 router = APIRouter(prefix="/privacy", tags=["privacy"])
 
@@ -39,6 +40,51 @@ def _customer_or_404(db: Session, *, business_id: str, customer_id: str) -> Cust
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
     return customer
+
+
+def _build_customer_pii_export(
+    *,
+    customer: Customer,
+    orders: list[Order],
+    invoices: list[Invoice],
+) -> CustomerPiiExportOut:
+    return CustomerPiiExportOut(
+        customer_id=customer.id,
+        exported_at=datetime.now(timezone.utc),
+        customer={
+            "id": customer.id,
+            "name": customer.name,
+            "phone": customer.phone,
+            "email": customer.email,
+            "note": customer.note,
+            "created_at": customer.created_at.isoformat() if customer.created_at else None,
+            "updated_at": customer.updated_at.isoformat() if customer.updated_at else None,
+        },
+        orders=[
+            CustomerPiiOrderOut(
+                id=row.id,
+                status=row.status,
+                channel=row.channel,
+                total_amount=float(to_money(row.total_amount)),
+                created_at=row.created_at,
+            )
+            for row in orders
+        ],
+        invoices=[
+            CustomerPiiInvoiceOut(
+                id=row.id,
+                status=row.status,
+                currency=row.currency,
+                total_amount=float(to_money(row.total_amount)),
+                amount_paid=float(to_money(row.amount_paid)),
+                issue_date=datetime.combine(row.issue_date, time.min, tzinfo=timezone.utc)
+                if row.issue_date
+                else None,
+                created_at=row.created_at,
+            )
+            for row in invoices
+        ],
+    )
 
 
 @router.get(
@@ -97,42 +143,66 @@ def export_customer_pii(
     )
     db.commit()
 
-    return CustomerPiiExportOut(
-        customer_id=customer.id,
-        exported_at=datetime.now(timezone.utc),
-        customer={
-            "id": customer.id,
-            "name": customer.name,
-            "phone": customer.phone,
-            "email": customer.email,
-            "note": customer.note,
-            "created_at": customer.created_at.isoformat() if customer.created_at else None,
-            "updated_at": customer.updated_at.isoformat() if customer.updated_at else None,
-        },
-        orders=[
-            CustomerPiiOrderOut(
-                id=row.id,
-                status=row.status,
-                channel=row.channel,
-                total_amount=float(to_money(row.total_amount)),
-                created_at=row.created_at,
-            )
-            for row in orders
-        ],
-        invoices=[
-            CustomerPiiInvoiceOut(
-                id=row.id,
-                status=row.status,
-                currency=row.currency,
-                total_amount=float(to_money(row.total_amount)),
-                amount_paid=float(to_money(row.amount_paid)),
-                issue_date=datetime.combine(row.issue_date, time.min, tzinfo=timezone.utc)
-                if row.issue_date
-                else None,
-                created_at=row.created_at,
-            )
-            for row in invoices
-        ],
+    return _build_customer_pii_export(
+        customer=customer,
+        orders=orders,
+        invoices=invoices,
+    )
+
+
+@router.get(
+    "/customers/{customer_id}/export/download",
+    summary="Download customer PII export as PDF",
+    responses=error_responses(401, 403, 404, 500),
+)
+def download_customer_pii_export_pdf(
+    customer_id: str,
+    db: Session = Depends(get_db),
+    access: BusinessAccess = Depends(require_permission("privacy.customer.export")),
+    actor: User = Depends(get_current_user),
+):
+    payload = export_customer_pii(
+        customer_id=customer_id,
+        db=db,
+        access=access,
+        actor=actor,
+    )
+
+    customer_data = payload.customer or {}
+    lines = [
+        f"Customer ID: {payload.customer_id}",
+        f"Name: {customer_data.get('name') or '-'}",
+        f"Email: {customer_data.get('email') or '-'}",
+        f"Phone: {customer_data.get('phone') or '-'}",
+        f"Orders Count: {len(payload.orders)}",
+        f"Invoices Count: {len(payload.invoices)}",
+        "",
+        "Recent Orders:",
+    ]
+
+    for order in payload.orders[:10]:
+        lines.append(
+            f"- {order.id[:8]}... | {order.status} | {order.channel} | {order.total_amount:.2f}"
+        )
+
+    lines.append("")
+    lines.append("Recent Invoices:")
+    for invoice in payload.invoices[:10]:
+        lines.append(
+            f"- {invoice.id[:8]}... | {invoice.status} | {invoice.currency} | "
+            f"{invoice.total_amount:.2f} (paid {invoice.amount_paid:.2f})"
+        )
+
+    pdf_bytes = build_text_pdf(
+        title="MoniDesk Customer PII Export",
+        lines=lines,
+        generated_at=payload.exported_at,
+    )
+    filename = f"customer-pii-export-{payload.customer_id[:8]}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

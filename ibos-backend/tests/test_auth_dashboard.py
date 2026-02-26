@@ -458,6 +458,7 @@ def test_auth_profile_read_and_update(test_context):
     assert me_payload["email"] == "profile-owner@example.com"
     assert me_payload["full_name"] == "Profile Owner"
     assert me_payload["business_name"] == "Profile Owner Biz"
+    assert me_payload["base_currency"] == "USD"
     assert me_payload["pending_order_timeout_minutes"] == 60
     old_username = me_payload["username"]
 
@@ -467,6 +468,7 @@ def test_auth_profile_read_and_update(test_context):
             "full_name": "Profile Owner Updated",
             "username": "profile_owner_updated",
             "business_name": "Profile Labs",
+            "base_currency": "NGN",
             "pending_order_timeout_minutes": 45,
         },
         headers=_auth_headers(token),
@@ -476,6 +478,7 @@ def test_auth_profile_read_and_update(test_context):
     assert updated_payload["full_name"] == "Profile Owner Updated"
     assert updated_payload["username"] == "profile_owner_updated"
     assert updated_payload["business_name"] == "Profile Labs"
+    assert updated_payload["base_currency"] == "NGN"
     assert updated_payload["pending_order_timeout_minutes"] == 45
 
     old_username_login = client.post(
@@ -513,6 +516,19 @@ def test_auth_profile_update_rejects_existing_username(test_context):
     )
     assert conflict_res.status_code == 400, conflict_res.text
     assert "Username already taken" in conflict_res.text
+
+
+def test_auth_currency_catalog_endpoint(test_context):
+    client, _ = test_context
+
+    register_res = _register(client, email="currency-owner@example.com")
+    assert register_res.status_code == 200, register_res.text
+    token = register_res.json()["access_token"]
+
+    currencies_res = client.get("/auth/currencies", headers=_auth_headers(token))
+    assert currencies_res.status_code == 200, currencies_res.text
+    codes = {item["code"] for item in currencies_res.json()["items"]}
+    assert {"USD", "NGN", "EUR", "GBP", "JPY"}.issubset(codes)
 
 
 def test_auth_login_rate_limited_after_repeated_failures(test_context):
@@ -3115,6 +3131,56 @@ def test_locations_stock_transfer_scope_and_order_allocation_flow(test_context):
     assert any(item["location_id"] == location_b for item in low_stock.json()["items"])
 
 
+def test_locations_deactivate_activate_and_alias_update_flow(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="locations-toggle-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    create_location = client.post(
+        "/locations",
+        json={"name": "Toggle Branch", "code": "TOGGLE"},
+        headers=_auth_headers(token),
+    )
+    assert create_location.status_code == 200, create_location.text
+    location_id = create_location.json()["id"]
+    assert create_location.json()["is_active"] is True
+
+    # Frontend sends camelCase field name; backend should accept it.
+    deactivate_via_patch = client.patch(
+        f"/locations/{location_id}",
+        json={"isActive": False},
+        headers=_auth_headers(token),
+    )
+    assert deactivate_via_patch.status_code == 200, deactivate_via_patch.text
+    assert deactivate_via_patch.json()["is_active"] is False
+
+    list_active_only = client.get("/locations", headers=_auth_headers(token))
+    assert list_active_only.status_code == 200, list_active_only.text
+    assert all(item["id"] != location_id for item in list_active_only.json()["items"])
+
+    activate = client.post(
+        f"/locations/{location_id}/activate",
+        headers=_auth_headers(token),
+    )
+    assert activate.status_code == 200, activate.text
+    assert activate.json()["is_active"] is True
+
+    deactivate = client.post(
+        f"/locations/{location_id}/deactivate",
+        headers=_auth_headers(token),
+    )
+    assert deactivate.status_code == 200, deactivate.text
+    assert deactivate.json()["is_active"] is False
+
+    list_with_inactive = client.get("/locations?include_inactive=true", headers=_auth_headers(token))
+    assert list_with_inactive.status_code == 200, list_with_inactive.text
+    located = next((item for item in list_with_inactive.json()["items"] if item["id"] == location_id), None)
+    assert located is not None
+    assert located["is_active"] is False
+
+
 def test_integrations_vault_lifecycle_outbox_and_messaging_flow(test_context):
     client, _ = test_context
 
@@ -3798,6 +3864,14 @@ def test_analytics_pos_offline_and_privacy_hardening_flow(test_context):
     )
     assert pii_export.status_code == 200, pii_export.text
     assert pii_export.json()["customer"]["email"] == "privacy.customer@example.com"
+    pii_export_pdf = client.get(
+        f"/privacy/customers/{customer_id}/export/download",
+        headers=_auth_headers(token),
+    )
+    assert pii_export_pdf.status_code == 200, pii_export_pdf.text
+    assert pii_export_pdf.headers["content-type"].startswith("application/pdf")
+    assert pii_export_pdf.headers["content-disposition"].endswith(".pdf\"")
+    assert pii_export_pdf.content.startswith(b"%PDF")
 
     pii_delete = client.delete(
         f"/privacy/customers/{customer_id}",
@@ -4269,6 +4343,14 @@ def test_dashboard_credit_export_guardrails_and_improvement_plan(test_context):
     assert "credit_profile_v2" in export_payload["bundle_sections"]
     assert len(export_payload["statement_periods"]) >= 1
     assert len(export_payload["score_explanation"]) >= 1
+    export_pack_pdf = client.get(
+        "/dashboard/credit-export-pack/download?window_days=30&history_days=120&horizon_days=90",
+        headers=_auth_headers(token),
+    )
+    assert export_pack_pdf.status_code == 200, export_pack_pdf.text
+    assert export_pack_pdf.headers["content-type"].startswith("application/pdf")
+    assert export_pack_pdf.headers["content-disposition"].endswith(".pdf\"")
+    assert export_pack_pdf.content.startswith(b"%PDF")
 
     policy_get = client.get("/dashboard/finance-guardrails/policy", headers=_auth_headers(token))
     assert policy_get.status_code == 200, policy_get.text

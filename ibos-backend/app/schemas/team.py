@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, model_validator
 
@@ -122,6 +123,8 @@ class TeamInvitationOut(BaseModel):
 
 class TeamInvitationCreateOut(TeamInvitationOut):
     invitation_token: str
+    email_delivery_status: Literal["sent", "not_configured", "failed"] = "not_configured"
+    email_delivery_detail: str | None = None
 
 
 class TeamInvitationListOut(BaseModel):

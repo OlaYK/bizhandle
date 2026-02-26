@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.api_docs import error_responses
 from app.core.config import settings
+from app.core.currencies import COMMON_CURRENCY_CATALOG, normalize_currency_code
 from app.core.deps import get_db
 from app.core.google_auth import verify_google_identity_token
 from app.core.id_utils import generate_short_token
@@ -29,6 +30,8 @@ from app.models.team_invitation import TeamInvitation
 from app.models.user import User
 from app.schemas.auth import (
     ChangePasswordIn,
+    CurrencyOptionListOut,
+    CurrencyOptionOut,
     GoogleAuthIn,
     LoginIn,
     LogoutIn,
@@ -194,6 +197,7 @@ def _profile_out(user: User, business: Business) -> UserProfileOut:
         username=user.username,
         full_name=user.full_name,
         business_name=business.name,
+        base_currency=normalize_currency_code(business.base_currency or "USD"),
         pending_order_timeout_minutes=(
             business.pending_order_timeout_minutes or settings.orders_pending_timeout_minutes
         ),
@@ -543,6 +547,11 @@ def update_my_profile(
             raise HTTPException(status_code=403, detail="Insufficient role for business update")
         business.name = payload.business_name
 
+    if payload.base_currency is not None:
+        if access.role not in {"owner", "admin"}:
+            raise HTTPException(status_code=403, detail="Insufficient role for business update")
+        business.base_currency = normalize_currency_code(payload.base_currency)
+
     if payload.pending_order_timeout_minutes is not None:
         if access.role not in {"owner", "admin"}:
             raise HTTPException(status_code=403, detail="Insufficient role for business update")
@@ -553,6 +562,20 @@ def update_my_profile(
     db.refresh(business)
 
     return _profile_out(user, business)
+
+
+@router.get(
+    "/currencies",
+    response_model=CurrencyOptionListOut,
+    summary="List common currency options",
+    responses=error_responses(401, 500),
+)
+def list_supported_currencies(
+    _user: User = Depends(get_current_user),
+):
+    return CurrencyOptionListOut(
+        items=[CurrencyOptionOut(code=code, name=name) for code, name in COMMON_CURRENCY_CATALOG]
+    )
 
 
 @router.post(

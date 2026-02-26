@@ -1,11 +1,13 @@
 import uuid
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.api_docs import error_responses
+from app.core.config import settings
 from app.core.deps import get_db
 from app.core.permissions import require_business_roles
 from app.core.security_current import BusinessAccess, get_current_user
@@ -25,6 +27,7 @@ from app.schemas.team import (
     TeamMemberUpdateIn,
 )
 from app.services.audit_service import log_audit_event
+from app.services.email_service import send_team_invitation_email
 from app.services.team_invitation_service import (
     generate_team_invitation_token,
     hash_team_invitation_token,
@@ -237,6 +240,22 @@ def create_team_invitation(
     )
     db.add(invitation)
 
+    invite_link: str | None = None
+    base_url = (settings.team_invite_web_base_url or "").strip().rstrip("/")
+    if base_url:
+        invite_link = f"{base_url}/register?invite={quote(raw_token)}"
+
+    inviter_name = (actor.full_name or actor.username or actor.email).strip()
+    email_delivery = send_team_invitation_email(
+        recipient_email=normalized_email,
+        business_name=access.business.name,
+        inviter_name=inviter_name,
+        invitee_role=requested_role,
+        invitation_token=raw_token,
+        expires_at=invitation.expires_at,
+        invite_link=invite_link,
+    )
+
     log_audit_event(
         db,
         business_id=access.business.id,
@@ -248,6 +267,8 @@ def create_team_invitation(
             "email": normalized_email,
             "role": requested_role,
             "expires_in_days": payload.expires_in_days,
+            "email_delivery_status": email_delivery.status,
+            "email_delivery_detail": email_delivery.detail,
         },
     )
     db.commit()
@@ -255,6 +276,8 @@ def create_team_invitation(
     return TeamInvitationCreateOut(
         **_invitation_out(invitation).model_dump(),
         invitation_token=raw_token,
+        email_delivery_status=email_delivery.status,
+        email_delivery_detail=email_delivery.detail,
     )
 
 

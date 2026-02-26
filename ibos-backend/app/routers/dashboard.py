@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from app.core.api_docs import error_responses
@@ -34,6 +34,7 @@ from app.services.credit_service import (
     update_finance_guardrail_policy,
 )
 from app.services.dashboard_service import get_customer_insights, get_summary
+from app.services.pdf_export_service import build_text_pdf
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -241,6 +242,61 @@ def credit_export_pack(
         window_days=window_days,
         history_days=history_days,
         horizon_days=horizon_days,
+    )
+
+
+@router.get(
+    "/credit-export-pack/download",
+    summary="Download lender export pack as PDF",
+    responses=error_responses(401, 403, 422, 500),
+)
+def credit_export_pack_download(
+    window_days: int = Query(default=30, ge=14, le=90),
+    history_days: int = Query(default=120, ge=30, le=365),
+    horizon_days: int = Query(default=90, ge=30, le=180),
+    db: Session = Depends(get_db),
+    access: BusinessAccess = Depends(require_permission("credit.export_pack.generate")),
+):
+    pack = generate_lender_export_pack(
+        db,
+        business_id=access.business.id,
+        window_days=window_days,
+        history_days=history_days,
+        horizon_days=horizon_days,
+    )
+
+    lines: list[str] = [
+        f"Pack ID: {pack.pack_id}",
+        f"Business ID: {access.business.id}",
+        f"Window Days: {pack.window_days}",
+        f"Horizon Days: {pack.horizon_days}",
+        f"Overall Score: {pack.profile.overall_score} ({pack.profile.grade})",
+        f"Current Net Sales: {pack.profile.current_net_sales:.2f}",
+        f"Current Expenses: {pack.profile.current_expenses_total:.2f}",
+        f"Current Net Cashflow: {pack.profile.current_net_cashflow:.2f}",
+        "",
+        "Top Factors:",
+    ]
+    for factor in pack.profile.factors[:8]:
+        lines.append(
+            f"- {factor.label}: score={factor.score:.2f}, weight={factor.weight:.2f}, trend={factor.trend}"
+        )
+
+    lines.append("")
+    lines.append("Recommendations:")
+    for recommendation in pack.recommendations[:10]:
+        lines.append(f"- {recommendation}")
+
+    pdf_bytes = build_text_pdf(
+        title="MoniDesk Lender Export Pack",
+        lines=lines,
+        generated_at=pack.generated_at,
+    )
+    filename = f"lender-pack-{pack.pack_id[:8]}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

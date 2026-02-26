@@ -13,7 +13,13 @@ from app.core.security_current import BusinessAccess, get_current_business, get_
 from app.models.expense import Expense
 from app.models.user import User
 from app.schemas.common import PaginationMeta
-from app.schemas.expense import ExpenseCreate, ExpenseCreateOut, ExpenseListOut, ExpenseOut
+from app.schemas.expense import (
+    ExpenseCreate,
+    ExpenseCreateOut,
+    ExpenseListOut,
+    ExpenseOut,
+    ExpenseUpdate,
+)
 from app.services.audit_service import log_audit_event
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
@@ -51,6 +57,64 @@ def create_expense(
     )
     db.commit()
     return ExpenseCreateOut(id=e.id)
+
+
+@router.patch(
+    "/{expense_id}",
+    response_model=ExpenseOut,
+    summary="Update expense",
+    responses=error_responses(400, 401, 403, 404, 422, 500),
+)
+def update_expense(
+    expense_id: str,
+    payload: ExpenseUpdate,
+    db: Session = Depends(get_db),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin")),
+    actor: User = Depends(get_current_user),
+):
+    biz = access.business
+    expense = db.execute(
+        select(Expense).where(
+            Expense.id == expense_id,
+            Expense.business_id == biz.id,
+        )
+    ).scalar_one_or_none()
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+
+    changes: dict[str, object] = {}
+    if payload.category is not None:
+        expense.category = payload.category
+        changes["category"] = payload.category
+    if payload.amount is not None:
+        normalized = to_money(payload.amount)
+        expense.amount = normalized
+        changes["amount"] = float(normalized)
+    if "note" in payload.model_fields_set:
+        expense.note = payload.note
+        changes["note"] = payload.note
+
+    if not changes:
+        raise HTTPException(status_code=400, detail="No update fields provided")
+
+    log_audit_event(
+        db,
+        business_id=biz.id,
+        actor_user_id=actor.id,
+        action="expense.update",
+        target_type="expense",
+        target_id=expense.id,
+        metadata_json=changes,
+    )
+    db.commit()
+    db.refresh(expense)
+    return ExpenseOut(
+        id=expense.id,
+        category=expense.category,
+        amount=float(to_money(expense.amount)),
+        note=expense.note,
+        created_at=expense.created_at,
+    )
 
 
 @router.get(

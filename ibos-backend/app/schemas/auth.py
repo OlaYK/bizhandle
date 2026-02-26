@@ -225,6 +225,7 @@ class UserProfileOut(BaseModel):
     username: str
     full_name: Optional[str] = None
     business_name: Optional[str] = None
+    base_currency: str
     pending_order_timeout_minutes: int
     created_at: datetime
     updated_at: datetime
@@ -237,6 +238,7 @@ class UserProfileOut(BaseModel):
                 "username": "jane_owner",
                 "full_name": "Jane Owner",
                 "business_name": "Jane Fabrics",
+                "base_currency": "USD",
                 "pending_order_timeout_minutes": 60,
                 "created_at": "2026-02-01T12:00:00Z",
                 "updated_at": "2026-02-01T12:00:00Z",
@@ -249,6 +251,7 @@ class UpdateProfileIn(BaseModel):
     full_name: Optional[str] = None
     username: Optional[str] = None
     business_name: Optional[str] = None
+    base_currency: Optional[str] = None
     pending_order_timeout_minutes: Optional[int] = None
 
     @field_validator("full_name")
@@ -281,6 +284,16 @@ class UpdateProfileIn(BaseModel):
             raise ValueError("business_name cannot be empty")
         return cleaned
 
+    @field_validator("base_currency")
+    @classmethod
+    def validate_base_currency(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().upper()
+        if len(normalized) != 3 or not normalized.isalpha():
+            raise ValueError("base_currency must be a 3-letter ISO currency code")
+        return normalized
+
     @field_validator("pending_order_timeout_minutes")
     @classmethod
     def validate_pending_order_timeout_minutes(cls, value: Optional[int]) -> Optional[int]:
@@ -296,6 +309,7 @@ class UpdateProfileIn(BaseModel):
             self.full_name is None
             and self.username is None
             and self.business_name is None
+            and self.base_currency is None
             and self.pending_order_timeout_minutes is None
         ):
             raise ValueError("At least one field must be provided")
@@ -307,7 +321,17 @@ class UpdateProfileIn(BaseModel):
                 "full_name": "Jane Updated",
                 "username": "jane_updated",
                 "business_name": "Jane Fabrics Pro",
+                "base_currency": "NGN",
                 "pending_order_timeout_minutes": 120,
             }
         }
     )
+
+
+class CurrencyOptionOut(BaseModel):
+    code: str
+    name: str
+
+
+class CurrencyOptionListOut(BaseModel):
+    items: list[CurrencyOptionOut]

@@ -9,6 +9,8 @@ from fastapi import HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.core.config import settings
+
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="-")
 logger = logging.getLogger("monidesk.api")
 
@@ -82,6 +84,7 @@ async def request_logging_middleware(request: Request, call_next):
         request_id_ctx.reset(token)
 
     response.headers["X-Request-ID"] = request_id
+    response.headers["X-API-Timeout-Hint-Ms"] = str(settings.api_timeout_hint_ms)
     return response
 
 

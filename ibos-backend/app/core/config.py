@@ -38,8 +38,18 @@ class Settings(BaseSettings):
     checkout_retry_expiry_extension_minutes: int = Field(default=30, ge=1, le=10080)
     shipping_provider_default: str = "stub_carrier"
     messaging_provider_default: str = "whatsapp_stub"
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_sender_email: str | None = None
+    smtp_reply_to_email: str | None = None
+    smtp_use_starttls: bool = True
+    smtp_use_ssl: bool = False
+    team_invite_web_base_url: str | None = None
     integration_outbox_max_attempts: int = Field(default=5, ge=1, le=20)
     integration_outbox_retry_seconds: int = Field(default=300, ge=1, le=86400)
+    api_timeout_hint_ms: int = Field(default=300000, ge=1000, le=1_800_000)
 
     # INVENTORY
     low_stock_default_threshold: int = Field(default=5, ge=0)
@@ -47,6 +57,7 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: List[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    cors_origin_regex: str | None = None
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -67,6 +78,22 @@ class Settings(BaseSettings):
             return [str(i).strip() for i in v if str(i).strip()]
         raise ValueError(v)
 
+    @field_validator(
+        "smtp_host",
+        "smtp_username",
+        "smtp_password",
+        "smtp_sender_email",
+        "smtp_reply_to_email",
+        "team_invite_web_base_url",
+        mode="before",
+    )
+    @classmethod
+    def normalize_optional_strings(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
+
     @model_validator(mode="after")
     def validate_production_safety(self) -> "Settings":
         env_value = self.env.lower().strip()
@@ -84,6 +111,11 @@ class Settings(BaseSettings):
 
         if "*" in self.cors_origins:
             raise ValueError("CORS_ORIGINS cannot contain '*' in production")
+        if self.cors_origin_regex:
+            raise ValueError("CORS_ORIGIN_REGEX cannot be set in production")
+
+        if self.smtp_use_ssl and self.smtp_use_starttls:
+            raise ValueError("Set only one of SMTP_USE_SSL or SMTP_USE_STARTTLS in production")
 
         return self
 

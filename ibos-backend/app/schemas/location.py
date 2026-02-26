@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.common import PaginationMeta
 
@@ -12,7 +12,25 @@ class LocationCreateIn(BaseModel):
 
 class LocationUpdateIn(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
-    is_active: bool | None = None
+    is_active: bool | None = Field(default=None, validation_alias=AliasChoices("is_active", "isActive"))
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("name cannot be empty")
+        return cleaned
+
+    @model_validator(mode="after")
+    def validate_any_field_present(self) -> "LocationUpdateIn":
+        if self.name is None and self.is_active is None:
+            raise ValueError("At least one field must be provided")
+        return self
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class LocationOut(BaseModel):

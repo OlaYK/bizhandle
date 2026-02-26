@@ -75,6 +75,10 @@ Common optional:
 - `GOOGLE_CLIENT_ID`
 - `PAYMENT_WEBHOOK_SECRET`
 - `CORS_ORIGINS`
+- `TEAM_INVITE_WEB_BASE_URL` (e.g. `https://your-frontend-domain.com`)
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`
+- `SMTP_SENDER_EMAIL`, `SMTP_REPLY_TO_EMAIL`
+- `SMTP_USE_STARTTLS` / `SMTP_USE_SSL`
 
 See `ibos-backend/.env.example` for baseline values.
 

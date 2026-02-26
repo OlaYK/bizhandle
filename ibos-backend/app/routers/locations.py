@@ -210,6 +210,68 @@ def update_location(
     return _location_out(location)
 
 
+@router.post(
+    "/{location_id}/deactivate",
+    response_model=LocationOut,
+    summary="Deactivate location",
+    responses=error_responses(401, 403, 404, 500),
+)
+def deactivate_location(
+    location_id: str,
+    db: Session = Depends(get_db),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin")),
+    actor: User = Depends(get_current_user),
+):
+    location = _location_in_business_or_404(db, business_id=access.business.id, location_id=location_id)
+    if not location.is_active:
+        return _location_out(location)
+
+    location.is_active = False
+    log_audit_event(
+        db,
+        business_id=access.business.id,
+        actor_user_id=actor.id,
+        action="location.deactivate",
+        target_type="location",
+        target_id=location.id,
+        metadata_json={"name": location.name, "is_active": location.is_active},
+    )
+    db.commit()
+    db.refresh(location)
+    return _location_out(location)
+
+
+@router.post(
+    "/{location_id}/activate",
+    response_model=LocationOut,
+    summary="Activate location",
+    responses=error_responses(401, 403, 404, 500),
+)
+def activate_location(
+    location_id: str,
+    db: Session = Depends(get_db),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin")),
+    actor: User = Depends(get_current_user),
+):
+    location = _location_in_business_or_404(db, business_id=access.business.id, location_id=location_id)
+    if location.is_active:
+        return _location_out(location)
+
+    location.is_active = True
+    log_audit_event(
+        db,
+        business_id=access.business.id,
+        actor_user_id=actor.id,
+        action="location.activate",
+        target_type="location",
+        target_id=location.id,
+        metadata_json={"name": location.name, "is_active": location.is_active},
+    )
+    db.commit()
+    db.refresh(location)
+    return _location_out(location)
+
+
 @router.put(
     "/{location_id}/membership-scopes/{membership_id}",
     response_model=LocationMembershipScopeOut,

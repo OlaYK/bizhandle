@@ -84,12 +84,6 @@ def _order_out(order: Order) -> OrderOut:
     )
 
 
-def _as_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
-
-
 def _auto_cancel_note(timeout_minutes: int, existing_note: str | None) -> str:
     units = "minute" if timeout_minutes == 1 else "minutes"
     message = f"Auto-cancelled after {timeout_minutes} {units} without payment."
@@ -114,11 +108,14 @@ def _auto_cancel_expired_pending_orders(
     timeout_minutes = _pending_timeout_minutes(access)
     cutoff_at = datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes)
     pending_orders = db.execute(
-        select(Order).where(Order.business_id == access.business.id, Order.status == "pending")
+        select(Order).where(
+            Order.business_id == access.business.id,
+            Order.status == "pending",
+            Order.created_at <= cutoff_at,
+        )
     ).scalars().all()
 
-    expired_orders = [order for order in pending_orders if _as_utc(order.created_at) <= cutoff_at]
-    for order in expired_orders:
+    for order in pending_orders:
         order.status = "cancelled"
         order.note = _auto_cancel_note(timeout_minutes, order.note)
         log_audit_event(
@@ -135,7 +132,7 @@ def _auto_cancel_expired_pending_orders(
                 "cutoff_at": cutoff_at.isoformat(),
             },
         )
-    return len(expired_orders)
+    return len(pending_orders)
 
 
 def _variant_business_map(db: Session, variant_ids: list[str]) -> dict[str, str]:

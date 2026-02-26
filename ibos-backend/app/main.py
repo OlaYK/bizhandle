@@ -67,10 +67,20 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 
 cors_origins = settings.cors_origins or ["http://localhost:3000"]
 allow_all_origins = "*" in cors_origins
+env_value = settings.env.lower().strip()
+allow_origin_regex = settings.cors_origin_regex
+
+if (
+    not allow_origin_regex
+    and env_value in {"dev", "development", "staging", "stage"}
+):
+    # Helps local web/mobile-web development where tooling uses dynamic localhost ports.
+    allow_origin_regex = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if allow_all_origins else cors_origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=not allow_all_origins,
     allow_methods=["*"],
     allow_headers=["*"],
