@@ -11,8 +11,6 @@ docs/receipt-invoice-template-strategy.md
 # Local markdown notes
 fixes.md
 *.md
-!README.md
-!**/README.md
 
 node_modules
 dist
