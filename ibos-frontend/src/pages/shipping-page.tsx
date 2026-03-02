@@ -11,7 +11,7 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { PaginationControls } from "../components/ui/pagination-controls";
-import { Textarea } from "../components/ui/textarea";
+import { Select } from "../components/ui/select";
 import { useToast } from "../hooks/use-toast";
 import { getApiErrorMessage } from "../lib/api-error";
 import { formatCurrency, formatDateTime } from "../lib/format";
@@ -21,13 +21,81 @@ function normalizeOptional(value: string) {
   return cleaned || undefined;
 }
 
-function prettyJson(value: unknown) {
-  return JSON.stringify(value, null, 2);
+interface ShippingZoneDraft {
+  id: string;
+  zone_name: string;
+  country: string;
+  state: string;
+  city: string;
+  postal_code_prefix: string;
+  is_active: boolean;
 }
 
-function parseJsonArray<T>(raw: string, fallback: T[]): T[] {
-  const parsed = JSON.parse(raw) as unknown;
-  return Array.isArray(parsed) ? (parsed as T[]) : fallback;
+interface ShippingServiceRuleDraft {
+  id: string;
+  provider: string;
+  service_code: string;
+  service_name: string;
+  zone_name: string;
+  base_rate: number;
+  per_kg_rate: number;
+  min_eta_days: number;
+  max_eta_days: number;
+  is_active: boolean;
+}
+
+function createZoneDraft(overrides?: Partial<ShippingZoneDraft>): ShippingZoneDraft {
+  return {
+    id: crypto.randomUUID(),
+    zone_name: "Domestic",
+    country: "NG",
+    state: "",
+    city: "",
+    postal_code_prefix: "",
+    is_active: true,
+    ...overrides
+  };
+}
+
+function createRuleDraft(overrides?: Partial<ShippingServiceRuleDraft>): ShippingServiceRuleDraft {
+  return {
+    id: crypto.randomUUID(),
+    provider: "stub_carrier",
+    service_code: "standard",
+    service_name: "Standard Shipping",
+    zone_name: "",
+    base_rate: 0,
+    per_kg_rate: 0,
+    min_eta_days: 2,
+    max_eta_days: 5,
+    is_active: true,
+    ...overrides
+  };
+}
+
+function toZonePayload(zone: ShippingZoneDraft) {
+  return {
+    zone_name: zone.zone_name.trim(),
+    country: zone.country.trim().toUpperCase(),
+    state: normalizeOptional(zone.state),
+    city: normalizeOptional(zone.city),
+    postal_code_prefix: normalizeOptional(zone.postal_code_prefix),
+    is_active: zone.is_active
+  };
+}
+
+function toRulePayload(rule: ShippingServiceRuleDraft) {
+  return {
+    provider: rule.provider.trim().toLowerCase(),
+    service_code: rule.service_code.trim(),
+    service_name: rule.service_name.trim(),
+    zone_name: normalizeOptional(rule.zone_name),
+    base_rate: Number(rule.base_rate || 0),
+    per_kg_rate: Number(rule.per_kg_rate || 0),
+    min_eta_days: Number(rule.min_eta_days || 1),
+    max_eta_days: Number(rule.max_eta_days || 1),
+    is_active: rule.is_active
+  };
 }
 
 export function ShippingPage() {
@@ -40,33 +108,10 @@ export function ShippingPage() {
   const [originPostalCode, setOriginPostalCode] = useState("");
   const [handlingFee, setHandlingFee] = useState(0);
   const [currency, setCurrency] = useState("USD");
-  const [zonesJson, setZonesJson] = useState(
-    prettyJson([
-      {
-        zone_name: "Domestic",
-        country: "NG",
-        state: "",
-        city: "",
-        postal_code_prefix: "",
-        is_active: true
-      }
-    ])
-  );
-  const [rulesJson, setRulesJson] = useState(
-    prettyJson([
-      {
-        provider: "stub_carrier",
-        service_code: "standard",
-        service_name: "Standard Shipping",
-        zone_name: "Domestic",
-        base_rate: 0,
-        per_kg_rate: 0,
-        min_eta_days: 2,
-        max_eta_days: 5,
-        is_active: true
-      }
-    ])
-  );
+  const [zones, setZones] = useState<ShippingZoneDraft[]>([createZoneDraft()]);
+  const [serviceRules, setServiceRules] = useState<ShippingServiceRuleDraft[]>([
+    createRuleDraft({ zone_name: "Domestic" })
+  ]);
 
   const [quoteSessionToken, setQuoteSessionToken] = useState("");
   const [destinationCountry, setDestinationCountry] = useState("NG");
@@ -121,9 +166,72 @@ export function ShippingPage() {
     setOriginPostalCode(settingsQuery.data.default_origin_postal_code ?? "");
     setHandlingFee(settingsQuery.data.handling_fee);
     setCurrency(settingsQuery.data.currency);
-    setZonesJson(prettyJson(settingsQuery.data.zones));
-    setRulesJson(prettyJson(settingsQuery.data.service_rules));
+    setZones(
+      settingsQuery.data.zones.length
+        ? settingsQuery.data.zones.map((zone) =>
+            createZoneDraft({
+              zone_name: zone.zone_name,
+              country: zone.country,
+              state: zone.state ?? "",
+              city: zone.city ?? "",
+              postal_code_prefix: zone.postal_code_prefix ?? "",
+              is_active: zone.is_active
+            })
+          )
+        : [createZoneDraft()]
+    );
+    setServiceRules(
+      settingsQuery.data.service_rules.length
+        ? settingsQuery.data.service_rules.map((rule) =>
+            createRuleDraft({
+              provider: rule.provider,
+              service_code: rule.service_code,
+              service_name: rule.service_name,
+              zone_name: rule.zone_name ?? "",
+              base_rate: rule.base_rate,
+              per_kg_rate: rule.per_kg_rate,
+              min_eta_days: rule.min_eta_days,
+              max_eta_days: rule.max_eta_days,
+              is_active: rule.is_active
+            })
+          )
+        : [createRuleDraft()]
+    );
   }, [settingsQuery.data]);
+
+  const updateZoneDraft = (id: string, patch: Partial<ShippingZoneDraft>) => {
+    setZones((prev) => prev.map((zone) => (zone.id === id ? { ...zone, ...patch } : zone)));
+  };
+
+  const removeZoneDraft = (id: string) => {
+    const removedZone = zones.find((zone) => zone.id === id);
+    setZones((prev) => {
+      const next = prev.filter((zone) => zone.id !== id);
+      return next.length ? next : [createZoneDraft()];
+    });
+    if (!removedZone) {
+      return;
+    }
+    const removedZoneName = removedZone.zone_name.trim().toLowerCase();
+    setServiceRules((prev) =>
+      prev.map((rule) =>
+        rule.zone_name.trim().toLowerCase() === removedZoneName
+          ? { ...rule, zone_name: "" }
+          : rule
+      )
+    );
+  };
+
+  const updateRuleDraft = (id: string, patch: Partial<ShippingServiceRuleDraft>) => {
+    setServiceRules((prev) => prev.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)));
+  };
+
+  const removeRuleDraft = (id: string) => {
+    setServiceRules((prev) => {
+      const next = prev.filter((rule) => rule.id !== id);
+      return next.length ? next : [createRuleDraft()];
+    });
+  };
 
   const shipmentsQuery = useQuery({
     queryKey: ["shipping", "shipments", orderFilter, statusFilter, page, pageSize],
@@ -145,8 +253,8 @@ export function ShippingPage() {
         default_origin_postal_code: normalizeOptional(originPostalCode),
         handling_fee: Number(handlingFee || 0),
         currency: currency.trim().toUpperCase(),
-        zones: parseJsonArray(zonesJson, []),
-        service_rules: parseJsonArray(rulesJson, [])
+        zones: zones.map(toZonePayload),
+        service_rules: serviceRules.map(toRulePayload)
       }),
     onSuccess: () => {
       showToast({
@@ -268,6 +376,10 @@ export function ShippingPage() {
     }
   });
 
+  const zoneNameOptions = Array.from(
+    new Set(zones.map((zone) => zone.zone_name.trim()).filter((name) => name.length > 0))
+  );
+
   if ((settingsQuery.isLoading && !settingsNotConfigured) || shipmentsQuery.isLoading) {
     return <LoadingState label="Loading shipping operations..." />;
   }
@@ -311,21 +423,193 @@ export function ShippingPage() {
             onChange={(e) => setHandlingFee(Number(e.target.value || 0))}
           />
           <Input label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value)} />
-          <div className="md:col-span-3">
-            <Textarea
-              label="Zones (JSON array)"
-              rows={8}
-              value={zonesJson}
-              onChange={(event) => setZonesJson(event.target.value)}
-            />
+          <div className="space-y-3 rounded-xl border border-surface-100 bg-surface-50 p-3 md:col-span-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h4 className="font-semibold text-surface-700">Delivery Zones</h4>
+                <p className="text-xs text-surface-500">
+                  Define where you ship. Service rules can target a specific zone.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setZones((prev) => [...prev, createZoneDraft()])}
+              >
+                Add Zone
+              </Button>
+            </div>
+            {zones.map((zone, index) => (
+              <article key={zone.id} className="rounded-xl border border-surface-200 bg-white p-3 dark:bg-surface-900">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-surface-700">Zone {index + 1}</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="danger"
+                    disabled={zones.length === 1}
+                    onClick={() => removeZoneDraft(zone.id)}
+                  >
+                    Remove
+                  </Button>
+                </div>
+                <div className="grid gap-3 lg:grid-cols-3">
+                  <Input
+                    label="Zone Name"
+                    value={zone.zone_name}
+                    onChange={(event) => updateZoneDraft(zone.id, { zone_name: event.target.value })}
+                  />
+                  <Input
+                    label="Country Code"
+                    value={zone.country}
+                    onChange={(event) => updateZoneDraft(zone.id, { country: event.target.value })}
+                    placeholder="NG"
+                  />
+                  <Select
+                    label="Status"
+                    value={zone.is_active ? "active" : "inactive"}
+                    onChange={(event) =>
+                      updateZoneDraft(zone.id, { is_active: event.target.value === "active" })
+                    }
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </Select>
+                  <Input
+                    label="State (optional)"
+                    value={zone.state}
+                    onChange={(event) => updateZoneDraft(zone.id, { state: event.target.value })}
+                  />
+                  <Input
+                    label="City (optional)"
+                    value={zone.city}
+                    onChange={(event) => updateZoneDraft(zone.id, { city: event.target.value })}
+                  />
+                  <Input
+                    label="Postal Prefix (optional)"
+                    value={zone.postal_code_prefix}
+                    onChange={(event) =>
+                      updateZoneDraft(zone.id, { postal_code_prefix: event.target.value })
+                    }
+                  />
+                </div>
+              </article>
+            ))}
           </div>
-          <div className="md:col-span-3">
-            <Textarea
-              label="Service Rules (JSON array)"
-              rows={8}
-              value={rulesJson}
-              onChange={(event) => setRulesJson(event.target.value)}
-            />
+          <div className="space-y-3 rounded-xl border border-surface-100 bg-surface-50 p-3 md:col-span-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h4 className="font-semibold text-surface-700">Service Rules</h4>
+                <p className="text-xs text-surface-500">
+                  Configure provider pricing and delivery windows. Zone is optional for fallback rules.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  setServiceRules((prev) => [
+                    ...prev,
+                    createRuleDraft({ zone_name: zoneNameOptions[0] ?? "" })
+                  ])
+                }
+              >
+                Add Rule
+              </Button>
+            </div>
+            {serviceRules.map((rule, index) => (
+              <article key={rule.id} className="rounded-xl border border-surface-200 bg-white p-3 dark:bg-surface-900">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-surface-700">Rule {index + 1}</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="danger"
+                    disabled={serviceRules.length === 1}
+                    onClick={() => removeRuleDraft(rule.id)}
+                  >
+                    Remove
+                  </Button>
+                </div>
+                <div className="grid gap-3 lg:grid-cols-4">
+                  <Input
+                    label="Provider"
+                    value={rule.provider}
+                    onChange={(event) => updateRuleDraft(rule.id, { provider: event.target.value })}
+                  />
+                  <Input
+                    label="Service Code"
+                    value={rule.service_code}
+                    onChange={(event) => updateRuleDraft(rule.id, { service_code: event.target.value })}
+                  />
+                  <Input
+                    label="Service Name"
+                    value={rule.service_name}
+                    onChange={(event) => updateRuleDraft(rule.id, { service_name: event.target.value })}
+                  />
+                  <Select
+                    label="Zone"
+                    value={rule.zone_name}
+                    onChange={(event) => updateRuleDraft(rule.id, { zone_name: event.target.value })}
+                  >
+                    <option value="">All destinations (fallback)</option>
+                    {zoneNameOptions.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </Select>
+                  <Input
+                    label="Base Rate"
+                    type="number"
+                    step="0.01"
+                    value={rule.base_rate}
+                    onChange={(event) =>
+                      updateRuleDraft(rule.id, { base_rate: Number(event.target.value || 0) })
+                    }
+                  />
+                  <Input
+                    label="Per KG Rate"
+                    type="number"
+                    step="0.01"
+                    value={rule.per_kg_rate}
+                    onChange={(event) =>
+                      updateRuleDraft(rule.id, { per_kg_rate: Number(event.target.value || 0) })
+                    }
+                  />
+                  <Input
+                    label="Min ETA Days"
+                    type="number"
+                    min={1}
+                    value={rule.min_eta_days}
+                    onChange={(event) =>
+                      updateRuleDraft(rule.id, { min_eta_days: Number(event.target.value || 1) })
+                    }
+                  />
+                  <Input
+                    label="Max ETA Days"
+                    type="number"
+                    min={1}
+                    value={rule.max_eta_days}
+                    onChange={(event) =>
+                      updateRuleDraft(rule.id, { max_eta_days: Number(event.target.value || 1) })
+                    }
+                  />
+                  <Select
+                    label="Status"
+                    value={rule.is_active ? "active" : "inactive"}
+                    onChange={(event) =>
+                      updateRuleDraft(rule.id, { is_active: event.target.value === "active" })
+                    }
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </Select>
+                </div>
+              </article>
+            ))}
           </div>
         </div>
         <div className="mt-4 flex justify-end">
@@ -333,13 +617,106 @@ export function ShippingPage() {
             type="button"
             loading={saveSettingsMutation.isPending}
             onClick={() => {
-              try {
-                parseJsonArray(zonesJson, []);
-                parseJsonArray(rulesJson, []);
-              } catch (error) {
+              if (originCountry.trim().length < 2) {
                 showToast({
-                  title: "Invalid JSON",
-                  description: getApiErrorMessage(error),
+                  title: "Invalid origin country",
+                  description: "Origin country must be at least 2 characters.",
+                  variant: "error"
+                });
+                return;
+              }
+              if (currency.trim().length !== 3) {
+                showToast({
+                  title: "Invalid currency",
+                  description: "Currency must be a 3-letter ISO code (for example NGN, USD, EUR).",
+                  variant: "error"
+                });
+                return;
+              }
+              if (Number(handlingFee || 0) < 0) {
+                showToast({
+                  title: "Invalid handling fee",
+                  description: "Handling fee cannot be negative.",
+                  variant: "error"
+                });
+                return;
+              }
+              if (!zones.length) {
+                showToast({
+                  title: "At least one zone is required",
+                  description: "Add a delivery zone before saving shipping settings.",
+                  variant: "error"
+                });
+                return;
+              }
+              if (!serviceRules.length) {
+                showToast({
+                  title: "At least one service rule is required",
+                  description: "Add a service rule before saving shipping settings.",
+                  variant: "error"
+                });
+                return;
+              }
+              const invalidZone = zones.find(
+                (zone) => zone.zone_name.trim().length < 2 || zone.country.trim().length < 2
+              );
+              if (invalidZone) {
+                showToast({
+                  title: "Invalid zone details",
+                  description: "Zone name and country code must be at least 2 characters.",
+                  variant: "error"
+                });
+                return;
+              }
+              const invalidRule = serviceRules.find(
+                (rule) =>
+                  rule.provider.trim().length < 2 ||
+                  rule.service_code.trim().length < 2 ||
+                  rule.service_name.trim().length < 2
+              );
+              if (invalidRule) {
+                showToast({
+                  title: "Invalid service rule",
+                  description: "Provider, service code, and service name must be at least 2 characters.",
+                  variant: "error"
+                });
+                return;
+              }
+              const invalidEtaRule = serviceRules.find(
+                (rule) =>
+                  Number(rule.min_eta_days || 0) < 1 ||
+                  Number(rule.max_eta_days || 0) < 1 ||
+                  Number(rule.min_eta_days || 1) > Number(rule.max_eta_days || 1)
+              );
+              if (invalidEtaRule) {
+                showToast({
+                  title: "Invalid ETA window",
+                  description: "ETA values must be at least 1 day, and min ETA cannot exceed max ETA.",
+                  variant: "error"
+                });
+                return;
+              }
+              const invalidRateRule = serviceRules.find(
+                (rule) => Number(rule.base_rate || 0) < 0 || Number(rule.per_kg_rate || 0) < 0
+              );
+              if (invalidRateRule) {
+                showToast({
+                  title: "Invalid shipping rates",
+                  description: "Base rate and per KG rate cannot be negative.",
+                  variant: "error"
+                });
+                return;
+              }
+              const knownZoneNames = new Set(
+                zones.map((zone) => zone.zone_name.trim().toLowerCase()).filter((name) => name.length > 0)
+              );
+              const unknownZoneRule = serviceRules.find(
+                (rule) => rule.zone_name.trim() && !knownZoneNames.has(rule.zone_name.trim().toLowerCase())
+              );
+              if (unknownZoneRule) {
+                showToast({
+                  title: "Rule zone not found",
+                  description: `The rule "${unknownZoneRule.service_name}" references a zone that does not exist.`,
                   variant: "error"
                 });
                 return;

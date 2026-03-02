@@ -515,6 +515,17 @@ export interface CheckoutSessionCreateIn {
   items: CheckoutSessionItemIn[];
 }
 
+export interface StorefrontCheckoutSessionCreateIn {
+  variant_id: string;
+  qty?: number;
+  payment_method?: PaymentMethod;
+  channel?: SalesChannel;
+  note?: string;
+  success_redirect_url?: string;
+  cancel_redirect_url?: string;
+  expires_in_minutes?: number;
+}
+
 export interface CheckoutSessionCreateOut {
   id: string;
   session_token: string;
@@ -555,6 +566,40 @@ export interface CheckoutSessionListOut {
   payment_provider?: string | null;
   start_date?: string | null;
   end_date?: string | null;
+}
+
+export interface CheckoutSessionPublicItemOut {
+  variant_id: string;
+  qty: number;
+  unit_price: number;
+  line_total: number;
+}
+
+export interface CheckoutSessionPublicOut {
+  session_token: string;
+  status: CheckoutSessionStatus;
+  currency: string;
+  payment_method: PaymentMethod;
+  channel: SalesChannel;
+  note?: string | null;
+  total_amount: number;
+  expires_at: string;
+  items: CheckoutSessionPublicItemOut[];
+}
+
+export interface CheckoutSessionPlaceOrderIn {
+  customer_id?: string | null;
+  payment_method?: PaymentMethod;
+  note?: string | null;
+}
+
+export interface CheckoutSessionPlaceOrderOut {
+  checkout_session_id: string;
+  checkout_session_token: string;
+  checkout_status: CheckoutSessionStatus;
+  order_id: string;
+  order_status: string;
+  total_amount: number;
 }
 
 export interface CheckoutSessionRetryPaymentOut {

@@ -17,7 +17,8 @@ from app.models.business import Business
 from app.models.checkout import CheckoutSession, CheckoutSessionItem, CheckoutWebhookEvent
 from app.models.customer import Customer
 from app.models.order import Order, OrderItem
-from app.models.product import ProductVariant
+from app.models.product import Product, ProductVariant
+from app.models.storefront import StorefrontConfig
 from app.models.user import User
 from app.routers.orders import (
     _convert_order_to_sale,
@@ -34,6 +35,7 @@ from app.schemas.checkout import (
     CheckoutSessionPlaceOrderIn,
     CheckoutSessionPlaceOrderOut,
     CheckoutSessionPublicOut,
+    StorefrontCheckoutSessionCreateIn,
     CheckoutSessionRetryPaymentOut,
     CheckoutWebhookEventIn,
     CheckoutWebhookOut,
@@ -342,6 +344,116 @@ def create_checkout_session(
             "channel": checkout.channel,
             "total_amount": float(to_money(total)),
             "items_count": len(payload.items),
+            "payment_provider": checkout.payment_provider,
+        },
+    )
+    db.commit()
+    return CheckoutSessionCreateOut(
+        id=checkout.id,
+        session_token=checkout.session_token,
+        checkout_url=f"/checkout/{checkout.session_token}",
+        status=checkout.status,
+        payment_provider=checkout.payment_provider,
+        payment_reference=checkout.payment_reference,
+        payment_checkout_url=checkout.payment_checkout_url,
+        total_amount=float(to_money(total)),
+        expires_at=checkout.expires_at,
+    )
+
+
+@router.post(
+    "/storefront/{slug}/session",
+    response_model=CheckoutSessionCreateOut,
+    summary="Create public checkout session from storefront product variant",
+    responses=error_responses(400, 404, 422, 500),
+)
+def create_storefront_checkout_session(
+    slug: str,
+    payload: StorefrontCheckoutSessionCreateIn,
+    db: Session = Depends(get_db),
+):
+    storefront = db.execute(
+        select(StorefrontConfig).where(
+            func.lower(StorefrontConfig.slug) == slug.strip().lower(),
+            StorefrontConfig.is_published.is_(True),
+        )
+    ).scalar_one_or_none()
+    if not storefront:
+        raise HTTPException(status_code=404, detail="Storefront not found")
+
+    row = db.execute(
+        select(ProductVariant, Product)
+        .join(
+            Product,
+            (Product.id == ProductVariant.product_id)
+            & (Product.business_id == ProductVariant.business_id),
+        )
+        .where(
+            ProductVariant.id == payload.variant_id,
+            ProductVariant.business_id == storefront.business_id,
+            ProductVariant.is_published.is_(True),
+            Product.business_id == storefront.business_id,
+            Product.active.is_(True),
+            Product.is_published.is_(True),
+        )
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Variant not available on this storefront")
+
+    variant, _product = row
+    if variant.selling_price is None or to_money(variant.selling_price) <= ZERO_MONEY:
+        raise HTTPException(status_code=400, detail="Variant has no valid selling price")
+
+    business = db.execute(select(Business).where(Business.id == storefront.business_id)).scalar_one_or_none()
+    if not business:
+        raise HTTPException(status_code=404, detail="Storefront business not found")
+
+    unit_price = to_money(variant.selling_price)
+    total = to_money(unit_price * payload.qty)
+
+    checkout = CheckoutSession(
+        id=str(uuid.uuid4()),
+        business_id=storefront.business_id,
+        session_token=uuid.uuid4().hex,
+        status="open",
+        currency=business.base_currency.upper(),
+        payment_method=payload.payment_method,
+        channel=payload.channel,
+        note=payload.note,
+        total_amount=to_money(total),
+        success_redirect_url=payload.success_redirect_url,
+        cancel_redirect_url=payload.cancel_redirect_url,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=payload.expires_in_minutes),
+    )
+    db.add(checkout)
+    db.add(
+        CheckoutSessionItem(
+            id=str(uuid.uuid4()),
+            checkout_session_id=checkout.id,
+            variant_id=payload.variant_id,
+            qty=payload.qty,
+            unit_price=unit_price,
+            line_total=total,
+        )
+    )
+
+    _init_provider_checkout(checkout=checkout, total_amount=float(to_money(total)))
+
+    log_audit_event(
+        db,
+        business_id=storefront.business_id,
+        actor_user_id=business.owner_user_id,
+        action="checkout.session.create_storefront",
+        target_type="checkout_session",
+        target_id=checkout.id,
+        metadata_json={
+            "slug": storefront.slug,
+            "variant_id": payload.variant_id,
+            "qty": payload.qty,
+            "currency": checkout.currency,
+            "payment_method": checkout.payment_method,
+            "channel": checkout.channel,
+            "total_amount": float(to_money(total)),
             "payment_provider": checkout.payment_provider,
         },
     )

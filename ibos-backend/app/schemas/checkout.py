@@ -39,6 +39,29 @@ class CheckoutSessionCreateIn(BaseModel):
     )
 
 
+class StorefrontCheckoutSessionCreateIn(BaseModel):
+    variant_id: str
+    qty: int = Field(default=1, ge=1, le=500)
+    payment_method: PaymentMethod = "transfer"
+    channel: SalesChannel = "instagram"
+    note: str | None = None
+    success_redirect_url: str | None = None
+    cancel_redirect_url: str | None = None
+    expires_in_minutes: int = Field(default=60, ge=5, le=10080)
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "variant_id": "variant-id",
+                "qty": 2,
+                "payment_method": "transfer",
+                "channel": "instagram",
+                "note": "Please call before delivery",
+            }
+        }
+    )
+
+
 class CheckoutSessionItemOut(BaseModel):
     variant_id: str
     qty: int

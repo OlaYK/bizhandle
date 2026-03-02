@@ -55,7 +55,11 @@ import type {
   CheckoutSessionCreateIn,
   CheckoutSessionCreateOut,
   CheckoutSessionListOut,
+  CheckoutSessionPlaceOrderIn,
+  CheckoutSessionPlaceOrderOut,
+  CheckoutSessionPublicOut,
   CheckoutSessionRetryPaymentOut,
+  StorefrontCheckoutSessionCreateIn,
   CustomerConsentListOut,
   CustomerConsentOut,
   CustomerConsentUpsertIn,
@@ -446,6 +450,24 @@ export const checkoutService = {
   createSession(payload: CheckoutSessionCreateIn) {
     return apiClient
       .post<CheckoutSessionCreateOut>(endpoints.checkout.sessions, payload)
+      .then((res) => res.data);
+  },
+  createStorefrontSession(slug: string, payload: StorefrontCheckoutSessionCreateIn) {
+    return apiClient
+      .post<CheckoutSessionCreateOut>(endpoints.checkout.storefrontSession(slug), payload)
+      .then((res) => res.data);
+  },
+  getPublicSession(sessionToken: string) {
+    return apiClient
+      .get<CheckoutSessionPublicOut>(endpoints.checkout.publicSession(sessionToken))
+      .then((res) => res.data);
+  },
+  placePublicOrder(sessionToken: string, payload?: CheckoutSessionPlaceOrderIn) {
+    return apiClient
+      .post<CheckoutSessionPlaceOrderOut>(
+        endpoints.checkout.publicPlaceOrder(sessionToken),
+        payload ?? {}
+      )
       .then((res) => res.data);
   },
   listSessions(

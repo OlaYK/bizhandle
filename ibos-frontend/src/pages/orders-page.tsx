@@ -399,24 +399,43 @@ export function OrdersPage() {
               </Button>
             </div>
 
-            {fields.map((field, index) => (
-              <div key={field.id} className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12">
-                <div className="md:col-span-6">
-                  <Select
-                    label="Variant"
-                    {...orderForm.register(`items.${index}.variant_id`)}
-                    error={orderForm.formState.errors.items?.[index]?.variant_id?.message}
-                  >
-                    <option value="">Select variant</option>
-                    {(variantsQuery.data?.items ?? []).map((variant) => (
-                      <option key={variant.id} value={variant.id}>
-                        {variant.size}
-                        {variant.label ? ` - ${variant.label}` : ""}
-                        {variant.sku ? ` (${variant.sku})` : ""}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
+            {fields.map((field, index) => {
+              const variantField = orderForm.register(`items.${index}.variant_id`);
+              return (
+                <div key={field.id} className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12">
+                  <div className="md:col-span-6">
+                    <Select
+                      label="Variant"
+                      {...variantField}
+                      onChange={(event) => {
+                        variantField.onChange(event);
+                        const selectedVariant = variantsQuery.data?.items.find(
+                          (variant) => variant.id === event.target.value
+                        );
+                        if (!selectedVariant) {
+                          return;
+                        }
+                        orderForm.setValue(
+                          `items.${index}.unit_price`,
+                          defaultUnitPrice(selectedVariant.selling_price),
+                          {
+                            shouldDirty: true,
+                            shouldValidate: true
+                          }
+                        );
+                      }}
+                      error={orderForm.formState.errors.items?.[index]?.variant_id?.message}
+                    >
+                      <option value="">Select variant</option>
+                      {(variantsQuery.data?.items ?? []).map((variant) => (
+                        <option key={variant.id} value={variant.id}>
+                          {variant.size}
+                          {variant.label ? ` - ${variant.label}` : ""}
+                          {variant.sku ? ` (${variant.sku})` : ""}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
                 <div className="md:col-span-2">
                   <Input
                     label="Qty"
@@ -447,7 +466,8 @@ export function OrdersPage() {
                   </Button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           <Textarea label="Note" rows={3} {...orderForm.register("note")} />

@@ -41,6 +41,9 @@ export const endpoints = {
   },
   checkout: {
     sessions: "/checkout-sessions",
+    storefrontSession: (slug: string) => `/checkout/storefront/${slug}/session`,
+    publicSession: (sessionToken: string) => `/checkout/${sessionToken}`,
+    publicPlaceOrder: (sessionToken: string) => `/checkout/${sessionToken}/place-order`,
     sessionRetryPayment: (checkoutSessionId: string) =>
       `/checkout-sessions/${checkoutSessionId}/retry-payment`,
     paymentsSummary: "/checkout-sessions/payments-summary"

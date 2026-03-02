@@ -56,6 +56,13 @@ const refundSchema = z.object({
 type SaleFormData = z.infer<typeof saleSchema>;
 type RefundFormData = z.infer<typeof refundSchema>;
 
+function defaultUnitPrice(price: number | null | undefined) {
+  if (typeof price !== "number" || Number.isNaN(price) || price <= 0) {
+    return 1;
+  }
+  return price;
+}
+
 export function SalesPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -97,7 +104,7 @@ export function SalesPage() {
       payment_method: "cash",
       channel: "walk-in",
       note: "",
-      items: [{ variant_id: "", qty: 1, unit_price: 0 }]
+      items: [{ variant_id: "", qty: 1, unit_price: 1 }]
     }
   });
 
@@ -105,6 +112,7 @@ export function SalesPage() {
     const firstVariant = variantsQuery.data?.items[0];
     if (firstVariant && saleForm.getValues("items.0.variant_id") === "") {
       saleForm.setValue("items.0.variant_id", firstVariant.id);
+      saleForm.setValue("items.0.unit_price", defaultUnitPrice(firstVariant.selling_price));
     }
   }, [variantsQuery.data, saleForm]);
 
@@ -133,7 +141,13 @@ export function SalesPage() {
         payment_method: "cash",
         channel: "walk-in",
         note: "",
-        items: [{ variant_id: variantsQuery.data?.items[0]?.id ?? "", qty: 1, unit_price: 0 }]
+        items: [
+          {
+            variant_id: variantsQuery.data?.items[0]?.id ?? "",
+            qty: 1,
+            unit_price: defaultUnitPrice(variantsQuery.data?.items[0]?.selling_price)
+          }
+        ]
       });
       queryClient.invalidateQueries({ queryKey: ["sales"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -322,7 +336,7 @@ export function SalesPage() {
                   append({
                     variant_id: variantsQuery.data?.items[0]?.id ?? "",
                     qty: 1,
-                    unit_price: 0
+                    unit_price: defaultUnitPrice(variantsQuery.data?.items[0]?.selling_price)
                   })
                 }
               >
@@ -330,22 +344,41 @@ export function SalesPage() {
               </Button>
             </div>
 
-            {fields.map((field, index) => (
-              <div key={field.id} className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12">
-                <div className="md:col-span-5">
-                  <Select
-                    label="Variant"
-                    {...saleForm.register(`items.${index}.variant_id`)}
-                    error={saleForm.formState.errors.items?.[index]?.variant_id?.message}
-                  >
-                    <option value="">Select variant</option>
-                    {(variantsQuery.data?.items ?? []).map((variant) => (
-                      <option key={variant.id} value={variant.id}>
-                        {variant.size} {variant.label ? `- ${variant.label}` : ""} ({variant.stock} in stock)
-                      </option>
-                    ))}
-                  </Select>
-                </div>
+            {fields.map((field, index) => {
+              const variantField = saleForm.register(`items.${index}.variant_id`);
+              return (
+                <div key={field.id} className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12">
+                  <div className="md:col-span-5">
+                    <Select
+                      label="Variant"
+                      {...variantField}
+                      onChange={(event) => {
+                        variantField.onChange(event);
+                        const selectedVariant = variantsQuery.data?.items.find(
+                          (variant) => variant.id === event.target.value
+                        );
+                        if (!selectedVariant) {
+                          return;
+                        }
+                        saleForm.setValue(
+                          `items.${index}.unit_price`,
+                          defaultUnitPrice(selectedVariant.selling_price),
+                          {
+                            shouldDirty: true,
+                            shouldValidate: true
+                          }
+                        );
+                      }}
+                      error={saleForm.formState.errors.items?.[index]?.variant_id?.message}
+                    >
+                      <option value="">Select variant</option>
+                      {(variantsQuery.data?.items ?? []).map((variant) => (
+                        <option key={variant.id} value={variant.id}>
+                          {variant.size} {variant.label ? `- ${variant.label}` : ""} ({variant.stock} in stock)
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
                 <div className="md:col-span-3">
                   <Input
                     label="Qty"
@@ -376,7 +409,8 @@ export function SalesPage() {
                   </Button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           <Textarea label="Note" rows={3} {...saleForm.register("note")} />

@@ -10,7 +10,9 @@ import { ErrorState } from "../components/state/error-state";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { CloudinaryImageField } from "../components/ui/cloudinary-image-field";
 import { Input } from "../components/ui/input";
+import { Select } from "../components/ui/select";
 import { Textarea } from "../components/ui/textarea";
 import { useToast } from "../hooks/use-toast";
 import { getApiErrorMessage } from "../lib/api-error";
@@ -36,9 +38,85 @@ interface StorefrontFormState {
   is_published: boolean;
 }
 
+const ACCENT_COLOR_OPTIONS: Array<{ label: string; value: string }> = [
+  { label: "Emerald", value: "#16a34a" },
+  { label: "Forest", value: "#15803d" },
+  { label: "Teal", value: "#0f766e" },
+  { label: "Cyan", value: "#0891b2" },
+  { label: "Sky", value: "#0284c7" },
+  { label: "Blue", value: "#2563eb" },
+  { label: "Indigo", value: "#4f46e5" },
+  { label: "Violet", value: "#7c3aed" },
+  { label: "Fuchsia", value: "#c026d3" },
+  { label: "Rose", value: "#e11d48" },
+  { label: "Crimson", value: "#be123c" },
+  { label: "Red", value: "#dc2626" },
+  { label: "Orange", value: "#ea580c" },
+  { label: "Amber", value: "#d97706" },
+  { label: "Gold", value: "#ca8a04" },
+  { label: "Lime", value: "#65a30d" },
+  { label: "Slate", value: "#334155" },
+  { label: "Charcoal", value: "#1f2937" },
+  { label: "Stone", value: "#44403c" },
+  { label: "Navy", value: "#1e3a8a" }
+];
+
 function normalizeOptional(value: string) {
   const cleaned = value.trim();
   return cleaned || undefined;
+}
+
+function normalizeSlugInput(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+/g, "")
+    .slice(0, 80);
+}
+
+function normalizeDomainInput(value: string) {
+  const cleaned = value.trim().toLowerCase();
+  if (!cleaned) return "";
+  const withoutProtocol = cleaned.replace(/^[a-z]+:\/\//i, "");
+  const hostname = withoutProtocol.split("/")[0] ?? "";
+  return hostname.replace(/\s+/g, "");
+}
+
+function normalizeAccentColorInput(value: string) {
+  const cleaned = value.trim().toLowerCase();
+  if (!cleaned) return "";
+  return cleaned.startsWith("#") ? cleaned : `#${cleaned}`;
+}
+
+function validateStorefrontPayload(payload: {
+  slug: string;
+  display_name: string;
+  accent_color?: string;
+  custom_domain?: string;
+}) {
+  if (!payload.slug || payload.slug.length < 3 || payload.slug.length > 80) {
+    return "Slug must be between 3 and 80 characters.";
+  }
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(payload.slug)) {
+    return "Slug may only contain lowercase letters, numbers, and single hyphens.";
+  }
+  if (!payload.display_name.trim()) {
+    return "Display name is required.";
+  }
+  if (payload.accent_color && !/^#[0-9a-f]{6}$/.test(payload.accent_color)) {
+    return "Accent color must be a valid hex code like #16a34a.";
+  }
+  if (
+    payload.custom_domain &&
+    (payload.custom_domain.includes("://") ||
+      payload.custom_domain.includes("/") ||
+      /\s/.test(payload.custom_domain) ||
+      !payload.custom_domain.includes("."))
+  ) {
+    return "Custom domain must be a hostname only, for example shop.example.com.";
+  }
+  return null;
 }
 
 export function StorefrontSettingsPage() {
@@ -169,6 +247,61 @@ export function StorefrontSettingsPage() {
     return cleaned ? `/store/${cleaned}` : "";
   }, [form.slug]);
 
+  const accentColorOptions = useMemo(() => {
+    const current = normalizeAccentColorInput(form.accent_color);
+    if (!current || ACCENT_COLOR_OPTIONS.some((item) => item.value === current)) {
+      return ACCENT_COLOR_OPTIONS;
+    }
+    return [{ label: `Current (${current})`, value: current }, ...ACCENT_COLOR_OPTIONS];
+  }, [form.accent_color]);
+
+  const handleSave = () => {
+    const normalizedSlug = normalizeSlugInput(form.slug).replace(/-+$/g, "");
+    const normalizedDisplayName = form.display_name.trim();
+    const normalizedAccentColor = normalizeOptional(
+      normalizeAccentColorInput(form.accent_color)
+    );
+    const normalizedCustomDomain = normalizeOptional(
+      normalizeDomainInput(form.custom_domain)
+    );
+
+    const validationError = validateStorefrontPayload({
+      slug: normalizedSlug,
+      display_name: normalizedDisplayName,
+      accent_color: normalizedAccentColor,
+      custom_domain: normalizedCustomDomain
+    });
+
+    if (validationError) {
+      showToast({
+        title: "Invalid storefront settings",
+        description: validationError,
+        variant: "error"
+      });
+      return;
+    }
+
+    saveMutation.mutate({
+      slug: normalizedSlug,
+      display_name: normalizedDisplayName,
+      tagline: normalizeOptional(form.tagline),
+      description: normalizeOptional(form.description),
+      seo_title: normalizeOptional(form.seo_title),
+      seo_description: normalizeOptional(form.seo_description),
+      seo_og_image_url: normalizeOptional(form.seo_og_image_url),
+      logo_url: normalizeOptional(form.logo_url),
+      accent_color: normalizedAccentColor,
+      hero_image_url: normalizeOptional(form.hero_image_url),
+      support_email: normalizeOptional(form.support_email),
+      support_phone: normalizeOptional(form.support_phone),
+      policy_shipping: normalizeOptional(form.policy_shipping),
+      policy_returns: normalizeOptional(form.policy_returns),
+      policy_privacy: normalizeOptional(form.policy_privacy),
+      custom_domain: normalizedCustomDomain ?? null,
+      is_published: form.is_published
+    });
+  };
+
   if (configQuery.isLoading) {
     return <LoadingState label="Loading storefront settings..." />;
   }
@@ -215,7 +348,9 @@ export function StorefrontSettingsPage() {
           <Input
             label="Store Slug"
             value={form.slug}
-            onChange={(event) => setForm((prev) => ({ ...prev, slug: event.target.value }))}
+            onChange={(event) =>
+              setForm((prev) => ({ ...prev, slug: normalizeSlugInput(event.target.value) }))
+            }
             placeholder="ankara-house"
           />
           <Input
@@ -224,16 +359,40 @@ export function StorefrontSettingsPage() {
             onChange={(event) => setForm((prev) => ({ ...prev, display_name: event.target.value }))}
             placeholder="Ankara House"
           />
-          <Input
-            label="Accent Color"
-            value={form.accent_color}
-            onChange={(event) => setForm((prev) => ({ ...prev, accent_color: event.target.value }))}
-            placeholder="#16a34a"
-          />
+          <div className="space-y-2">
+            <Select
+              label="Accent Color"
+              value={normalizeAccentColorInput(form.accent_color)}
+              onChange={(event) =>
+                setForm((prev) => ({
+                  ...prev,
+                  accent_color: normalizeAccentColorInput(event.target.value)
+                }))
+              }
+            >
+              {accentColorOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label} ({option.value})
+                </option>
+              ))}
+            </Select>
+            <div className="inline-flex items-center gap-2 rounded-lg border border-surface-200 bg-surface-50 px-3 py-1.5 text-xs font-semibold text-surface-700 dark:border-surface-700 dark:bg-surface-800 dark:text-surface-200">
+              <span
+                className="h-4 w-4 rounded-full border border-surface-300"
+                style={{ backgroundColor: normalizeAccentColorInput(form.accent_color) || "#16a34a" }}
+              />
+              Selected: {normalizeAccentColorInput(form.accent_color) || "#16a34a"}
+            </div>
+          </div>
           <Input
             label="Custom Domain"
             value={form.custom_domain}
-            onChange={(event) => setForm((prev) => ({ ...prev, custom_domain: event.target.value }))}
+            onChange={(event) =>
+              setForm((prev) => ({
+                ...prev,
+                custom_domain: normalizeDomainInput(event.target.value)
+              }))
+            }
             placeholder="shop.example.com"
           />
           <Input
@@ -248,17 +407,21 @@ export function StorefrontSettingsPage() {
             onChange={(event) => setForm((prev) => ({ ...prev, support_phone: event.target.value }))}
             placeholder="+2348011112222"
           />
-          <Input
+          <CloudinaryImageField
             label="Logo URL"
             value={form.logo_url}
-            onChange={(event) => setForm((prev) => ({ ...prev, logo_url: event.target.value }))}
-            placeholder="https://cdn.example.com/logo.png"
+            onChange={(value) => setForm((prev) => ({ ...prev, logo_url: value }))}
+            placeholder="Upload or paste logo URL"
+            folder="storefront/logo"
+            previewAlt="Store logo"
           />
-          <Input
+          <CloudinaryImageField
             label="Hero Image URL"
             value={form.hero_image_url}
-            onChange={(event) => setForm((prev) => ({ ...prev, hero_image_url: event.target.value }))}
-            placeholder="https://cdn.example.com/hero.png"
+            onChange={(value) => setForm((prev) => ({ ...prev, hero_image_url: value }))}
+            placeholder="Upload or paste hero image URL"
+            folder="storefront/hero"
+            previewAlt="Store hero image"
           />
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -297,11 +460,13 @@ export function StorefrontSettingsPage() {
             onChange={(event) => setForm((prev) => ({ ...prev, seo_title: event.target.value }))}
             placeholder="Ankara House | Premium Fabrics"
           />
-          <Input
+          <CloudinaryImageField
             label="SEO OG Image URL"
             value={form.seo_og_image_url}
-            onChange={(event) => setForm((prev) => ({ ...prev, seo_og_image_url: event.target.value }))}
-            placeholder="https://cdn.example.com/og-cover.jpg"
+            onChange={(value) => setForm((prev) => ({ ...prev, seo_og_image_url: value }))}
+            placeholder="Upload or paste OG image URL"
+            folder="storefront/seo"
+            previewAlt="SEO open graph image"
           />
           <div className="md:col-span-2">
             <Textarea
@@ -338,31 +503,7 @@ export function StorefrontSettingsPage() {
           />
         </div>
         <div className="mt-4 flex justify-end">
-          <Button
-            type="button"
-            loading={saveMutation.isPending}
-            onClick={() =>
-              saveMutation.mutate({
-                slug: form.slug.trim(),
-                display_name: form.display_name.trim(),
-                tagline: normalizeOptional(form.tagline),
-                description: normalizeOptional(form.description),
-                seo_title: normalizeOptional(form.seo_title),
-                seo_description: normalizeOptional(form.seo_description),
-                seo_og_image_url: normalizeOptional(form.seo_og_image_url),
-                logo_url: normalizeOptional(form.logo_url),
-                accent_color: normalizeOptional(form.accent_color),
-                hero_image_url: normalizeOptional(form.hero_image_url),
-                support_email: normalizeOptional(form.support_email),
-                support_phone: normalizeOptional(form.support_phone),
-                policy_shipping: normalizeOptional(form.policy_shipping),
-                policy_returns: normalizeOptional(form.policy_returns),
-                policy_privacy: normalizeOptional(form.policy_privacy),
-                custom_domain: normalizeOptional(form.custom_domain) ?? null,
-                is_published: form.is_published
-              })
-            }
-          >
+          <Button type="button" loading={saveMutation.isPending} onClick={handleSave}>
             Save Storefront Settings
           </Button>
         </div>

@@ -4,6 +4,7 @@ import { clearSession, getSessionTokens, persistSession } from "./auth-storage";
 import type { TokenOut } from "./types";
 
 const baseURL = import.meta.env.VITE_API_BASE_URL;
+const API_TIMEOUT_MS = 300000;
 
 if (!baseURL) {
   throw new Error("VITE_API_BASE_URL is not configured");
@@ -38,7 +39,7 @@ async function refreshAccessToken() {
   const response = await axios.post<TokenOut>(
     `${baseURL}${endpoints.auth.refresh}`,
     { refresh_token: tokens.refreshToken },
-    { timeout: 15000 }
+    { timeout: API_TIMEOUT_MS }
   );
 
   persistSession(response.data);
@@ -54,7 +55,7 @@ function redirectToLogin() {
 
 export const apiClient = axios.create({
   baseURL,
-  timeout: 15000
+  timeout: API_TIMEOUT_MS
 });
 
 apiClient.interceptors.request.use((config) => {
