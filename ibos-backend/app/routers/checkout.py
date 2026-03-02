@@ -391,10 +391,8 @@ def create_storefront_checkout_session(
         .where(
             ProductVariant.id == payload.variant_id,
             ProductVariant.business_id == storefront.business_id,
-            ProductVariant.is_published.is_(True),
             Product.business_id == storefront.business_id,
             Product.active.is_(True),
-            Product.is_published.is_(True),
         )
     ).first()
     if not row:

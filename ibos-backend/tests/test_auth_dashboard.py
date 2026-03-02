@@ -2395,10 +2395,14 @@ def test_storefront_config_publish_controls_and_public_catalog(test_context):
     list_public = client.get("/storefront/public/ankara-house/products")
     assert list_public.status_code == 200, list_public.text
     list_payload = list_public.json()
-    assert list_payload["pagination"]["total"] == 1
-    assert list_payload["items"][0]["id"] == product_a_id
-    assert list_payload["items"][0]["published_variant_count"] == 1
-    assert list_payload["items"][0]["starting_price"] == pytest.approx(120.0)
+    assert list_payload["pagination"]["total"] == 2
+    items_by_id = {item["id"]: item for item in list_payload["items"]}
+    assert product_a_id in items_by_id
+    assert product_b_id in items_by_id
+    assert items_by_id[product_a_id]["published_variant_count"] == 2
+    assert items_by_id[product_a_id]["starting_price"] == pytest.approx(120.0)
+    assert items_by_id[product_b_id]["published_variant_count"] == 1
+    assert items_by_id[product_b_id]["starting_price"] == pytest.approx(90.0)
 
     search_public = client.get("/storefront/public/ankara-house/products?q=ankara")
     assert search_public.status_code == 200, search_public.text
@@ -2407,13 +2411,14 @@ def test_storefront_config_publish_controls_and_public_catalog(test_context):
 
     category_filter_public = client.get("/storefront/public/ankara-house/products?category=fabrics")
     assert category_filter_public.status_code == 200, category_filter_public.text
-    assert category_filter_public.json()["pagination"]["total"] == 1
+    assert category_filter_public.json()["pagination"]["total"] == 2
 
     detail_public = client.get(f"/storefront/public/ankara-house/products/{product_a_id}")
     assert detail_public.status_code == 200, detail_public.text
     assert detail_public.json()["id"] == product_a_id
-    assert len(detail_public.json()["variants"]) == 1
-    assert detail_public.json()["variants"][0]["id"] == variant_a_1_id
+    assert len(detail_public.json()["variants"]) == 2
+    detail_variant_ids = {item["id"] for item in detail_public.json()["variants"]}
+    assert detail_variant_ids == {variant_a_1_id, variant_a_2_id}
 
     publish_variant_a2 = client.patch(
         f"/products/{product_a_id}/variants/{variant_a_2_id}/publish",
@@ -2437,7 +2442,7 @@ def test_storefront_config_publish_controls_and_public_catalog(test_context):
     assert list_after_variant_b_unpublished.status_code == 200, list_after_variant_b_unpublished.text
     ids = {item["id"] for item in list_after_variant_b_unpublished.json()["items"]}
     assert product_a_id in ids
-    assert product_b_id not in ids
+    assert product_b_id in ids
 
     audit_res = client.get("/audit-logs", headers=_auth_headers(token))
     assert audit_res.status_code == 200, audit_res.text
