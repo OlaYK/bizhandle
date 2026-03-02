@@ -35,7 +35,6 @@ services:
   - type: web
     name: monidesk-frontend-dev
     runtime: static
-    plan: free
     branch: dev
     rootDir: ibos-frontend
     buildCommand: npm ci && npm run build
