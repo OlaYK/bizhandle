@@ -133,7 +133,7 @@ export function AppShell() {
                 cn(
                   "animate-fade-up flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition",
                   isActive
-                    ? "bg-[linear-gradient(140deg,#203f62,#17314e)] text-white shadow-glow"
+                    ? "bg-[linear-gradient(140deg,#203f62,#17314e)] text-white shadow-glow "
                     : "text-surface-600 hover:bg-surface-100 hover:text-surface-800 hover:translate-x-1 dark:text-surface-200 dark:hover:bg-surface-700/40 dark:hover:text-surface-100",
                 )
               }

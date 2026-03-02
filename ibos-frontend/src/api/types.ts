@@ -74,6 +74,7 @@ export interface UserProfileOut {
   username: string;
   full_name?: string | null;
   business_name?: string | null;
+  base_currency: string;
   pending_order_timeout_minutes: number;
   created_at: string;
   updated_at: string;
@@ -83,7 +84,18 @@ export interface UpdateProfileIn {
   full_name?: string;
   username?: string;
   business_name?: string;
+  base_currency?: string;
   pending_order_timeout_minutes?: number;
+}
+
+export interface CurrencyOptionOut {
+  code: string;
+  name: string;
+  symbol: string;
+}
+
+export interface CurrencyListOut {
+  items: CurrencyOptionOut[];
 }
 
 export interface OkOut {
@@ -819,6 +831,7 @@ export interface LocationCreateIn {
 export interface LocationUpdateIn {
   name?: string;
   is_active?: boolean;
+  isActive?: boolean;
 }
 
 export interface LocationOut {
@@ -1308,7 +1321,12 @@ export type AutomationActionType =
   | "tag_customer"
   | "create_task"
   | "apply_discount";
-export type AutomationRunStatus = "success" | "failed" | "skipped" | "blocked" | "dry_run";
+export type AutomationRunStatus =
+  | "success"
+  | "failed"
+  | "skipped"
+  | "blocked"
+  | "dry_run";
 export type AutomationStepStatus =
   | "success"
   | "failed"
@@ -1326,7 +1344,10 @@ export type AutomationConditionOperator =
   | "in"
   | "exists"
   | "not_exists";
-export type AutomationTemplateKey = "abandoned_cart" | "overdue_invoice" | "low_stock";
+export type AutomationTemplateKey =
+  | "abandoned_cart"
+  | "overdue_invoice"
+  | "low_stock";
 
 export interface AutomationConditionIn {
   field: string;
@@ -1972,6 +1993,12 @@ export interface ExpenseCreateIn {
   note?: string | null;
 }
 
+export interface ExpenseUpdateIn {
+  category?: string;
+  amount?: number;
+  note?: string | null;
+}
+
 export interface ExpenseCreateOut {
   id: string;
 }
@@ -2135,6 +2162,8 @@ export interface TeamInvitationOut {
 
 export interface TeamInvitationCreateOut extends TeamInvitationOut {
   invitation_token: string;
+  email_delivery_status: "sent" | "not_configured" | "failed";
+  email_delivery_detail?: string | null;
 }
 
 export interface TeamInvitationListOut {
@@ -2757,7 +2786,13 @@ export interface MarketplaceListingOut {
   description: string;
   category: string;
   requested_scopes: string[];
-  status: "draft" | "submitted" | "under_review" | "approved" | "rejected" | "published";
+  status:
+    | "draft"
+    | "submitted"
+    | "under_review"
+    | "approved"
+    | "rejected"
+    | "published";
   review_notes?: string;
   submitted_at?: string;
   reviewed_at?: string;
@@ -2769,7 +2804,13 @@ export interface MarketplaceListingOut {
 export interface MarketplaceListingListOut {
   items: MarketplaceListingOut[];
   pagination: PaginationMeta;
-  status?: "draft" | "submitted" | "under_review" | "approved" | "rejected" | "published";
+  status?:
+    | "draft"
+    | "submitted"
+    | "under_review"
+    | "approved"
+    | "rejected"
+    | "published";
 }
 
 export interface WebhookDeliveryFilter extends PaginationFilter {
@@ -2778,5 +2819,11 @@ export interface WebhookDeliveryFilter extends PaginationFilter {
 }
 
 export interface MarketplaceListingFilter extends PaginationFilter {
-  status?: "draft" | "submitted" | "under_review" | "approved" | "rejected" | "published";
+  status?:
+    | "draft"
+    | "submitted"
+    | "under_review"
+    | "approved"
+    | "rejected"
+    | "published";
 }

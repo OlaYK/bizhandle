@@ -1,10 +1,13 @@
-import axios, { type AxiosRequestConfig, type InternalAxiosRequestConfig } from "axios";
+import axios, {
+  type AxiosRequestConfig,
+  type InternalAxiosRequestConfig,
+} from "axios";
 import { endpoints } from "./endpoints";
 import { clearSession, getSessionTokens, persistSession } from "./auth-storage";
 import type { TokenOut } from "./types";
 
 const baseURL = import.meta.env.VITE_API_BASE_URL;
-const API_TIMEOUT_MS = 300000;
+let apiTimeoutMs = 300_000; // default 5 minutes, updated dynamically from X-API-Timeout-Hint-Ms
 
 if (!baseURL) {
   throw new Error("VITE_API_BASE_URL is not configured");
@@ -16,7 +19,7 @@ const AUTH_PATHS = new Set<string>([
   endpoints.auth.registerWithInvite,
   endpoints.auth.token,
   endpoints.auth.refresh,
-  endpoints.auth.google
+  endpoints.auth.google,
 ]);
 
 function isAuthPath(url?: string) {
@@ -39,7 +42,7 @@ async function refreshAccessToken() {
   const response = await axios.post<TokenOut>(
     `${baseURL}${endpoints.auth.refresh}`,
     { refresh_token: tokens.refreshToken },
-    { timeout: API_TIMEOUT_MS }
+    { timeout: apiTimeoutMs },
   );
 
   persistSession(response.data);
@@ -48,14 +51,17 @@ async function refreshAccessToken() {
 
 function redirectToLogin() {
   clearSession();
-  if (window.location.pathname !== "/login" && window.location.pathname !== "/register") {
+  if (
+    window.location.pathname !== "/login" &&
+    window.location.pathname !== "/register"
+  ) {
     window.location.assign("/login");
   }
 }
 
 export const apiClient = axios.create({
   baseURL,
-  timeout: API_TIMEOUT_MS
+  timeout: apiTimeoutMs,
 });
 
 apiClient.interceptors.request.use((config) => {
@@ -67,7 +73,17 @@ apiClient.interceptors.request.use((config) => {
 });
 
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const hint = response.headers["x-api-timeout-hint-ms"];
+    if (hint) {
+      const parsed = Number(hint);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        apiTimeoutMs = parsed;
+        apiClient.defaults.timeout = parsed;
+      }
+    }
+    return response;
+  },
   async (error) => {
     const status = error?.response?.status;
     const originalRequest = error?.config as RetryableRequestConfig | undefined;
@@ -103,5 +119,5 @@ apiClient.interceptors.response.use(
     }
 
     return Promise.reject(error);
-  }
+  },
 );

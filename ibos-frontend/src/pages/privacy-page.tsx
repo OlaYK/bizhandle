@@ -27,7 +27,7 @@ export function PrivacyPage() {
 
   const matrixQuery = useQuery({
     queryKey: ["privacy", "rbac-matrix"],
-    queryFn: () => privacyService.rbacMatrix()
+    queryFn: () => privacyService.rbacMatrix(),
   });
 
   const exportMutation = useMutation({
@@ -40,9 +40,23 @@ export function PrivacyPage() {
       showToast({
         title: "Export failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
+  });
+
+  const downloadPdfMutation = useMutation({
+    mutationFn: (id: string) => privacyService.downloadCustomerExportPdf(id),
+    onSuccess: () => {
+      showToast({ title: "PDF downloaded", variant: "success" });
+    },
+    onError: (error) => {
+      showToast({
+        title: "PDF download failed",
+        description: getApiErrorMessage(error),
+        variant: "error",
+      });
+    },
   });
 
   const deleteMutation = useMutation({
@@ -51,38 +65,38 @@ export function PrivacyPage() {
       showToast({
         title: "PII anonymized",
         description: "Customer personal fields were removed.",
-        variant: "success"
+        variant: "success",
       });
     },
     onError: (error) => {
       showToast({
         title: "Delete failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const archiveMutation = useMutation({
     mutationFn: () =>
       privacyService.archiveAuditLogs({
         cutoff_date: cutoffDate,
-        delete_archived: true
+        delete_archived: true,
       }),
     onSuccess: (result) => {
       showToast({
         title: "Audit archive complete",
         description: `${result.records_count} records archived.`,
-        variant: "success"
+        variant: "success",
       });
     },
     onError: (error) => {
       showToast({
         title: "Archive failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   if (matrixQuery.isLoading) {
@@ -90,7 +104,12 @@ export function PrivacyPage() {
   }
 
   if (matrixQuery.isError) {
-    return <ErrorState message="Failed to load privacy controls." onRetry={() => matrixQuery.refetch()} />;
+    return (
+      <ErrorState
+        message="Failed to load privacy controls."
+        onRetry={() => matrixQuery.refetch()}
+      />
+    );
   }
 
   return (
@@ -100,7 +119,9 @@ export function PrivacyPage() {
           <LockKeyhole className="h-4 w-4" />
           Security and Privacy
         </p>
-        <h3 className="font-heading text-lg font-bold">RBAC v2 and Data Privacy Controls</h3>
+        <h3 className="font-heading text-lg font-bold">
+          RBAC v2 and Data Privacy Controls
+        </h3>
         <div className="mt-4 flex flex-wrap gap-2">
           {(matrixQuery.data?.items ?? []).map((item) => (
             <Badge key={item.role} variant="info">
@@ -111,9 +132,15 @@ export function PrivacyPage() {
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold">Customer PII Export / Delete</h3>
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <Input label="Customer ID" value={customerId} onChange={(event) => setCustomerId(event.target.value)} />
+        <h3 className="font-heading text-lg font-bold">
+          Customer PII Export / Delete
+        </h3>
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <Input
+            label="Customer ID"
+            value={customerId}
+            onChange={(event) => setCustomerId(event.target.value)}
+          />
           <div className="mt-7">
             <Button
               type="button"
@@ -129,6 +156,17 @@ export function PrivacyPage() {
             <Button
               type="button"
               variant="secondary"
+              onClick={() => downloadPdfMutation.mutate(customerId.trim())}
+              disabled={!customerId.trim()}
+              loading={downloadPdfMutation.isPending}
+            >
+              Download PDF
+            </Button>
+          </div>
+          <div className="mt-7">
+            <Button
+              type="button"
+              variant="secondary"
               onClick={() => deleteMutation.mutate(customerId.trim())}
               disabled={!customerId.trim()}
               loading={deleteMutation.isPending}
@@ -138,15 +176,31 @@ export function PrivacyPage() {
             </Button>
           </div>
         </div>
-        <Textarea label="PII Export Result" rows={12} value={exportPayload} onChange={(event) => setExportPayload(event.target.value)} />
+        <Textarea
+          label="PII Export Result"
+          rows={12}
+          value={exportPayload}
+          onChange={(event) => setExportPayload(event.target.value)}
+        />
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold">Immutable Audit Archive</h3>
+        <h3 className="font-heading text-lg font-bold">
+          Immutable Audit Archive
+        </h3>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <Input label="Cutoff Date" type="date" value={cutoffDate} onChange={(event) => setCutoffDate(event.target.value)} />
+          <Input
+            label="Cutoff Date"
+            type="date"
+            value={cutoffDate}
+            onChange={(event) => setCutoffDate(event.target.value)}
+          />
           <div className="mt-7">
-            <Button type="button" onClick={() => archiveMutation.mutate()} loading={archiveMutation.isPending}>
+            <Button
+              type="button"
+              onClick={() => archiveMutation.mutate()}
+              loading={archiveMutation.isPending}
+            >
               Archive Audit Logs
             </Button>
           </div>

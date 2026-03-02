@@ -4,12 +4,12 @@ import {
   useContext,
   useMemo,
   useState,
-  type PropsWithChildren
+  type PropsWithChildren,
 } from "react";
-import { CheckCircle2, CircleAlert, Info } from "lucide-react";
+import { CheckCircle2, CircleAlert, Info, TriangleAlert } from "lucide-react";
 import { cn } from "../lib/cn";
 
-type ToastVariant = "success" | "error" | "info";
+type ToastVariant = "success" | "error" | "info" | "warning";
 
 interface Toast {
   id: string;
@@ -27,13 +27,15 @@ const ToastContext = createContext<ToastContextValue | undefined>(undefined);
 const variantStyles: Record<ToastVariant, string> = {
   success: "border-mint-300 bg-mint-100 text-mint-700",
   error: "border-red-300 bg-red-50 text-red-700",
-  info: "border-surface-200 bg-white text-surface-700"
+  info: "border-surface-200 bg-white text-surface-700",
+  warning: "border-amber-300 bg-amber-50 text-amber-700",
 };
 
 const variantIcon: Record<ToastVariant, JSX.Element> = {
   success: <CheckCircle2 className="h-4 w-4" />,
   error: <CircleAlert className="h-4 w-4" />,
-  info: <Info className="h-4 w-4" />
+  info: <Info className="h-4 w-4" />,
+  warning: <TriangleAlert className="h-4 w-4" />,
 };
 
 export function ToastProvider({ children }: PropsWithChildren) {
@@ -59,7 +61,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
             key={toast.id}
             className={cn(
               "pointer-events-auto animate-fade-up rounded-xl border p-4 shadow-soft",
-              variantStyles[toast.variant]
+              variantStyles[toast.variant],
             )}
           >
             <div className="flex items-start gap-2">

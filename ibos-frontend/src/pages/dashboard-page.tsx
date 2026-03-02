@@ -7,9 +7,13 @@ import {
   ResponsiveContainer,
   Tooltip,
   XAxis,
-  YAxis
+  YAxis,
 } from "recharts";
-import { dashboardService, expenseService, salesService } from "../api/services";
+import {
+  dashboardService,
+  expenseService,
+  salesService,
+} from "../api/services";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { LoadingState } from "../components/state/loading-state";
@@ -31,8 +35,8 @@ export function DashboardPage() {
     queryFn: () =>
       dashboardService.summary({
         start_date: startDate || undefined,
-        end_date: endDate || undefined
-      })
+        end_date: endDate || undefined,
+      }),
   });
 
   const customerInsightsQuery = useQuery({
@@ -40,8 +44,8 @@ export function DashboardPage() {
     queryFn: () =>
       dashboardService.customerInsights({
         start_date: startDate || undefined,
-        end_date: endDate || undefined
-      })
+        end_date: endDate || undefined,
+      }),
   });
 
   const salesQuery = useQuery({
@@ -52,8 +56,8 @@ export function DashboardPage() {
         end_date: endDate || undefined,
         include_refunds: true,
         limit: 100,
-        offset: 0
-      })
+        offset: 0,
+      }),
   });
 
   const expensesQuery = useQuery({
@@ -63,8 +67,8 @@ export function DashboardPage() {
         start_date: startDate || undefined,
         end_date: endDate || undefined,
         limit: 100,
-        offset: 0
-      })
+        offset: 0,
+      }),
   });
 
   const loading =
@@ -80,7 +84,10 @@ export function DashboardPage() {
 
   const chartData = useMemo(() => {
     if (!salesQuery.data || !expensesQuery.data) return [];
-    const byDay = new Map<string, { day: string; sales: number; expenses: number }>();
+    const byDay = new Map<
+      string,
+      { day: string; sales: number; expenses: number }
+    >();
 
     for (const sale of salesQuery.data.items) {
       const day = sale.created_at.slice(0, 10);
@@ -107,7 +114,7 @@ export function DashboardPage() {
       type: sale.kind === "refund" ? "Refund" : "Sale",
       amount: sale.total_amount,
       created_at: sale.created_at,
-      note: sale.note ?? `${sale.channel} / ${sale.payment_method}`
+      note: sale.note ?? `${sale.channel} / ${sale.payment_method}`,
     }));
 
     const expenseItems = expensesQuery.data.items.map((expense) => ({
@@ -115,11 +122,14 @@ export function DashboardPage() {
       type: "Expense",
       amount: -expense.amount,
       created_at: expense.created_at,
-      note: expense.note ?? expense.category
+      note: expense.note ?? expense.category,
     }));
 
     return [...salesItems, ...expenseItems]
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      )
       .slice(0, 8);
   }, [salesQuery.data, expensesQuery.data]);
 
@@ -142,7 +152,12 @@ export function DashboardPage() {
   }
 
   if (!summaryQuery.data || !customerInsightsQuery.data) {
-    return <EmptyState title="No dashboard data" description="Start recording sales and expenses." />;
+    return (
+      <EmptyState
+        title="No dashboard data"
+        description="Start recording sales and expenses."
+      />
+    );
   }
 
   return (
@@ -169,14 +184,20 @@ export function DashboardPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="animate-fade-up [animation-delay:60ms]">
-          <p className="text-xs uppercase tracking-wide text-surface-500">Sales Total</p>
+          <p className="text-xs uppercase tracking-wide text-surface-500">
+            Sales Total
+          </p>
           <p className="mt-2 font-heading text-2xl font-black text-surface-800">
             {formatCurrency(summaryQuery.data.sales_total)}
           </p>
-          <p className="mt-1 text-xs text-surface-500">{formatNumber(summaryQuery.data.sales_count)} sales</p>
+          <p className="mt-1 text-xs text-surface-500">
+            {formatNumber(summaryQuery.data.sales_count)} sales
+          </p>
         </Card>
         <Card className="animate-fade-up [animation-delay:90ms]">
-          <p className="text-xs uppercase tracking-wide text-surface-500">Expenses</p>
+          <p className="text-xs uppercase tracking-wide text-surface-500">
+            Expenses
+          </p>
           <p className="mt-2 font-heading text-2xl font-black text-surface-800">
             {formatCurrency(summaryQuery.data.expense_total)}
           </p>
@@ -185,7 +206,9 @@ export function DashboardPage() {
           </p>
         </Card>
         <Card className="animate-fade-up [animation-delay:120ms]">
-          <p className="text-xs uppercase tracking-wide text-surface-500">Profit (Simple)</p>
+          <p className="text-xs uppercase tracking-wide text-surface-500">
+            Profit (Simple)
+          </p>
           <p className="mt-2 font-heading text-2xl font-black text-surface-800">
             {formatCurrency(summaryQuery.data.profit_simple)}
           </p>
@@ -197,7 +220,9 @@ export function DashboardPage() {
           </p>
         </Card>
         <Card className="animate-fade-up [animation-delay:150ms]">
-          <p className="text-xs uppercase tracking-wide text-surface-500">Average Sale</p>
+          <p className="text-xs uppercase tracking-wide text-surface-500">
+            Average Sale
+          </p>
           <p className="mt-2 font-heading text-2xl font-black text-surface-800">
             {formatCurrency(summaryQuery.data.average_sale_value)}
           </p>
@@ -207,27 +232,36 @@ export function DashboardPage() {
 
       <Card className="animate-fade-up [animation-delay:165ms]">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-heading text-lg font-bold text-surface-800">Customer Insights</h3>
+          <h3 className="font-heading text-lg font-bold text-surface-800">
+            Customer Insights
+          </h3>
           <p className="text-xs text-surface-500">
-            {formatNumber(customerInsightsQuery.data.total_customers)} total customers
+            {formatNumber(customerInsightsQuery.data.total_customers)} total
+            customers
           </p>
         </div>
 
         <div className="mb-4 grid gap-3 sm:grid-cols-3">
           <div className="rounded-xl border border-surface-100 bg-surface-50 p-3 dark:border-surface-700 dark:bg-surface-800/60">
-            <p className="text-xs uppercase tracking-wide text-surface-500">Active Customers</p>
+            <p className="text-xs uppercase tracking-wide text-surface-500">
+              Active Customers
+            </p>
             <p className="mt-1 font-heading text-xl font-black text-surface-800">
               {formatNumber(customerInsightsQuery.data.active_customers)}
             </p>
           </div>
           <div className="rounded-xl border border-surface-100 bg-surface-50 p-3 dark:border-surface-700 dark:bg-surface-800/60">
-            <p className="text-xs uppercase tracking-wide text-surface-500">Repeat Buyers</p>
+            <p className="text-xs uppercase tracking-wide text-surface-500">
+              Repeat Buyers
+            </p>
             <p className="mt-1 font-heading text-xl font-black text-surface-800">
               {formatNumber(customerInsightsQuery.data.repeat_buyers)}
             </p>
           </div>
           <div className="rounded-xl border border-surface-100 bg-surface-50 p-3 dark:border-surface-700 dark:bg-surface-800/60">
-            <p className="text-xs uppercase tracking-wide text-surface-500">Repeat Rate</p>
+            <p className="text-xs uppercase tracking-wide text-surface-500">
+              Repeat Rate
+            </p>
             <p className="mt-1 font-heading text-xl font-black text-surface-800">
               {customerInsightsQuery.data.active_customers > 0
                 ? `${(
@@ -240,7 +274,9 @@ export function DashboardPage() {
           </div>
         </div>
 
-        <h4 className="mb-2 text-sm font-semibold text-surface-700">Top Customers</h4>
+        <h4 className="mb-2 text-sm font-semibold text-surface-700">
+          Top Customers
+        </h4>
         {customerInsightsQuery.data.top_customers.length === 0 ? (
           <EmptyState
             title="No customer transactions yet"
@@ -278,11 +314,18 @@ export function DashboardPage() {
 
       <Card className="animate-fade-up [animation-delay:180ms]">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-heading text-lg font-bold text-surface-800">Sales vs Expenses Trend</h3>
-          <p className="text-xs text-surface-500">Last {chartData.length} active days</p>
+          <h3 className="font-heading text-lg font-bold text-surface-800">
+            Sales vs Expenses Trend
+          </h3>
+          <p className="text-xs text-surface-500">
+            Last {chartData.length} active days
+          </p>
         </div>
         {chartData.length === 0 ? (
-          <EmptyState title="No trend data yet" description="Create transactions to view chart analytics." />
+          <EmptyState
+            title="No trend data yet"
+            description="Create transactions to view chart analytics."
+          />
         ) : (
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
@@ -298,7 +341,10 @@ export function DashboardPage() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} />
-                <XAxis dataKey="day" tick={{ fill: chartAxisColor, fontSize: 12 }} />
+                <XAxis
+                  dataKey="day"
+                  tick={{ fill: chartAxisColor, fontSize: 12 }}
+                />
                 <YAxis tick={{ fill: chartAxisColor, fontSize: 12 }} />
                 <Tooltip />
                 <Area
@@ -324,9 +370,14 @@ export function DashboardPage() {
       </Card>
 
       <Card className="animate-fade-up [animation-delay:210ms]">
-        <h3 className="mb-4 font-heading text-lg font-bold text-surface-800">Recent Activity</h3>
+        <h3 className="mb-4 font-heading text-lg font-bold text-surface-800">
+          Recent Activity
+        </h3>
         {recentActivity.length === 0 ? (
-          <EmptyState title="No activity yet" description="Sales and expenses will appear here." />
+          <EmptyState
+            title="No activity yet"
+            description="Sales and expenses will appear here."
+          />
         ) : (
           <div className="space-y-3">
             <div className="space-y-2 sm:hidden">
@@ -336,7 +387,9 @@ export function DashboardPage() {
                   className="rounded-xl border border-surface-100 bg-surface-50 p-3 dark:border-surface-700 dark:bg-surface-800/60"
                 >
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-surface-700">{entry.type}</p>
+                    <p className="text-sm font-semibold text-surface-700">
+                      {entry.type}
+                    </p>
                     <p
                       className={`text-sm font-semibold ${
                         entry.amount >= 0 ? "text-mint-700" : "text-red-600"
@@ -345,8 +398,12 @@ export function DashboardPage() {
                       {formatCurrency(entry.amount)}
                     </p>
                   </div>
-                  <p className="mt-1 text-xs text-surface-500">{entry.note ?? "-"}</p>
-                  <p className="mt-1 text-xs text-surface-500">{formatDateTime(entry.created_at)}</p>
+                  <p className="mt-1 text-xs text-surface-500">
+                    {entry.note ?? "-"}
+                  </p>
+                  <p className="mt-1 text-xs text-surface-500">
+                    {formatDateTime(entry.created_at)}
+                  </p>
                 </article>
               ))}
             </div>
@@ -363,7 +420,9 @@ export function DashboardPage() {
                 <tbody className="divide-y divide-surface-50">
                   {recentActivity.map((entry) => (
                     <tr key={`${entry.type}-${entry.id}`}>
-                      <td className="px-2 py-2 font-semibold text-surface-700">{entry.type}</td>
+                      <td className="px-2 py-2 font-semibold text-surface-700">
+                        {entry.type}
+                      </td>
                       <td
                         className={`px-2 py-2 font-semibold ${
                           entry.amount >= 0 ? "text-mint-700" : "text-red-600"
@@ -371,8 +430,12 @@ export function DashboardPage() {
                       >
                         {formatCurrency(entry.amount)}
                       </td>
-                      <td className="px-2 py-2 text-surface-500">{entry.note ?? "-"}</td>
-                      <td className="px-2 py-2 text-surface-500">{formatDateTime(entry.created_at)}</td>
+                      <td className="px-2 py-2 text-surface-500">
+                        {entry.note ?? "-"}
+                      </td>
+                      <td className="px-2 py-2 text-surface-500">
+                        {formatDateTime(entry.created_at)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
