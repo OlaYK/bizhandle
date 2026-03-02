@@ -2,6 +2,7 @@ services:
   - type: web
     name: monidesk-api-dev
     runtime: python
+    plan: free
     branch: dev
     rootDir: ibos-backend
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
@@ -35,6 +36,7 @@ services:
   - type: web
     name: monidesk-frontend-dev
     runtime: static
+    plan: free
     branch: dev
     rootDir: ibos-frontend
     buildCommand: npm ci && npm run build
