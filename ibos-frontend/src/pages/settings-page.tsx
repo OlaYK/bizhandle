@@ -28,6 +28,7 @@ const profileSchema = z.object({
   business_name: z
     .string()
     .min(2, "Business name must be at least 2 characters"),
+  base_currency: z.string().min(1, "Select a currency"),
   pending_order_timeout_minutes: z.coerce
     .number()
     .int("Use a whole number")
@@ -66,6 +67,7 @@ export function SettingsPage() {
       full_name: "",
       username: "",
       business_name: "",
+      base_currency: "",
       pending_order_timeout_minutes: 60,
     },
   });
@@ -84,12 +86,18 @@ export function SettingsPage() {
     queryFn: authService.me,
   });
 
+  const currenciesQuery = useQuery({
+    queryKey: ["auth", "currencies"],
+    queryFn: authService.currencies,
+  });
+
   useEffect(() => {
     if (!profileQuery.data) return;
     profileForm.reset({
       full_name: profileQuery.data.full_name ?? "",
       username: profileQuery.data.username ?? "",
       business_name: profileQuery.data.business_name ?? "",
+      base_currency: profileQuery.data.base_currency ?? "",
       pending_order_timeout_minutes:
         profileQuery.data.pending_order_timeout_minutes,
     });
@@ -102,6 +110,7 @@ export function SettingsPage() {
         full_name: profile.full_name ?? "",
         username: profile.username ?? "",
         business_name: profile.business_name ?? "",
+        base_currency: profile.base_currency ?? "",
         pending_order_timeout_minutes: profile.pending_order_timeout_minutes,
       });
       queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
@@ -206,6 +215,7 @@ export function SettingsPage() {
               full_name: values.full_name.trim(),
               username: values.username.trim(),
               business_name: values.business_name.trim(),
+              base_currency: values.base_currency,
               pending_order_timeout_minutes:
                 values.pending_order_timeout_minutes,
             }),
@@ -241,6 +251,18 @@ export function SettingsPage() {
                 ?.message
             }
           />
+          <Select
+            label="Base Currency"
+            {...profileForm.register("base_currency")}
+            error={profileForm.formState.errors.base_currency?.message}
+          >
+            <option value="">Select currency…</option>
+            {currenciesQuery.data?.items?.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.symbol} {c.code} — {c.name}
+              </option>
+            ))}
+          </Select>
           <div className="md:col-span-2">
             <Button
               type="submit"

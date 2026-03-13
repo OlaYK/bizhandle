@@ -44,7 +44,9 @@ interface ShippingServiceRuleDraft {
   is_active: boolean;
 }
 
-function createZoneDraft(overrides?: Partial<ShippingZoneDraft>): ShippingZoneDraft {
+function createZoneDraft(
+  overrides?: Partial<ShippingZoneDraft>,
+): ShippingZoneDraft {
   return {
     id: crypto.randomUUID(),
     zone_name: "Domestic",
@@ -53,11 +55,13 @@ function createZoneDraft(overrides?: Partial<ShippingZoneDraft>): ShippingZoneDr
     city: "",
     postal_code_prefix: "",
     is_active: true,
-    ...overrides
+    ...overrides,
   };
 }
 
-function createRuleDraft(overrides?: Partial<ShippingServiceRuleDraft>): ShippingServiceRuleDraft {
+function createRuleDraft(
+  overrides?: Partial<ShippingServiceRuleDraft>,
+): ShippingServiceRuleDraft {
   return {
     id: crypto.randomUUID(),
     provider: "stub_carrier",
@@ -69,7 +73,7 @@ function createRuleDraft(overrides?: Partial<ShippingServiceRuleDraft>): Shippin
     min_eta_days: 2,
     max_eta_days: 5,
     is_active: true,
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -80,7 +84,7 @@ function toZonePayload(zone: ShippingZoneDraft) {
     state: normalizeOptional(zone.state),
     city: normalizeOptional(zone.city),
     postal_code_prefix: normalizeOptional(zone.postal_code_prefix),
-    is_active: zone.is_active
+    is_active: zone.is_active,
   };
 }
 
@@ -94,7 +98,7 @@ function toRulePayload(rule: ShippingServiceRuleDraft) {
     per_kg_rate: Number(rule.per_kg_rate || 0),
     min_eta_days: Number(rule.min_eta_days || 1),
     max_eta_days: Number(rule.max_eta_days || 1),
-    is_active: rule.is_active
+    is_active: rule.is_active,
   };
 }
 
@@ -110,7 +114,7 @@ export function ShippingPage() {
   const [currency, setCurrency] = useState("USD");
   const [zones, setZones] = useState<ShippingZoneDraft[]>([createZoneDraft()]);
   const [serviceRules, setServiceRules] = useState<ShippingServiceRuleDraft[]>([
-    createRuleDraft({ zone_name: "Domestic" })
+    createRuleDraft({ zone_name: "Domestic" }),
   ]);
 
   const [quoteSessionToken, setQuoteSessionToken] = useState("");
@@ -150,7 +154,7 @@ export function ShippingPage() {
   const settingsQuery = useQuery({
     queryKey: ["shipping", "settings"],
     queryFn: shippingService.getSettings,
-    retry: false
+    retry: false,
   });
 
   const settingsNotConfigured =
@@ -175,10 +179,10 @@ export function ShippingPage() {
               state: zone.state ?? "",
               city: zone.city ?? "",
               postal_code_prefix: zone.postal_code_prefix ?? "",
-              is_active: zone.is_active
-            })
+              is_active: zone.is_active,
+            }),
           )
-        : [createZoneDraft()]
+        : [createZoneDraft()],
     );
     setServiceRules(
       settingsQuery.data.service_rules.length
@@ -192,15 +196,17 @@ export function ShippingPage() {
               per_kg_rate: rule.per_kg_rate,
               min_eta_days: rule.min_eta_days,
               max_eta_days: rule.max_eta_days,
-              is_active: rule.is_active
-            })
+              is_active: rule.is_active,
+            }),
           )
-        : [createRuleDraft()]
+        : [createRuleDraft()],
     );
   }, [settingsQuery.data]);
 
   const updateZoneDraft = (id: string, patch: Partial<ShippingZoneDraft>) => {
-    setZones((prev) => prev.map((zone) => (zone.id === id ? { ...zone, ...patch } : zone)));
+    setZones((prev) =>
+      prev.map((zone) => (zone.id === id ? { ...zone, ...patch } : zone)),
+    );
   };
 
   const removeZoneDraft = (id: string) => {
@@ -217,13 +223,18 @@ export function ShippingPage() {
       prev.map((rule) =>
         rule.zone_name.trim().toLowerCase() === removedZoneName
           ? { ...rule, zone_name: "" }
-          : rule
-      )
+          : rule,
+      ),
     );
   };
 
-  const updateRuleDraft = (id: string, patch: Partial<ShippingServiceRuleDraft>) => {
-    setServiceRules((prev) => prev.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)));
+  const updateRuleDraft = (
+    id: string,
+    patch: Partial<ShippingServiceRuleDraft>,
+  ) => {
+    setServiceRules((prev) =>
+      prev.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)),
+    );
   };
 
   const removeRuleDraft = (id: string) => {
@@ -234,14 +245,21 @@ export function ShippingPage() {
   };
 
   const shipmentsQuery = useQuery({
-    queryKey: ["shipping", "shipments", orderFilter, statusFilter, page, pageSize],
+    queryKey: [
+      "shipping",
+      "shipments",
+      orderFilter,
+      statusFilter,
+      page,
+      pageSize,
+    ],
     queryFn: () =>
       shippingService.listShipments({
         order_id: orderFilter.trim() || undefined,
         status: statusFilter.trim() || undefined,
         limit: pageSize,
-        offset
-      })
+        offset,
+      }),
   });
 
   const saveSettingsMutation = useMutation({
@@ -254,13 +272,13 @@ export function ShippingPage() {
         handling_fee: Number(handlingFee || 0),
         currency: currency.trim().toUpperCase(),
         zones: zones.map(toZonePayload),
-        service_rules: serviceRules.map(toRulePayload)
+        service_rules: serviceRules.map(toRulePayload),
       }),
     onSuccess: () => {
       showToast({
         title: "Shipping settings saved",
         description: "Shipping zones and service rules have been updated.",
-        variant: "success"
+        variant: "success",
       });
       queryClient.invalidateQueries({ queryKey: ["shipping", "settings"] });
     },
@@ -268,9 +286,9 @@ export function ShippingPage() {
       showToast({
         title: "Could not save shipping settings",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const quoteMutation = useMutation({
@@ -280,15 +298,15 @@ export function ShippingPage() {
         destination_state: normalizeOptional(destinationState),
         destination_city: normalizeOptional(destinationCity),
         destination_postal_code: normalizeOptional(destinationPostalCode),
-        total_weight_kg: Number(totalWeightKg || 1)
+        total_weight_kg: Number(totalWeightKg || 1),
       }),
     onError: (error) => {
       showToast({
         title: "Quote failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const selectRateMutation = useMutation({
@@ -301,7 +319,7 @@ export function ShippingPage() {
         amount: rate.amount,
         currency: rate.currency,
         eta_min_days: rate.eta_min_days,
-        eta_max_days: rate.eta_max_days
+        eta_max_days: rate.eta_max_days,
       }),
     onSuccess: () => {
       showToast({ title: "Shipping rate selected", variant: "success" });
@@ -310,9 +328,9 @@ export function ShippingPage() {
       showToast({
         title: "Could not select rate",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const createShipmentMutation = useMutation({
@@ -332,13 +350,13 @@ export function ShippingPage() {
         city: shipmentCity.trim(),
         state: normalizeOptional(shipmentState),
         country: shipmentCountry.trim().toUpperCase(),
-        postal_code: normalizeOptional(shipmentPostalCode)
+        postal_code: normalizeOptional(shipmentPostalCode),
       }),
     onSuccess: () => {
       showToast({
         title: "Shipment created",
         description: "Label created and shipment linked to order.",
-        variant: "success"
+        variant: "success",
       });
       setOrderId("");
       setCheckoutSessionId("");
@@ -355,13 +373,14 @@ export function ShippingPage() {
       showToast({
         title: "Could not create shipment",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const syncTrackingMutation = useMutation({
-    mutationFn: (shipmentId: string) => shippingService.syncTracking(shipmentId),
+    mutationFn: (shipmentId: string) =>
+      shippingService.syncTracking(shipmentId),
     onSuccess: () => {
       showToast({ title: "Tracking synced", variant: "success" });
       queryClient.invalidateQueries({ queryKey: ["shipping", "shipments"] });
@@ -371,20 +390,31 @@ export function ShippingPage() {
       showToast({
         title: "Tracking sync failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const zoneNameOptions = Array.from(
-    new Set(zones.map((zone) => zone.zone_name.trim()).filter((name) => name.length > 0))
+    new Set(
+      zones
+        .map((zone) => zone.zone_name.trim())
+        .filter((name) => name.length > 0),
+    ),
   );
 
-  if ((settingsQuery.isLoading && !settingsNotConfigured) || shipmentsQuery.isLoading) {
+  if (
+    (settingsQuery.isLoading && !settingsNotConfigured) ||
+    shipmentsQuery.isLoading
+  ) {
     return <LoadingState label="Loading shipping operations..." />;
   }
 
-  if ((settingsQuery.isError && !settingsNotConfigured) || shipmentsQuery.isError || !shipmentsQuery.data) {
+  if (
+    (settingsQuery.isError && !settingsNotConfigured) ||
+    shipmentsQuery.isError ||
+    !shipmentsQuery.data
+  ) {
     return (
       <ErrorState
         message="Unable to load shipping operations."
@@ -399,22 +429,45 @@ export function ShippingPage() {
   return (
     <div className="space-y-6">
       <Card className="animate-fade-up bg-[linear-gradient(135deg,#153149_0%,#1f4966_50%,#2e5d76_100%)] text-white">
-        <h3 className="font-heading text-xl font-black">Shipping and Delivery Operations</h3>
+        <h3 className="font-heading text-xl font-black">
+          Shipping and Delivery Operations
+        </h3>
         <p className="mt-1 text-sm text-white/80">
-          Configure rates, quote checkout shipping, create shipments, and sync tracking.
+          Configure rates, quote checkout shipping, create shipments, and sync
+          tracking.
         </p>
       </Card>
 
       <Card>
         <div className="mb-4 flex items-center justify-between gap-2">
-          <h3 className="font-heading text-lg font-bold text-surface-800">Shipping Settings</h3>
-          {settingsNotConfigured ? <Badge variant="info">Not configured</Badge> : null}
+          <h3 className="font-heading text-lg font-bold text-surface-800">
+            Shipping Settings
+          </h3>
+          {settingsNotConfigured ? (
+            <Badge variant="info">Not configured</Badge>
+          ) : null}
         </div>
         <div className="grid gap-3 md:grid-cols-3">
-          <Input label="Origin Country" value={originCountry} onChange={(e) => setOriginCountry(e.target.value)} />
-          <Input label="Origin State" value={originState} onChange={(e) => setOriginState(e.target.value)} />
-          <Input label="Origin City" value={originCity} onChange={(e) => setOriginCity(e.target.value)} />
-          <Input label="Origin Postal" value={originPostalCode} onChange={(e) => setOriginPostalCode(e.target.value)} />
+          <Input
+            label="Origin Country"
+            value={originCountry}
+            onChange={(e) => setOriginCountry(e.target.value)}
+          />
+          <Input
+            label="Origin State"
+            value={originState}
+            onChange={(e) => setOriginState(e.target.value)}
+          />
+          <Input
+            label="Origin City"
+            value={originCity}
+            onChange={(e) => setOriginCity(e.target.value)}
+          />
+          <Input
+            label="Origin Postal Code (Optional)"
+            value={originPostalCode}
+            onChange={(e) => setOriginPostalCode(e.target.value)}
+          />
           <Input
             label="Handling Fee"
             type="number"
@@ -422,13 +475,20 @@ export function ShippingPage() {
             value={handlingFee}
             onChange={(e) => setHandlingFee(Number(e.target.value || 0))}
           />
-          <Input label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value)} />
+          <Input
+            label="Currency"
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value)}
+          />
           <div className="space-y-3 rounded-xl border border-surface-100 bg-surface-50 p-3 md:col-span-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h4 className="font-semibold text-surface-700">Delivery Zones</h4>
+                <h4 className="font-semibold text-surface-700">
+                  Delivery Zones
+                </h4>
                 <p className="text-xs text-surface-500">
-                  Define where you ship. Service rules can target a specific zone.
+                  Define where you ship. Service rules can target a specific
+                  zone.
                 </p>
               </div>
               <Button
@@ -441,9 +501,14 @@ export function ShippingPage() {
               </Button>
             </div>
             {zones.map((zone, index) => (
-              <article key={zone.id} className="rounded-xl border border-surface-200 bg-white p-3 dark:bg-surface-900">
+              <article
+                key={zone.id}
+                className="rounded-xl border border-surface-200 bg-white p-3 dark:bg-surface-900"
+              >
                 <div className="mb-3 flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-surface-700">Zone {index + 1}</p>
+                  <p className="text-sm font-semibold text-surface-700">
+                    Zone {index + 1}
+                  </p>
                   <Button
                     type="button"
                     size="sm"
@@ -458,19 +523,27 @@ export function ShippingPage() {
                   <Input
                     label="Zone Name"
                     value={zone.zone_name}
-                    onChange={(event) => updateZoneDraft(zone.id, { zone_name: event.target.value })}
+                    onChange={(event) =>
+                      updateZoneDraft(zone.id, {
+                        zone_name: event.target.value,
+                      })
+                    }
                   />
                   <Input
                     label="Country Code"
                     value={zone.country}
-                    onChange={(event) => updateZoneDraft(zone.id, { country: event.target.value })}
+                    onChange={(event) =>
+                      updateZoneDraft(zone.id, { country: event.target.value })
+                    }
                     placeholder="NG"
                   />
                   <Select
                     label="Status"
                     value={zone.is_active ? "active" : "inactive"}
                     onChange={(event) =>
-                      updateZoneDraft(zone.id, { is_active: event.target.value === "active" })
+                      updateZoneDraft(zone.id, {
+                        is_active: event.target.value === "active",
+                      })
                     }
                   >
                     <option value="active">Active</option>
@@ -479,18 +552,24 @@ export function ShippingPage() {
                   <Input
                     label="State (optional)"
                     value={zone.state}
-                    onChange={(event) => updateZoneDraft(zone.id, { state: event.target.value })}
+                    onChange={(event) =>
+                      updateZoneDraft(zone.id, { state: event.target.value })
+                    }
                   />
                   <Input
                     label="City (optional)"
                     value={zone.city}
-                    onChange={(event) => updateZoneDraft(zone.id, { city: event.target.value })}
+                    onChange={(event) =>
+                      updateZoneDraft(zone.id, { city: event.target.value })
+                    }
                   />
                   <Input
                     label="Postal Prefix (optional)"
                     value={zone.postal_code_prefix}
                     onChange={(event) =>
-                      updateZoneDraft(zone.id, { postal_code_prefix: event.target.value })
+                      updateZoneDraft(zone.id, {
+                        postal_code_prefix: event.target.value,
+                      })
                     }
                   />
                 </div>
@@ -500,9 +579,12 @@ export function ShippingPage() {
           <div className="space-y-3 rounded-xl border border-surface-100 bg-surface-50 p-3 md:col-span-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h4 className="font-semibold text-surface-700">Service Rules</h4>
+                <h4 className="font-semibold text-surface-700">
+                  Service Rules
+                </h4>
                 <p className="text-xs text-surface-500">
-                  Configure provider pricing and delivery windows. Zone is optional for fallback rules.
+                  Configure provider pricing and delivery windows. Zone is
+                  optional for fallback rules.
                 </p>
               </div>
               <Button
@@ -512,7 +594,7 @@ export function ShippingPage() {
                 onClick={() =>
                   setServiceRules((prev) => [
                     ...prev,
-                    createRuleDraft({ zone_name: zoneNameOptions[0] ?? "" })
+                    createRuleDraft({ zone_name: zoneNameOptions[0] ?? "" }),
                   ])
                 }
               >
@@ -520,9 +602,14 @@ export function ShippingPage() {
               </Button>
             </div>
             {serviceRules.map((rule, index) => (
-              <article key={rule.id} className="rounded-xl border border-surface-200 bg-white p-3 dark:bg-surface-900">
+              <article
+                key={rule.id}
+                className="rounded-xl border border-surface-200 bg-white p-3 dark:bg-surface-900"
+              >
                 <div className="mb-3 flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-surface-700">Rule {index + 1}</p>
+                  <p className="text-sm font-semibold text-surface-700">
+                    Rule {index + 1}
+                  </p>
                   <Button
                     type="button"
                     size="sm"
@@ -537,22 +624,36 @@ export function ShippingPage() {
                   <Input
                     label="Provider"
                     value={rule.provider}
-                    onChange={(event) => updateRuleDraft(rule.id, { provider: event.target.value })}
+                    onChange={(event) =>
+                      updateRuleDraft(rule.id, { provider: event.target.value })
+                    }
                   />
                   <Input
                     label="Service Code"
                     value={rule.service_code}
-                    onChange={(event) => updateRuleDraft(rule.id, { service_code: event.target.value })}
+                    onChange={(event) =>
+                      updateRuleDraft(rule.id, {
+                        service_code: event.target.value,
+                      })
+                    }
                   />
                   <Input
                     label="Service Name"
                     value={rule.service_name}
-                    onChange={(event) => updateRuleDraft(rule.id, { service_name: event.target.value })}
+                    onChange={(event) =>
+                      updateRuleDraft(rule.id, {
+                        service_name: event.target.value,
+                      })
+                    }
                   />
                   <Select
                     label="Zone"
                     value={rule.zone_name}
-                    onChange={(event) => updateRuleDraft(rule.id, { zone_name: event.target.value })}
+                    onChange={(event) =>
+                      updateRuleDraft(rule.id, {
+                        zone_name: event.target.value,
+                      })
+                    }
                   >
                     <option value="">All destinations (fallback)</option>
                     {zoneNameOptions.map((name) => (
@@ -567,7 +668,9 @@ export function ShippingPage() {
                     step="0.01"
                     value={rule.base_rate}
                     onChange={(event) =>
-                      updateRuleDraft(rule.id, { base_rate: Number(event.target.value || 0) })
+                      updateRuleDraft(rule.id, {
+                        base_rate: Number(event.target.value || 0),
+                      })
                     }
                   />
                   <Input
@@ -576,7 +679,9 @@ export function ShippingPage() {
                     step="0.01"
                     value={rule.per_kg_rate}
                     onChange={(event) =>
-                      updateRuleDraft(rule.id, { per_kg_rate: Number(event.target.value || 0) })
+                      updateRuleDraft(rule.id, {
+                        per_kg_rate: Number(event.target.value || 0),
+                      })
                     }
                   />
                   <Input
@@ -585,7 +690,9 @@ export function ShippingPage() {
                     min={1}
                     value={rule.min_eta_days}
                     onChange={(event) =>
-                      updateRuleDraft(rule.id, { min_eta_days: Number(event.target.value || 1) })
+                      updateRuleDraft(rule.id, {
+                        min_eta_days: Number(event.target.value || 1),
+                      })
                     }
                   />
                   <Input
@@ -594,14 +701,18 @@ export function ShippingPage() {
                     min={1}
                     value={rule.max_eta_days}
                     onChange={(event) =>
-                      updateRuleDraft(rule.id, { max_eta_days: Number(event.target.value || 1) })
+                      updateRuleDraft(rule.id, {
+                        max_eta_days: Number(event.target.value || 1),
+                      })
                     }
                   />
                   <Select
                     label="Status"
                     value={rule.is_active ? "active" : "inactive"}
                     onChange={(event) =>
-                      updateRuleDraft(rule.id, { is_active: event.target.value === "active" })
+                      updateRuleDraft(rule.id, {
+                        is_active: event.target.value === "active",
+                      })
                     }
                   >
                     <option value="active">Active</option>
@@ -621,15 +732,16 @@ export function ShippingPage() {
                 showToast({
                   title: "Invalid origin country",
                   description: "Origin country must be at least 2 characters.",
-                  variant: "error"
+                  variant: "error",
                 });
                 return;
               }
               if (currency.trim().length !== 3) {
                 showToast({
                   title: "Invalid currency",
-                  description: "Currency must be a 3-letter ISO code (for example NGN, USD, EUR).",
-                  variant: "error"
+                  description:
+                    "Currency must be a 3-letter ISO code (for example NGN, USD, EUR).",
+                  variant: "error",
                 });
                 return;
               }
@@ -637,34 +749,39 @@ export function ShippingPage() {
                 showToast({
                   title: "Invalid handling fee",
                   description: "Handling fee cannot be negative.",
-                  variant: "error"
+                  variant: "error",
                 });
                 return;
               }
               if (!zones.length) {
                 showToast({
                   title: "At least one zone is required",
-                  description: "Add a delivery zone before saving shipping settings.",
-                  variant: "error"
+                  description:
+                    "Add a delivery zone before saving shipping settings.",
+                  variant: "error",
                 });
                 return;
               }
               if (!serviceRules.length) {
                 showToast({
                   title: "At least one service rule is required",
-                  description: "Add a service rule before saving shipping settings.",
-                  variant: "error"
+                  description:
+                    "Add a service rule before saving shipping settings.",
+                  variant: "error",
                 });
                 return;
               }
               const invalidZone = zones.find(
-                (zone) => zone.zone_name.trim().length < 2 || zone.country.trim().length < 2
+                (zone) =>
+                  zone.zone_name.trim().length < 2 ||
+                  zone.country.trim().length < 2,
               );
               if (invalidZone) {
                 showToast({
                   title: "Invalid zone details",
-                  description: "Zone name and country code must be at least 2 characters.",
-                  variant: "error"
+                  description:
+                    "Zone name and country code must be at least 2 characters.",
+                  variant: "error",
                 });
                 return;
               }
@@ -672,13 +789,14 @@ export function ShippingPage() {
                 (rule) =>
                   rule.provider.trim().length < 2 ||
                   rule.service_code.trim().length < 2 ||
-                  rule.service_name.trim().length < 2
+                  rule.service_name.trim().length < 2,
               );
               if (invalidRule) {
                 showToast({
                   title: "Invalid service rule",
-                  description: "Provider, service code, and service name must be at least 2 characters.",
-                  variant: "error"
+                  description:
+                    "Provider, service code, and service name must be at least 2 characters.",
+                  variant: "error",
                 });
                 return;
               }
@@ -686,38 +804,46 @@ export function ShippingPage() {
                 (rule) =>
                   Number(rule.min_eta_days || 0) < 1 ||
                   Number(rule.max_eta_days || 0) < 1 ||
-                  Number(rule.min_eta_days || 1) > Number(rule.max_eta_days || 1)
+                  Number(rule.min_eta_days || 1) >
+                    Number(rule.max_eta_days || 1),
               );
               if (invalidEtaRule) {
                 showToast({
                   title: "Invalid ETA window",
-                  description: "ETA values must be at least 1 day, and min ETA cannot exceed max ETA.",
-                  variant: "error"
+                  description:
+                    "ETA values must be at least 1 day, and min ETA cannot exceed max ETA.",
+                  variant: "error",
                 });
                 return;
               }
               const invalidRateRule = serviceRules.find(
-                (rule) => Number(rule.base_rate || 0) < 0 || Number(rule.per_kg_rate || 0) < 0
+                (rule) =>
+                  Number(rule.base_rate || 0) < 0 ||
+                  Number(rule.per_kg_rate || 0) < 0,
               );
               if (invalidRateRule) {
                 showToast({
                   title: "Invalid shipping rates",
                   description: "Base rate and per KG rate cannot be negative.",
-                  variant: "error"
+                  variant: "error",
                 });
                 return;
               }
               const knownZoneNames = new Set(
-                zones.map((zone) => zone.zone_name.trim().toLowerCase()).filter((name) => name.length > 0)
+                zones
+                  .map((zone) => zone.zone_name.trim().toLowerCase())
+                  .filter((name) => name.length > 0),
               );
               const unknownZoneRule = serviceRules.find(
-                (rule) => rule.zone_name.trim() && !knownZoneNames.has(rule.zone_name.trim().toLowerCase())
+                (rule) =>
+                  rule.zone_name.trim() &&
+                  !knownZoneNames.has(rule.zone_name.trim().toLowerCase()),
               );
               if (unknownZoneRule) {
                 showToast({
                   title: "Rule zone not found",
                   description: `The rule "${unknownZoneRule.service_name}" references a zone that does not exist.`,
-                  variant: "error"
+                  variant: "error",
                 });
                 return;
               }
@@ -730,7 +856,9 @@ export function ShippingPage() {
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">Checkout Rate Quote</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Checkout Rate Quote
+        </h3>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           <Input
             label="Checkout Session Token"
@@ -747,7 +875,9 @@ export function ShippingPage() {
             type="number"
             step="0.1"
             value={totalWeightKg}
-            onChange={(event) => setTotalWeightKg(Number(event.target.value || 1))}
+            onChange={(event) =>
+              setTotalWeightKg(Number(event.target.value || 1))
+            }
           />
           <Input
             label="Destination State"
@@ -779,7 +909,10 @@ export function ShippingPage() {
         {quoteMutation.data ? (
           <div className="mt-4 space-y-2">
             {quoteMutation.data.options.map((option) => (
-              <article key={`${option.provider}-${option.service_code}`} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+              <article
+                key={`${option.provider}-${option.service_code}`}
+                className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold text-surface-700">
@@ -790,14 +923,17 @@ export function ShippingPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant="info">{formatCurrency(option.amount)}</Badge>
+                    <Badge variant="info">
+                      {formatCurrency(option.amount)}
+                    </Badge>
                     <Button
                       type="button"
                       size="sm"
                       variant="ghost"
                       loading={
                         selectRateMutation.isPending &&
-                        selectRateMutation.variables?.service_code === option.service_code
+                        selectRateMutation.variables?.service_code ===
+                          option.service_code
                       }
                       onClick={() => selectRateMutation.mutate(option)}
                     >
@@ -808,47 +944,111 @@ export function ShippingPage() {
               </article>
             ))}
             {!quoteMutation.data.options.length ? (
-              <EmptyState title="No rates returned" description="Check shipping settings and destination details." />
+              <EmptyState
+                title="No rates returned"
+                description="Check shipping settings and destination details."
+              />
             ) : null}
           </div>
         ) : null}
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">Create Shipment</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Create Shipment
+        </h3>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
-          <Input label="Order ID" value={orderId} onChange={(event) => setOrderId(event.target.value)} />
+          <Input
+            label="Order ID"
+            value={orderId}
+            onChange={(event) => setOrderId(event.target.value)}
+          />
           <Input
             label="Checkout Session ID"
             value={checkoutSessionId}
             onChange={(event) => setCheckoutSessionId(event.target.value)}
           />
-          <Input label="Provider" value={provider} onChange={(event) => setProvider(event.target.value)} />
-          <Input label="Service Code" value={serviceCode} onChange={(event) => setServiceCode(event.target.value)} />
-          <Input label="Service Name" value={serviceName} onChange={(event) => setServiceName(event.target.value)} />
+          <Input
+            label="Provider"
+            value={provider}
+            onChange={(event) => setProvider(event.target.value)}
+          />
+          <Input
+            label="Service Code"
+            value={serviceCode}
+            onChange={(event) => setServiceCode(event.target.value)}
+          />
+          <Input
+            label="Service Name"
+            value={serviceName}
+            onChange={(event) => setServiceName(event.target.value)}
+          />
           <Input
             label="Shipping Cost"
             type="number"
             step="0.01"
             value={shippingCost}
-            onChange={(event) => setShippingCost(Number(event.target.value || 0))}
+            onChange={(event) =>
+              setShippingCost(Number(event.target.value || 0))
+            }
           />
-          <Input label="Currency" value={shipmentCurrency} onChange={(event) => setShipmentCurrency(event.target.value)} />
-          <Input label="Recipient Name" value={recipientName} onChange={(event) => setRecipientName(event.target.value)} />
-          <Input label="Recipient Phone" value={recipientPhone} onChange={(event) => setRecipientPhone(event.target.value)} />
-          <Input label="Address Line 1" value={addressLine1} onChange={(event) => setAddressLine1(event.target.value)} />
-          <Input label="Address Line 2" value={addressLine2} onChange={(event) => setAddressLine2(event.target.value)} />
-          <Input label="City" value={shipmentCity} onChange={(event) => setShipmentCity(event.target.value)} />
-          <Input label="State" value={shipmentState} onChange={(event) => setShipmentState(event.target.value)} />
-          <Input label="Country" value={shipmentCountry} onChange={(event) => setShipmentCountry(event.target.value)} />
-          <Input label="Postal Code" value={shipmentPostalCode} onChange={(event) => setShipmentPostalCode(event.target.value)} />
+          <Input
+            label="Currency"
+            value={shipmentCurrency}
+            onChange={(event) => setShipmentCurrency(event.target.value)}
+          />
+          <Input
+            label="Recipient Name"
+            value={recipientName}
+            onChange={(event) => setRecipientName(event.target.value)}
+          />
+          <Input
+            label="Recipient Phone"
+            value={recipientPhone}
+            onChange={(event) => setRecipientPhone(event.target.value)}
+          />
+          <Input
+            label="Address Line 1"
+            value={addressLine1}
+            onChange={(event) => setAddressLine1(event.target.value)}
+          />
+          <Input
+            label="Address Line 2"
+            value={addressLine2}
+            onChange={(event) => setAddressLine2(event.target.value)}
+          />
+          <Input
+            label="City"
+            value={shipmentCity}
+            onChange={(event) => setShipmentCity(event.target.value)}
+          />
+          <Input
+            label="State"
+            value={shipmentState}
+            onChange={(event) => setShipmentState(event.target.value)}
+          />
+          <Input
+            label="Country"
+            value={shipmentCountry}
+            onChange={(event) => setShipmentCountry(event.target.value)}
+          />
+          <Input
+            label="Postal Code"
+            value={shipmentPostalCode}
+            onChange={(event) => setShipmentPostalCode(event.target.value)}
+          />
         </div>
         <div className="mt-4 flex justify-end">
           <Button
             type="button"
             loading={createShipmentMutation.isPending}
             onClick={() => createShipmentMutation.mutate()}
-            disabled={!orderId.trim() || !recipientName.trim() || !addressLine1.trim() || !shipmentCity.trim()}
+            disabled={
+              !orderId.trim() ||
+              !recipientName.trim() ||
+              !addressLine1.trim() ||
+              !shipmentCity.trim()
+            }
           >
             Create Shipment
           </Button>
@@ -857,36 +1057,66 @@ export function ShippingPage() {
 
       <Card>
         <div className="mb-4 grid gap-3 md:grid-cols-4">
-          <Input label="Order Filter" value={orderFilter} onChange={(event) => setOrderFilter(event.target.value)} />
-          <Input label="Status Filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} />
+          <Input
+            label="Order Filter"
+            value={orderFilter}
+            onChange={(event) => setOrderFilter(event.target.value)}
+          />
+          <Input
+            label="Status Filter"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+          />
           <div className="mt-7">
-            <Badge variant="info">{shipmentsQuery.data.pagination.total} shipments</Badge>
+            <Badge variant="info">
+              {shipmentsQuery.data.pagination.total} shipments
+            </Badge>
           </div>
         </div>
         {!shipmentsQuery.data.items.length ? (
-          <EmptyState title="No shipments yet" description="Create and sync shipments from this page." />
+          <EmptyState
+            title="No shipments yet"
+            description="Create and sync shipments from this page."
+          />
         ) : (
           <div className="space-y-3">
             <div className="space-y-2 sm:hidden">
               {shipmentsQuery.data.items.map((shipment) => (
-                <article key={shipment.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+                <article
+                  key={shipment.id}
+                  className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+                >
                   <div className="flex items-center justify-between gap-2">
-                    <Badge variant={shipment.status === "delivered" ? "positive" : "info"}>
+                    <Badge
+                      variant={
+                        shipment.status === "delivered" ? "positive" : "info"
+                      }
+                    >
                       {shipment.status}
                     </Badge>
-                    <p className="font-semibold text-mint-700">{formatCurrency(shipment.shipping_cost)}</p>
+                    <p className="font-semibold text-mint-700">
+                      {formatCurrency(shipment.shipping_cost)}
+                    </p>
                   </div>
-                  <p className="mt-1 text-xs text-surface-500">Order: {shipment.order_id}</p>
                   <p className="mt-1 text-xs text-surface-500">
-                    Tracking: {shipment.tracking_number ?? "-"} | Events: {shipment.tracking_events.length}
+                    Order: {shipment.order_id}
                   </p>
-                  <p className="mt-1 text-xs text-surface-500">{formatDateTime(shipment.created_at)}</p>
+                  <p className="mt-1 text-xs text-surface-500">
+                    Tracking: {shipment.tracking_number ?? "-"} | Events:{" "}
+                    {shipment.tracking_events.length}
+                  </p>
+                  <p className="mt-1 text-xs text-surface-500">
+                    {formatDateTime(shipment.created_at)}
+                  </p>
                   <div className="mt-3">
                     <Button
                       type="button"
                       size="sm"
                       variant="ghost"
-                      loading={syncTrackingMutation.isPending && syncTrackingMutation.variables === shipment.id}
+                      loading={
+                        syncTrackingMutation.isPending &&
+                        syncTrackingMutation.variables === shipment.id
+                      }
                       onClick={() => syncTrackingMutation.mutate(shipment.id)}
                     >
                       Sync Tracking
@@ -913,27 +1143,46 @@ export function ShippingPage() {
                   {shipmentsQuery.data.items.map((shipment) => (
                     <tr key={shipment.id}>
                       <td className="px-2 py-2">
-                        <Badge variant={shipment.status === "delivered" ? "positive" : "info"}>
+                        <Badge
+                          variant={
+                            shipment.status === "delivered"
+                              ? "positive"
+                              : "info"
+                          }
+                        >
                           {shipment.status}
                         </Badge>
                       </td>
                       <td className="px-2 py-2 text-surface-700">
                         {shipment.service_name}
-                        <p className="text-xs text-surface-500">{shipment.provider}</p>
+                        <p className="text-xs text-surface-500">
+                          {shipment.provider}
+                        </p>
                       </td>
-                      <td className="px-2 py-2 text-surface-600">{shipment.order_id}</td>
-                      <td className="px-2 py-2 text-surface-600">{shipment.tracking_number ?? "-"}</td>
+                      <td className="px-2 py-2 text-surface-600">
+                        {shipment.order_id}
+                      </td>
+                      <td className="px-2 py-2 text-surface-600">
+                        {shipment.tracking_number ?? "-"}
+                      </td>
                       <td className="px-2 py-2 font-semibold text-mint-700">
                         {formatCurrency(shipment.shipping_cost)}
                       </td>
-                      <td className="px-2 py-2 text-surface-500">{formatDateTime(shipment.created_at)}</td>
+                      <td className="px-2 py-2 text-surface-500">
+                        {formatDateTime(shipment.created_at)}
+                      </td>
                       <td className="px-2 py-2">
                         <Button
                           type="button"
                           size="sm"
                           variant="ghost"
-                          loading={syncTrackingMutation.isPending && syncTrackingMutation.variables === shipment.id}
-                          onClick={() => syncTrackingMutation.mutate(shipment.id)}
+                          loading={
+                            syncTrackingMutation.isPending &&
+                            syncTrackingMutation.variables === shipment.id
+                          }
+                          onClick={() =>
+                            syncTrackingMutation.mutate(shipment.id)
+                          }
                         >
                           Sync
                         </Button>

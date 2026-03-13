@@ -28,6 +28,10 @@ export function TeamPage() {
   const [inviteRole, setInviteRole] = useState<TeamRole>("staff");
   const [inviteExpiryDays, setInviteExpiryDays] = useState(7);
   const [latestInviteLink, setLatestInviteLink] = useState<string | null>(null);
+  const [emailDeliveryStatus, setEmailDeliveryStatus] = useState<{
+    status: "sent" | "not_configured" | "failed";
+    detail?: string | null;
+  } | null>(null);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -82,10 +86,26 @@ export function TeamPage() {
       setInviteExpiryDays(7);
       const inviteLink = `${window.location.origin}/login?invite=${encodeURIComponent(response.invitation_token)}`;
       setLatestInviteLink(inviteLink);
+      setEmailDeliveryStatus({
+        status: response.email_delivery_status,
+        detail: response.email_delivery_detail,
+      });
+
+      const deliveryTitle =
+        response.email_delivery_status === "sent"
+          ? "Invitation created & email sent"
+          : response.email_delivery_status === "not_configured"
+            ? "Invitation created (email not configured)"
+            : "Invitation created (email delivery failed)";
+
       showToast({
-        title: "Invitation created",
-        description: "Share the invite link with the team member.",
-        variant: "success",
+        title: deliveryTitle,
+        description:
+          response.email_delivery_status === "sent"
+            ? "The invitee will receive an email with the link."
+            : "Share the invite link manually with the team member.",
+        variant:
+          response.email_delivery_status === "sent" ? "success" : "warning",
       });
       queryClient.invalidateQueries({ queryKey: ["team", "invitations"] });
       queryClient.invalidateQueries({ queryKey: ["audit-logs"] });
@@ -229,6 +249,26 @@ export function TeamPage() {
 
   const members = listQuery.data?.items ?? [];
 
+  const emailStatusConfig = emailDeliveryStatus
+    ? {
+        sent: {
+          bg: "bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800",
+          text: "text-emerald-700 dark:text-emerald-400",
+          label: "✓ Email sent to invitee",
+        },
+        not_configured: {
+          bg: "bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800",
+          text: "text-amber-700 dark:text-amber-400",
+          label: "⚠ Email not configured — share link manually",
+        },
+        failed: {
+          bg: "bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800",
+          text: "text-red-700 dark:text-red-400",
+          label: "✕ Email delivery failed — share link manually",
+        },
+      }[emailDeliveryStatus.status]
+    : null;
+
   return (
     <div className="space-y-6">
       <Card>
@@ -348,7 +388,7 @@ export function TeamPage() {
             <p className="mt-1 break-all text-sm text-surface-700">
               {latestInviteLink}
             </p>
-            <div className="mt-2">
+            <div className="mt-2 flex items-center gap-3">
               <Button
                 type="button"
                 size="sm"
@@ -358,6 +398,22 @@ export function TeamPage() {
                 Copy Link
               </Button>
             </div>
+            {emailStatusConfig ? (
+              <div
+                className={`mt-3 rounded-lg border p-2.5 ${emailStatusConfig.bg}`}
+              >
+                <p className={`text-sm font-medium ${emailStatusConfig.text}`}>
+                  {emailStatusConfig.label}
+                </p>
+                {emailDeliveryStatus?.detail ? (
+                  <p
+                    className={`mt-0.5 text-xs ${emailStatusConfig.text} opacity-75`}
+                  >
+                    {emailDeliveryStatus.detail}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         ) : null}
 

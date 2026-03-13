@@ -1,5 +1,16 @@
 import { apiClient } from "./client";
 import { endpoints } from "./endpoints";
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 import type {
   AIAskIn,
   AIFeatureSnapshotOut,
@@ -92,8 +103,10 @@ import type {
   DeveloperPortalDocsOut,
   DateFilter,
   ExpenseCreateIn,
+  ExpenseUpdateIn,
   ExpenseCreateOut,
   ExpenseListOut,
+  ExpenseOut,
   FinanceGuardrailEvaluationOut,
   FinanceGuardrailEvaluateFilter,
   FinanceGuardrailPolicyIn,
@@ -269,7 +282,8 @@ import type {
   WebhookSubscriptionRotateSecretOut,
   WebhookSubscriptionUpdateIn,
   InventoryLedgerListOut,
-  OkOut
+  OkOut,
+  CurrencyListOut,
 } from "./types";
 
 export const authService = {
@@ -294,7 +308,9 @@ export const authService = {
       .then((res) => res.data);
   },
   logout(payload: LogoutIn) {
-    return apiClient.post<OkOut>(endpoints.auth.logout, payload).then((res) => res.data);
+    return apiClient
+      .post<OkOut>(endpoints.auth.logout, payload)
+      .then((res) => res.data);
   },
   changePassword(payload: ChangePasswordIn) {
     return apiClient
@@ -302,13 +318,20 @@ export const authService = {
       .then((res) => res.data);
   },
   me() {
-    return apiClient.get<UserProfileOut>(endpoints.auth.me).then((res) => res.data);
+    return apiClient
+      .get<UserProfileOut>(endpoints.auth.me)
+      .then((res) => res.data);
   },
   updateProfile(payload: UpdateProfileIn) {
     return apiClient
       .patch<UserProfileOut>(endpoints.auth.me, payload)
       .then((res) => res.data);
-  }
+  },
+  currencies() {
+    return apiClient
+      .get<CurrencyListOut>(endpoints.auth.currencies)
+      .then((res) => res.data);
+  },
 };
 
 export const dashboardService = {
@@ -319,7 +342,9 @@ export const dashboardService = {
   },
   customerInsights(params?: DateFilter) {
     return apiClient
-      .get<DashboardCustomerInsightsOut>(endpoints.dashboard.customerInsights, { params })
+      .get<DashboardCustomerInsightsOut>(endpoints.dashboard.customerInsights, {
+        params,
+      })
       .then((res) => res.data);
   },
   creditProfile(params?: DateFilter) {
@@ -339,34 +364,61 @@ export const dashboardService = {
   },
   simulateCreditScenario(payload: CreditScenarioSimulateIn) {
     return apiClient
-      .post<CreditScenarioSimulationOut>(endpoints.dashboard.creditScenarioSimulate, payload)
+      .post<CreditScenarioSimulationOut>(
+        endpoints.dashboard.creditScenarioSimulate,
+        payload,
+      )
       .then((res) => res.data);
   },
   generateCreditExportPack(params?: CreditExportPackFilter) {
     return apiClient
-      .post<LenderExportPackOut>(endpoints.dashboard.creditExportPack, null, { params })
+      .post<LenderExportPackOut>(endpoints.dashboard.creditExportPack, null, {
+        params,
+      })
       .then((res) => res.data);
+  },
+  downloadCreditExportPackPdf(params?: CreditExportPackFilter) {
+    return apiClient
+      .get(endpoints.dashboard.creditExportPackDownload, {
+        params,
+        responseType: "blob",
+      })
+      .then((res) => {
+        downloadBlob(res.data as Blob, "credit-export-pack.pdf");
+      });
   },
   getFinanceGuardrailsPolicy() {
     return apiClient
-      .get<FinanceGuardrailPolicyOut>(endpoints.dashboard.financeGuardrailsPolicy)
+      .get<FinanceGuardrailPolicyOut>(
+        endpoints.dashboard.financeGuardrailsPolicy,
+      )
       .then((res) => res.data);
   },
   updateFinanceGuardrailsPolicy(payload: FinanceGuardrailPolicyIn) {
     return apiClient
-      .put<FinanceGuardrailPolicyOut>(endpoints.dashboard.financeGuardrailsPolicy, payload)
+      .put<FinanceGuardrailPolicyOut>(
+        endpoints.dashboard.financeGuardrailsPolicy,
+        payload,
+      )
       .then((res) => res.data);
   },
   evaluateFinanceGuardrails(params?: FinanceGuardrailEvaluateFilter) {
     return apiClient
-      .post<FinanceGuardrailEvaluationOut>(endpoints.dashboard.financeGuardrailsEvaluate, null, { params })
+      .post<FinanceGuardrailEvaluationOut>(
+        endpoints.dashboard.financeGuardrailsEvaluate,
+        null,
+        { params },
+      )
       .then((res) => res.data);
   },
   creditImprovementPlan(params?: CreditImprovementPlanFilter) {
     return apiClient
-      .get<CreditImprovementPlanOut>(endpoints.dashboard.creditImprovementPlan, { params })
+      .get<CreditImprovementPlanOut>(
+        endpoints.dashboard.creditImprovementPlan,
+        { params },
+      )
       .then((res) => res.data);
-  }
+  },
 };
 
 export const productService = {
@@ -395,16 +447,25 @@ export const productService = {
       .patch<ProductPublishOut>(endpoints.products.publish(productId), payload)
       .then((res) => res.data);
   },
-  setVariantPublish(productId: string, variantId: string, payload: VariantPublishIn) {
+  setVariantPublish(
+    productId: string,
+    variantId: string,
+    payload: VariantPublishIn,
+  ) {
     return apiClient
-      .patch<VariantPublishOut>(endpoints.products.publishVariant(productId, variantId), payload)
+      .patch<VariantPublishOut>(
+        endpoints.products.publishVariant(productId, variantId),
+        payload,
+      )
       .then((res) => res.data);
-  }
+  },
 };
 
 export const storefrontService = {
   getConfig() {
-    return apiClient.get<StorefrontConfigOut>(endpoints.storefront.config).then((res) => res.data);
+    return apiClient
+      .get<StorefrontConfigOut>(endpoints.storefront.config)
+      .then((res) => res.data);
   },
   upsertConfig(payload: StorefrontConfigUpsertIn) {
     return apiClient
@@ -423,7 +484,10 @@ export const storefrontService = {
   },
   verifyDomain(payload: StorefrontDomainVerifyIn) {
     return apiClient
-      .post<StorefrontDomainStatusOut>(endpoints.storefront.domainVerify, payload)
+      .post<StorefrontDomainStatusOut>(
+        endpoints.storefront.domainVerify,
+        payload,
+      )
       .then((res) => res.data);
   },
   getPublicStorefront(slug: string) {
@@ -433,17 +497,22 @@ export const storefrontService = {
   },
   listPublicProducts(
     slug: string,
-    params?: PaginationFilter & { q?: string; category?: string }
+    params?: PaginationFilter & { q?: string; category?: string },
   ) {
     return apiClient
-      .get<PublicStorefrontProductListOut>(endpoints.storefront.publicProducts(slug), { params })
+      .get<PublicStorefrontProductListOut>(
+        endpoints.storefront.publicProducts(slug),
+        { params },
+      )
       .then((res) => res.data);
   },
   getPublicProductDetail(slug: string, productId: string) {
     return apiClient
-      .get<PublicStorefrontProductDetailOut>(endpoints.storefront.publicProductDetail(slug, productId))
+      .get<PublicStorefrontProductDetailOut>(
+        endpoints.storefront.publicProductDetail(slug, productId),
+      )
       .then((res) => res.data);
-  }
+  },
 };
 
 export const checkoutService = {
@@ -452,26 +521,38 @@ export const checkoutService = {
       .post<CheckoutSessionCreateOut>(endpoints.checkout.sessions, payload)
       .then((res) => res.data);
   },
-  createStorefrontSession(slug: string, payload: StorefrontCheckoutSessionCreateIn) {
+  createStorefrontSession(
+    slug: string,
+    payload: StorefrontCheckoutSessionCreateIn,
+  ) {
     return apiClient
-      .post<CheckoutSessionCreateOut>(endpoints.checkout.storefrontSession(slug), payload)
+      .post<CheckoutSessionCreateOut>(
+        endpoints.checkout.storefrontSession(slug),
+        payload,
+      )
       .then((res) => res.data);
   },
   getPublicSession(sessionToken: string) {
     return apiClient
-      .get<CheckoutSessionPublicOut>(endpoints.checkout.publicSession(sessionToken))
+      .get<CheckoutSessionPublicOut>(
+        endpoints.checkout.publicSession(sessionToken),
+      )
       .then((res) => res.data);
   },
-  placePublicOrder(sessionToken: string, payload?: CheckoutSessionPlaceOrderIn) {
+  placePublicOrder(
+    sessionToken: string,
+    payload?: CheckoutSessionPlaceOrderIn,
+  ) {
     return apiClient
       .post<CheckoutSessionPlaceOrderOut>(
         endpoints.checkout.publicPlaceOrder(sessionToken),
-        payload ?? {}
+        payload ?? {},
       )
       .then((res) => res.data);
   },
   listSessions(
-    params?: PaginationFilter & DateFilter & { status?: string; payment_provider?: string }
+    params?: PaginationFilter &
+      DateFilter & { status?: string; payment_provider?: string },
   ) {
     return apiClient
       .get<CheckoutSessionListOut>(endpoints.checkout.sessions, { params })
@@ -479,14 +560,18 @@ export const checkoutService = {
   },
   retryPayment(checkoutSessionId: string) {
     return apiClient
-      .post<CheckoutSessionRetryPaymentOut>(endpoints.checkout.sessionRetryPayment(checkoutSessionId))
+      .post<CheckoutSessionRetryPaymentOut>(
+        endpoints.checkout.sessionRetryPayment(checkoutSessionId),
+      )
       .then((res) => res.data);
   },
   paymentsSummary(params?: DateFilter) {
     return apiClient
-      .get<CheckoutPaymentsSummaryOut>(endpoints.checkout.paymentsSummary, { params })
+      .get<CheckoutPaymentsSummaryOut>(endpoints.checkout.paymentsSummary, {
+        params,
+      })
       .then((res) => res.data);
-  }
+  },
 };
 
 export const shippingService = {
@@ -502,17 +587,25 @@ export const shippingService = {
   },
   quoteCheckoutRate(sessionToken: string, payload: ShippingQuoteIn) {
     return apiClient
-      .post<ShippingQuoteOut>(endpoints.shipping.quoteCheckoutRate(sessionToken), payload)
+      .post<ShippingQuoteOut>(
+        endpoints.shipping.quoteCheckoutRate(sessionToken),
+        payload,
+      )
       .then((res) => res.data);
   },
   selectCheckoutRate(sessionToken: string, payload: ShippingRateSelectIn) {
     return apiClient
-      .post<ShippingRateSelectionOut>(endpoints.shipping.selectCheckoutRate(sessionToken), payload)
+      .post<ShippingRateSelectionOut>(
+        endpoints.shipping.selectCheckoutRate(sessionToken),
+        payload,
+      )
       .then((res) => res.data);
   },
   getSelectedCheckoutRate(sessionToken: string) {
     return apiClient
-      .get<ShippingRateSelectionOut>(endpoints.shipping.selectedCheckoutRate(sessionToken))
+      .get<ShippingRateSelectionOut>(
+        endpoints.shipping.selectedCheckoutRate(sessionToken),
+      )
       .then((res) => res.data);
   },
   createShipment(payload: ShipmentCreateIn) {
@@ -527,9 +620,11 @@ export const shippingService = {
   },
   syncTracking(shipmentId: string) {
     return apiClient
-      .post<ShipmentTrackingSyncOut>(endpoints.shipping.syncTracking(shipmentId))
+      .post<ShipmentTrackingSyncOut>(
+        endpoints.shipping.syncTracking(shipmentId),
+      )
       .then((res) => res.data);
-  }
+  },
 };
 
 export const locationService = {
@@ -548,41 +643,63 @@ export const locationService = {
       .patch<LocationOut>(endpoints.locations.location(locationId), payload)
       .then((res) => res.data);
   },
+  activate(locationId: string) {
+    return apiClient
+      .post<LocationOut>(endpoints.locations.activate(locationId))
+      .then((res) => res.data);
+  },
+  deactivate(locationId: string) {
+    return apiClient
+      .post<LocationOut>(endpoints.locations.deactivate(locationId))
+      .then((res) => res.data);
+  },
   upsertMembershipScope(
     locationId: string,
     membershipId: string,
-    payload: LocationMembershipScopeUpsertIn
+    payload: LocationMembershipScopeUpsertIn,
   ) {
     return apiClient
       .put<LocationMembershipScopeOut>(
         endpoints.locations.membershipScope(locationId, membershipId),
-        payload
+        payload,
       )
       .then((res) => res.data);
   },
   listMembershipScopes(locationId: string) {
     return apiClient
-      .get<LocationMembershipScopeListOut>(endpoints.locations.membershipScopes(locationId))
+      .get<LocationMembershipScopeListOut>(
+        endpoints.locations.membershipScopes(locationId),
+      )
       .then((res) => res.data);
   },
   stockIn(locationId: string, payload: LocationStockInIn) {
     return apiClient
-      .post<LocationVariantStockOut>(endpoints.locations.stockIn(locationId), payload)
+      .post<LocationVariantStockOut>(
+        endpoints.locations.stockIn(locationId),
+        payload,
+      )
       .then((res) => res.data);
   },
   adjust(locationId: string, payload: LocationStockAdjustIn) {
     return apiClient
-      .post<LocationVariantStockOut>(endpoints.locations.adjust(locationId), payload)
+      .post<LocationVariantStockOut>(
+        endpoints.locations.adjust(locationId),
+        payload,
+      )
       .then((res) => res.data);
   },
   stock(locationId: string, variantId: string) {
     return apiClient
-      .get<LocationVariantStockOut>(endpoints.locations.stock(locationId, variantId))
+      .get<LocationVariantStockOut>(
+        endpoints.locations.stock(locationId, variantId),
+      )
       .then((res) => res.data);
   },
   stockOverview(variantId: string) {
     return apiClient
-      .get<LocationStockOverviewOut>(endpoints.locations.stockOverview(variantId))
+      .get<LocationStockOverviewOut>(
+        endpoints.locations.stockOverview(variantId),
+      )
       .then((res) => res.data);
   },
   createTransfer(payload: StockTransferCreateIn) {
@@ -602,9 +719,12 @@ export const locationService = {
   },
   allocateOrder(payload: OrderLocationAllocationIn) {
     return apiClient
-      .post<OrderLocationAllocationOut>(endpoints.locations.orderAllocations, payload)
+      .post<OrderLocationAllocationOut>(
+        endpoints.locations.orderAllocations,
+        payload,
+      )
       .then((res) => res.data);
-  }
+  },
 };
 
 export const integrationService = {
@@ -630,7 +750,9 @@ export const integrationService = {
   },
   disconnectApp(installationId: string) {
     return apiClient
-      .post<AppInstallationOut>(endpoints.integrations.disconnectApp(installationId))
+      .post<AppInstallationOut>(
+        endpoints.integrations.disconnectApp(installationId),
+      )
       .then((res) => res.data);
   },
   emitOutboxEvent(payload: IntegrationEventEmitIn) {
@@ -640,14 +762,20 @@ export const integrationService = {
   },
   listOutboxEvents(params?: IntegrationOutboxFilter) {
     return apiClient
-      .get<IntegrationOutboxEventListOut>(endpoints.integrations.outboxEvents, { params })
+      .get<IntegrationOutboxEventListOut>(endpoints.integrations.outboxEvents, {
+        params,
+      })
       .then((res) => res.data);
   },
   dispatchOutbox(limit?: number) {
     return apiClient
-      .post<IntegrationDispatchOut>(endpoints.integrations.dispatchOutbox, undefined, {
-        params: { limit }
-      })
+      .post<IntegrationDispatchOut>(
+        endpoints.integrations.dispatchOutbox,
+        undefined,
+        {
+          params: { limit },
+        },
+      )
       .then((res) => res.data);
   },
   sendMessage(payload: IntegrationMessageSendIn) {
@@ -657,9 +785,11 @@ export const integrationService = {
   },
   listMessages(params?: PaginationFilter) {
     return apiClient
-      .get<IntegrationMessageListOut>(endpoints.integrations.messages, { params })
+      .get<IntegrationMessageListOut>(endpoints.integrations.messages, {
+        params,
+      })
       .then((res) => res.data);
-  }
+  },
 };
 
 export const campaignService = {
@@ -675,7 +805,10 @@ export const campaignService = {
   },
   updateSegment(segmentId: string, payload: CustomerSegmentUpdateIn) {
     return apiClient
-      .patch<CustomerSegmentOut>(endpoints.campaigns.segment(segmentId), payload)
+      .patch<CustomerSegmentOut>(
+        endpoints.campaigns.segment(segmentId),
+        payload,
+      )
       .then((res) => res.data);
   },
   previewSegment(segmentId: string) {
@@ -695,7 +828,10 @@ export const campaignService = {
   },
   updateTemplate(templateId: string, payload: CampaignTemplateUpdateIn) {
     return apiClient
-      .patch<CampaignTemplateOut>(endpoints.campaigns.template(templateId), payload)
+      .patch<CampaignTemplateOut>(
+        endpoints.campaigns.template(templateId),
+        payload,
+      )
       .then((res) => res.data);
   },
   upsertConsent(payload: CustomerConsentUpsertIn) {
@@ -720,12 +856,18 @@ export const campaignService = {
   },
   dispatchCampaign(campaignId: string, payload?: CampaignDispatchIn) {
     return apiClient
-      .post<CampaignDispatchOut>(endpoints.campaigns.campaignDispatch(campaignId), payload ?? {})
+      .post<CampaignDispatchOut>(
+        endpoints.campaigns.campaignDispatch(campaignId),
+        payload ?? {},
+      )
       .then((res) => res.data);
   },
   listRecipients(campaignId: string, params?: CampaignRecipientListFilter) {
     return apiClient
-      .get<CampaignRecipientListOut>(endpoints.campaigns.campaignRecipients(campaignId), { params })
+      .get<CampaignRecipientListOut>(
+        endpoints.campaigns.campaignRecipients(campaignId),
+        { params },
+      )
       .then((res) => res.data);
   },
   metrics() {
@@ -745,14 +887,22 @@ export const campaignService = {
   },
   listRetentionTriggers(params?: PaginationFilter) {
     return apiClient
-      .get<RetentionTriggerListOut>(endpoints.campaigns.retentionTriggers, { params })
+      .get<RetentionTriggerListOut>(endpoints.campaigns.retentionTriggers, {
+        params,
+      })
       .then((res) => res.data);
   },
-  runRetentionTrigger(triggerId: string, payload?: RetentionTriggerRunRequestIn) {
+  runRetentionTrigger(
+    triggerId: string,
+    payload?: RetentionTriggerRunRequestIn,
+  ) {
     return apiClient
-      .post<RetentionTriggerRunOut>(endpoints.campaigns.runRetentionTrigger(triggerId), payload ?? {})
+      .post<RetentionTriggerRunOut>(
+        endpoints.campaigns.runRetentionTrigger(triggerId),
+        payload ?? {},
+      )
       .then((res) => res.data);
-  }
+  },
 };
 
 export const automationService = {
@@ -763,7 +913,10 @@ export const automationService = {
   },
   installTemplate(payload: AutomationTemplateInstallIn) {
     return apiClient
-      .post<AutomationTemplateInstallOut>(endpoints.automation.installTemplate, payload)
+      .post<AutomationTemplateInstallOut>(
+        endpoints.automation.installTemplate,
+        payload,
+      )
       .then((res) => res.data);
   },
   createRule(payload: AutomationRuleCreateIn) {
@@ -783,13 +936,16 @@ export const automationService = {
   },
   testRule(ruleId: string, payload: AutomationRuleTestIn) {
     return apiClient
-      .post<AutomationRuleRunOut>(endpoints.automation.testRule(ruleId), payload)
+      .post<AutomationRuleRunOut>(
+        endpoints.automation.testRule(ruleId),
+        payload,
+      )
       .then((res) => res.data);
   },
   runOutbox(limit?: number) {
     return apiClient
       .post<AutomationOutboxRunOut>(endpoints.automation.runOutbox, undefined, {
-        params: { limit }
+        params: { limit },
       })
       .then((res) => res.data);
   },
@@ -802,18 +958,24 @@ export const automationService = {
     return apiClient
       .get<AutomationRuleRunOut>(endpoints.automation.run(runId))
       .then((res) => res.data);
-  }
+  },
 };
 
 export const analyticsService = {
   refreshMart(params?: AnalyticsDateFilter) {
     return apiClient
-      .post<AnalyticsMartRefreshOut>(endpoints.analytics.refreshMart, undefined, { params })
+      .post<AnalyticsMartRefreshOut>(
+        endpoints.analytics.refreshMart,
+        undefined,
+        { params },
+      )
       .then((res) => res.data);
   },
   channelProfitability(params?: AnalyticsDateFilter) {
     return apiClient
-      .get<ChannelProfitabilityOut>(endpoints.analytics.channelProfitability, { params })
+      .get<ChannelProfitabilityOut>(endpoints.analytics.channelProfitability, {
+        params,
+      })
       .then((res) => res.data);
   },
   cohorts(params?: CohortFilter) {
@@ -828,7 +990,10 @@ export const analyticsService = {
   },
   ingestAttributionEvent(payload: MarketingAttributionEventIn) {
     return apiClient
-      .post<MarketingAttributionEventOut>(endpoints.analytics.attributionEvents, payload)
+      .post<MarketingAttributionEventOut>(
+        endpoints.analytics.attributionEvents,
+        payload,
+      )
       .then((res) => res.data);
   },
   exportReport(params: ReportExportFilter) {
@@ -843,17 +1008,23 @@ export const analyticsService = {
   },
   listReportSchedules(params?: { status?: string }) {
     return apiClient
-      .get<ReportScheduleListOut>(endpoints.analytics.reportSchedules, { params })
+      .get<ReportScheduleListOut>(endpoints.analytics.reportSchedules, {
+        params,
+      })
       .then((res) => res.data);
-  }
+  },
 };
 
 export const posService = {
   openShift(payload: PosShiftOpenIn) {
-    return apiClient.post<PosShiftOut>(endpoints.pos.openShift, payload).then((res) => res.data);
+    return apiClient
+      .post<PosShiftOut>(endpoints.pos.openShift, payload)
+      .then((res) => res.data);
   },
   currentShift() {
-    return apiClient.get<PosShiftCurrentOut>(endpoints.pos.currentShift).then((res) => res.data);
+    return apiClient
+      .get<PosShiftCurrentOut>(endpoints.pos.currentShift)
+      .then((res) => res.data);
   },
   closeShift(shiftId: string, payload: PosShiftCloseIn) {
     return apiClient
@@ -864,7 +1035,7 @@ export const posService = {
     return apiClient
       .post<PosOfflineSyncOut>(endpoints.pos.syncOfflineOrders, payload)
       .then((res) => res.data);
-  }
+  },
 };
 
 export const privacyService = {
@@ -878,24 +1049,41 @@ export const privacyService = {
       .get<CustomerPiiExportOut>(endpoints.privacy.exportCustomer(customerId))
       .then((res) => res.data);
   },
+  downloadCustomerExportPdf(customerId: string) {
+    return apiClient
+      .get(endpoints.privacy.downloadCustomerExport(customerId), {
+        responseType: "blob",
+      })
+      .then((res) => {
+        downloadBlob(res.data as Blob, `customer-${customerId}-export.pdf`);
+      });
+  },
   deleteCustomer(customerId: string) {
     return apiClient
-      .delete<CustomerPiiDeleteOut>(endpoints.privacy.deleteCustomer(customerId))
+      .delete<CustomerPiiDeleteOut>(
+        endpoints.privacy.deleteCustomer(customerId),
+      )
       .then((res) => res.data);
   },
   archiveAuditLogs(params: { cutoff_date: string; delete_archived?: boolean }) {
     return apiClient
-      .post<AuditArchiveOut>(endpoints.privacy.archiveAuditLogs, undefined, { params })
+      .post<AuditArchiveOut>(endpoints.privacy.archiveAuditLogs, undefined, {
+        params,
+      })
       .then((res) => res.data);
-  }
+  },
 };
 
 export const inventoryService = {
   stockIn(payload: StockIn) {
-    return apiClient.post<StockOut>(endpoints.inventory.stockIn, payload).then((res) => res.data);
+    return apiClient
+      .post<StockOut>(endpoints.inventory.stockIn, payload)
+      .then((res) => res.data);
   },
   adjust(payload: StockAdjustIn) {
-    return apiClient.post<StockOut>(endpoints.inventory.adjust, payload).then((res) => res.data);
+    return apiClient
+      .post<StockOut>(endpoints.inventory.adjust, payload)
+      .then((res) => res.data);
   },
   stock(variantId: string) {
     return apiClient
@@ -911,15 +1099,19 @@ export const inventoryService = {
     return apiClient
       .get<LowStockListOut>(endpoints.inventory.lowStock, { params })
       .then((res) => res.data);
-  }
+  },
 };
 
 export const salesService = {
   list(params?: SalesFilter) {
-    return apiClient.get<SaleListOut>(endpoints.sales.base, { params }).then((res) => res.data);
+    return apiClient
+      .get<SaleListOut>(endpoints.sales.base, { params })
+      .then((res) => res.data);
   },
   create(payload: SaleCreateIn) {
-    return apiClient.post<SaleCreateOut>(endpoints.sales.base, payload).then((res) => res.data);
+    return apiClient
+      .post<SaleCreateOut>(endpoints.sales.base, payload)
+      .then((res) => res.data);
   },
   refund(saleId: string, payload: RefundCreateIn) {
     return apiClient
@@ -930,29 +1122,37 @@ export const salesService = {
     return apiClient
       .get<SaleRefundOptionsOut>(endpoints.sales.refundOptions(saleId))
       .then((res) => res.data);
-  }
+  },
 };
 
 export const orderService = {
   list(params?: OrderFilter) {
-    return apiClient.get<OrderListOut>(endpoints.orders.base, { params }).then((res) => res.data);
+    return apiClient
+      .get<OrderListOut>(endpoints.orders.base, { params })
+      .then((res) => res.data);
   },
   create(payload: OrderCreateIn) {
-    return apiClient.post<OrderCreateOut>(endpoints.orders.base, payload).then((res) => res.data);
+    return apiClient
+      .post<OrderCreateOut>(endpoints.orders.base, payload)
+      .then((res) => res.data);
   },
   updateStatus(orderId: string, payload: OrderStatusUpdateIn) {
     return apiClient
       .patch<OrderOut>(endpoints.orders.status(orderId), payload)
       .then((res) => res.data);
-  }
+  },
 };
 
 export const invoiceService = {
   list(params?: InvoiceFilter) {
-    return apiClient.get<InvoiceListOut>(endpoints.invoices.base, { params }).then((res) => res.data);
+    return apiClient
+      .get<InvoiceListOut>(endpoints.invoices.base, { params })
+      .then((res) => res.data);
   },
   create(payload: InvoiceCreateIn) {
-    return apiClient.post<InvoiceCreateOut>(endpoints.invoices.base, payload).then((res) => res.data);
+    return apiClient
+      .post<InvoiceCreateOut>(endpoints.invoices.base, payload)
+      .then((res) => res.data);
   },
   fxQuote(params: { from_currency: string; to_currency: string }) {
     return apiClient
@@ -970,7 +1170,9 @@ export const invoiceService = {
       .then((res) => res.data);
   },
   send(invoiceId: string) {
-    return apiClient.post<InvoiceOut>(endpoints.invoices.send(invoiceId)).then((res) => res.data);
+    return apiClient
+      .post<InvoiceOut>(endpoints.invoices.send(invoiceId))
+      .then((res) => res.data);
   },
   markPaid(invoiceId: string, payload: InvoiceMarkPaidIn) {
     return apiClient
@@ -984,7 +1186,9 @@ export const invoiceService = {
   },
   listPayments(invoiceId: string, params?: PaginationFilter) {
     return apiClient
-      .get<InvoicePaymentListOut>(endpoints.invoices.payments(invoiceId), { params })
+      .get<InvoicePaymentListOut>(endpoints.invoices.payments(invoiceId), {
+        params,
+      })
       .then((res) => res.data);
   },
   remind(invoiceId: string, payload?: InvoiceReminderIn) {
@@ -999,22 +1203,32 @@ export const invoiceService = {
   },
   listInstallments(invoiceId: string) {
     return apiClient
-      .get<InvoiceInstallmentListOut>(endpoints.invoices.installments(invoiceId))
+      .get<InvoiceInstallmentListOut>(
+        endpoints.invoices.installments(invoiceId),
+      )
       .then((res) => res.data);
   },
   upsertInstallments(invoiceId: string, payload: InvoiceInstallmentUpsertIn) {
     return apiClient
-      .put<InvoiceInstallmentListOut>(endpoints.invoices.installments(invoiceId), payload)
+      .put<InvoiceInstallmentListOut>(
+        endpoints.invoices.installments(invoiceId),
+        payload,
+      )
       .then((res) => res.data);
   },
   getReminderPolicy(invoiceId: string) {
     return apiClient
-      .get<InvoiceReminderPolicyOut>(endpoints.invoices.reminderPolicy(invoiceId))
+      .get<InvoiceReminderPolicyOut>(
+        endpoints.invoices.reminderPolicy(invoiceId),
+      )
       .then((res) => res.data);
   },
   upsertReminderPolicy(invoiceId: string, payload: InvoiceReminderPolicyIn) {
     return apiClient
-      .put<InvoiceReminderPolicyOut>(endpoints.invoices.reminderPolicy(invoiceId), payload)
+      .put<InvoiceReminderPolicyOut>(
+        endpoints.invoices.reminderPolicy(invoiceId),
+        payload,
+      )
       .then((res) => res.data);
   },
   agingDashboard(params?: { as_of_date?: string }) {
@@ -1029,17 +1243,23 @@ export const invoiceService = {
   },
   exportStatements(params: InvoiceStatementFilter) {
     return apiClient
-      .get<InvoiceStatementExportOut>(endpoints.invoices.statementsExport, { params })
+      .get<InvoiceStatementExportOut>(endpoints.invoices.statementsExport, {
+        params,
+      })
       .then((res) => res.data);
-  }
+  },
 };
 
 export const customerService = {
   list(params?: CustomerFilter) {
-    return apiClient.get<CustomerListOut>(endpoints.customers.base, { params }).then((res) => res.data);
+    return apiClient
+      .get<CustomerListOut>(endpoints.customers.base, { params })
+      .then((res) => res.data);
   },
   create(payload: CustomerCreateIn) {
-    return apiClient.post<CustomerCreateOut>(endpoints.customers.base, payload).then((res) => res.data);
+    return apiClient
+      .post<CustomerCreateOut>(endpoints.customers.base, payload)
+      .then((res) => res.data);
   },
   update(customerId: string, payload: CustomerUpdateIn) {
     return apiClient
@@ -1047,13 +1267,19 @@ export const customerService = {
       .then((res) => res.data);
   },
   remove(customerId: string) {
-    return apiClient.delete<void>(endpoints.customers.customer(customerId)).then(() => undefined);
+    return apiClient
+      .delete<void>(endpoints.customers.customer(customerId))
+      .then(() => undefined);
   },
   listTags() {
-    return apiClient.get<CustomerTagListOut>(endpoints.customers.tags).then((res) => res.data);
+    return apiClient
+      .get<CustomerTagListOut>(endpoints.customers.tags)
+      .then((res) => res.data);
   },
   createTag(payload: CustomerTagCreateIn) {
-    return apiClient.post<CustomerTagOut>(endpoints.customers.tags, payload).then((res) => res.data);
+    return apiClient
+      .post<CustomerTagOut>(endpoints.customers.tags, payload)
+      .then((res) => res.data);
   },
   attachTag(customerId: string, tagId: string) {
     return apiClient
@@ -1064,7 +1290,7 @@ export const customerService = {
     return apiClient
       .delete<CustomerOut>(endpoints.customers.customerTag(customerId, tagId))
       .then((res) => res.data);
-  }
+  },
 };
 
 export const expenseService = {
@@ -1077,19 +1303,30 @@ export const expenseService = {
     return apiClient
       .post<ExpenseCreateOut>(endpoints.expenses.base, payload)
       .then((res) => res.data);
-  }
+  },
+  update(expenseId: string, payload: ExpenseUpdateIn) {
+    return apiClient
+      .patch<ExpenseOut>(endpoints.expenses.expense(expenseId), payload)
+      .then((res) => res.data);
+  },
 };
 
 export const aiService = {
   ask(payload: AIAskIn) {
-    return apiClient.post<AIResponseOut>(endpoints.ai.ask, payload).then((res) => res.data);
+    return apiClient
+      .post<AIResponseOut>(endpoints.ai.ask, payload)
+      .then((res) => res.data);
   },
   dailyInsight() {
-    return apiClient.get<AIResponseOut>(endpoints.ai.daily).then((res) => res.data);
+    return apiClient
+      .get<AIResponseOut>(endpoints.ai.daily)
+      .then((res) => res.data);
   },
   refreshFeatureStore(params?: AIFeatureStoreFilter) {
     return apiClient
-      .post<AIFeatureSnapshotOut>(endpoints.ai.refreshFeatureStore, undefined, { params })
+      .post<AIFeatureSnapshotOut>(endpoints.ai.refreshFeatureStore, undefined, {
+        params,
+      })
       .then((res) => res.data);
   },
   latestFeatureStore() {
@@ -1099,7 +1336,9 @@ export const aiService = {
   },
   generateInsightsV2(params?: AIFeatureStoreFilter) {
     return apiClient
-      .post<AIInsightsGenerateOut>(endpoints.ai.generateInsightsV2, undefined, { params })
+      .post<AIInsightsGenerateOut>(endpoints.ai.generateInsightsV2, undefined, {
+        params,
+      })
       .then((res) => res.data);
   },
   listInsightsV2(params?: AIInsightV2Filter) {
@@ -1114,9 +1353,12 @@ export const aiService = {
   },
   decideAction(actionId: string, payload: AIPrescriptiveDecisionIn) {
     return apiClient
-      .post<AIPrescriptiveActionOut>(endpoints.ai.actionDecision(actionId), payload)
+      .post<AIPrescriptiveActionOut>(
+        endpoints.ai.actionDecision(actionId),
+        payload,
+      )
       .then((res) => res.data);
-  }
+  },
 };
 
 export const teamService = {
@@ -1136,7 +1378,9 @@ export const teamService = {
       .then((res) => res.data);
   },
   deactivate(membershipId: string) {
-    return apiClient.delete<void>(endpoints.team.member(membershipId)).then(() => undefined);
+    return apiClient
+      .delete<void>(endpoints.team.member(membershipId))
+      .then(() => undefined);
   },
   listInvitations(params?: TeamInvitationListFilter) {
     return apiClient
@@ -1157,7 +1401,7 @@ export const teamService = {
     return apiClient
       .post<TeamMemberOut>(endpoints.team.acceptInvitation, payload)
       .then((res) => res.data);
-  }
+  },
 };
 
 export const auditService = {
@@ -1165,7 +1409,7 @@ export const auditService = {
     return apiClient
       .get<AuditLogListOut>(endpoints.audit.base, { params })
       .then((res) => res.data);
-  }
+  },
 };
 
 export const developerService = {
@@ -1196,7 +1440,10 @@ export const developerService = {
   },
   createWebhookSubscription(payload: WebhookSubscriptionCreateIn) {
     return apiClient
-      .post<WebhookSubscriptionCreateOut>(endpoints.developer.webhookSubscriptions, payload)
+      .post<WebhookSubscriptionCreateOut>(
+        endpoints.developer.webhookSubscriptions,
+        payload,
+      )
       .then((res) => res.data);
   },
   listWebhookSubscriptions() {
@@ -1204,26 +1451,40 @@ export const developerService = {
       .get<WebhookSubscriptionListOut>(endpoints.developer.webhookSubscriptions)
       .then((res) => res.data);
   },
-  updateWebhookSubscription(subscriptionId: string, payload: WebhookSubscriptionUpdateIn) {
+  updateWebhookSubscription(
+    subscriptionId: string,
+    payload: WebhookSubscriptionUpdateIn,
+  ) {
     return apiClient
-      .patch<WebhookSubscriptionOut>(endpoints.developer.webhookSubscription(subscriptionId), payload)
+      .patch<WebhookSubscriptionOut>(
+        endpoints.developer.webhookSubscription(subscriptionId),
+        payload,
+      )
       .then((res) => res.data);
   },
   rotateWebhookSecret(subscriptionId: string) {
     return apiClient
-      .post<WebhookSubscriptionRotateSecretOut>(endpoints.developer.rotateWebhookSecret(subscriptionId))
+      .post<WebhookSubscriptionRotateSecretOut>(
+        endpoints.developer.rotateWebhookSecret(subscriptionId),
+      )
       .then((res) => res.data);
   },
   listWebhookDeliveries(params?: WebhookDeliveryFilter) {
     return apiClient
-      .get<WebhookDeliveryListOut>(endpoints.developer.webhookDeliveries, { params })
+      .get<WebhookDeliveryListOut>(endpoints.developer.webhookDeliveries, {
+        params,
+      })
       .then((res) => res.data);
   },
   dispatchWebhookDeliveries(limit?: number, subscriptionId?: string) {
     return apiClient
-      .post<WebhookDispatchOut>(endpoints.developer.dispatchWebhookDeliveries, undefined, {
-        params: { limit, subscription_id: subscriptionId }
-      })
+      .post<WebhookDispatchOut>(
+        endpoints.developer.dispatchWebhookDeliveries,
+        undefined,
+        {
+          params: { limit, subscription_id: subscriptionId },
+        },
+      )
       .then((res) => res.data);
   },
   listPortalDocs() {
@@ -1238,39 +1499,62 @@ export const developerService = {
   },
   listMarketplaceListings(params?: MarketplaceListingFilter) {
     return apiClient
-      .get<MarketplaceListingListOut>(endpoints.developer.marketplaceApps, { params })
+      .get<MarketplaceListingListOut>(endpoints.developer.marketplaceApps, {
+        params,
+      })
       .then((res) => res.data);
   },
   submitMarketplaceListing(listingId: string) {
     return apiClient
-      .post<MarketplaceListingOut>(endpoints.developer.submitMarketplaceApp(listingId))
+      .post<MarketplaceListingOut>(
+        endpoints.developer.submitMarketplaceApp(listingId),
+      )
       .then((res) => res.data);
   },
-  reviewMarketplaceListing(listingId: string, payload: MarketplaceListingReviewIn) {
+  reviewMarketplaceListing(
+    listingId: string,
+    payload: MarketplaceListingReviewIn,
+  ) {
     return apiClient
-      .post<MarketplaceListingOut>(endpoints.developer.reviewMarketplaceApp(listingId), payload)
+      .post<MarketplaceListingOut>(
+        endpoints.developer.reviewMarketplaceApp(listingId),
+        payload,
+      )
       .then((res) => res.data);
   },
-  publishMarketplaceListing(listingId: string, payload: MarketplaceListingPublishIn) {
+  publishMarketplaceListing(
+    listingId: string,
+    payload: MarketplaceListingPublishIn,
+  ) {
     return apiClient
-      .post<MarketplaceListingOut>(endpoints.developer.publishMarketplaceApp(listingId), payload)
+      .post<MarketplaceListingOut>(
+        endpoints.developer.publishMarketplaceApp(listingId),
+        payload,
+      )
       .then((res) => res.data);
-  }
+  },
 };
 
 export const publicApiService = {
   me(apiKey: string) {
     return apiClient
       .get<PublicApiBusinessOut>(endpoints.publicApi.me, {
-        headers: { "X-Monidesk-Api-Key": apiKey }
+        headers: { "X-Monidesk-Api-Key": apiKey },
       })
       .then((res) => res.data);
   },
-  products(apiKey: string, params?: PaginationFilter & { q?: string; category?: string; is_published?: boolean }) {
+  products(
+    apiKey: string,
+    params?: PaginationFilter & {
+      q?: string;
+      category?: string;
+      is_published?: boolean;
+    },
+  ) {
     return apiClient
       .get<PublicApiProductListOut>(endpoints.publicApi.products, {
         headers: { "X-Monidesk-Api-Key": apiKey },
-        params
+        params,
       })
       .then((res) => res.data);
   },
@@ -1278,7 +1562,7 @@ export const publicApiService = {
     return apiClient
       .get<PublicApiOrderListOut>(endpoints.publicApi.orders, {
         headers: { "X-Monidesk-Api-Key": apiKey },
-        params
+        params,
       })
       .then((res) => res.data);
   },
@@ -1286,8 +1570,8 @@ export const publicApiService = {
     return apiClient
       .get<PublicApiCustomerListOut>(endpoints.publicApi.customers, {
         headers: { "X-Monidesk-Api-Key": apiKey },
-        params
+        params,
       })
       .then((res) => res.data);
-  }
+  },
 };

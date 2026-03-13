@@ -8,7 +8,8 @@ export const endpoints = {
     refresh: "/auth/refresh",
     logout: "/auth/logout",
     changePassword: "/auth/change-password",
-    me: "/auth/me"
+    me: "/auth/me",
+    currencies: "/auth/currencies",
   },
   dashboard: {
     summary: "/dashboard/summary",
@@ -18,16 +19,17 @@ export const endpoints = {
     creditForecast: "/dashboard/credit-forecast",
     creditScenarioSimulate: "/dashboard/credit-scenarios/simulate",
     creditExportPack: "/dashboard/credit-export-pack",
+    creditExportPackDownload: "/dashboard/credit-export-pack/download",
     financeGuardrailsPolicy: "/dashboard/finance-guardrails/policy",
     financeGuardrailsEvaluate: "/dashboard/finance-guardrails/evaluate",
-    creditImprovementPlan: "/dashboard/credit-improvement-plan"
+    creditImprovementPlan: "/dashboard/credit-improvement-plan",
   },
   products: {
     base: "/products",
     variants: (productId: string) => `/products/${productId}/variants`,
     publish: (productId: string) => `/products/${productId}/publish`,
     publishVariant: (productId: string, variantId: string) =>
-      `/products/${productId}/variants/${variantId}/publish`
+      `/products/${productId}/variants/${variantId}/publish`,
   },
   storefront: {
     config: "/storefront/config",
@@ -37,86 +39,108 @@ export const endpoints = {
     publicStore: (slug: string) => `/storefront/public/${slug}`,
     publicProducts: (slug: string) => `/storefront/public/${slug}/products`,
     publicProductDetail: (slug: string, productId: string) =>
-      `/storefront/public/${slug}/products/${productId}`
+      `/storefront/public/${slug}/products/${productId}`,
   },
   checkout: {
     sessions: "/checkout-sessions",
     storefrontSession: (slug: string) => `/checkout/storefront/${slug}/session`,
     publicSession: (sessionToken: string) => `/checkout/${sessionToken}`,
-    publicPlaceOrder: (sessionToken: string) => `/checkout/${sessionToken}/place-order`,
+    publicPlaceOrder: (sessionToken: string) =>
+      `/checkout/${sessionToken}/place-order`,
     sessionRetryPayment: (checkoutSessionId: string) =>
       `/checkout-sessions/${checkoutSessionId}/retry-payment`,
-    paymentsSummary: "/checkout-sessions/payments-summary"
+    paymentsSummary: "/checkout-sessions/payments-summary",
   },
   shipping: {
     settings: "/shipping/settings",
-    quoteCheckoutRate: (sessionToken: string) => `/shipping/checkout/${sessionToken}/quote`,
-    selectCheckoutRate: (sessionToken: string) => `/shipping/checkout/${sessionToken}/select-rate`,
-    selectedCheckoutRate: (sessionToken: string) => `/shipping/checkout/${sessionToken}/selected-rate`,
+    quoteCheckoutRate: (sessionToken: string) =>
+      `/shipping/checkout/${sessionToken}/quote`,
+    selectCheckoutRate: (sessionToken: string) =>
+      `/shipping/checkout/${sessionToken}/select-rate`,
+    selectedCheckoutRate: (sessionToken: string) =>
+      `/shipping/checkout/${sessionToken}/selected-rate`,
     shipments: "/shipping/shipments",
-    syncTracking: (shipmentId: string) => `/shipping/shipments/${shipmentId}/sync-tracking`
+    syncTracking: (shipmentId: string) =>
+      `/shipping/shipments/${shipmentId}/sync-tracking`,
   },
   locations: {
     base: "/locations",
     location: (locationId: string) => `/locations/${locationId}`,
-    membershipScopes: (locationId: string) => `/locations/${locationId}/membership-scopes`,
+    activate: (locationId: string) => `/locations/${locationId}/activate`,
+    deactivate: (locationId: string) => `/locations/${locationId}/deactivate`,
+    membershipScopes: (locationId: string) =>
+      `/locations/${locationId}/membership-scopes`,
     membershipScope: (locationId: string, membershipId: string) =>
       `/locations/${locationId}/membership-scopes/${membershipId}`,
     stockIn: (locationId: string) => `/locations/${locationId}/stock-in`,
     adjust: (locationId: string) => `/locations/${locationId}/adjust`,
-    stock: (locationId: string, variantId: string) => `/locations/${locationId}/stock/${variantId}`,
-    stockOverview: (variantId: string) => `/locations/stock-overview/${variantId}`,
+    stock: (locationId: string, variantId: string) =>
+      `/locations/${locationId}/stock/${variantId}`,
+    stockOverview: (variantId: string) =>
+      `/locations/stock-overview/${variantId}`,
     transfers: "/locations/transfers",
     lowStock: "/locations/low-stock",
-    orderAllocations: "/locations/order-allocations"
+    orderAllocations: "/locations/order-allocations",
   },
   integrations: {
     secrets: "/integrations/secrets",
     apps: "/integrations/apps",
     installApp: "/integrations/apps/install",
-    disconnectApp: (installationId: string) => `/integrations/apps/${installationId}/disconnect`,
+    disconnectApp: (installationId: string) =>
+      `/integrations/apps/${installationId}/disconnect`,
     emitOutbox: "/integrations/outbox/emit",
     outboxEvents: "/integrations/outbox/events",
     dispatchOutbox: "/integrations/outbox/dispatch",
     messages: "/integrations/messages",
-    sendMessage: "/integrations/messages/send"
+    sendMessage: "/integrations/messages/send",
   },
   developer: {
     scopeCatalog: "/developer/api/scopes",
     apiKeys: "/developer/api-keys",
-    rotateApiKey: (apiKeyId: string) => `/developer/api-keys/${apiKeyId}/rotate`,
-    revokeApiKey: (apiKeyId: string) => `/developer/api-keys/${apiKeyId}/revoke`,
+    rotateApiKey: (apiKeyId: string) =>
+      `/developer/api-keys/${apiKeyId}/rotate`,
+    revokeApiKey: (apiKeyId: string) =>
+      `/developer/api-keys/${apiKeyId}/revoke`,
     webhookSubscriptions: "/developer/webhooks/subscriptions",
-    webhookSubscription: (subscriptionId: string) => `/developer/webhooks/subscriptions/${subscriptionId}`,
-    rotateWebhookSecret: (subscriptionId: string) => `/developer/webhooks/subscriptions/${subscriptionId}/rotate-secret`,
+    webhookSubscription: (subscriptionId: string) =>
+      `/developer/webhooks/subscriptions/${subscriptionId}`,
+    rotateWebhookSecret: (subscriptionId: string) =>
+      `/developer/webhooks/subscriptions/${subscriptionId}/rotate-secret`,
     webhookDeliveries: "/developer/webhooks/deliveries",
     dispatchWebhookDeliveries: "/developer/webhooks/deliveries/dispatch",
     portalDocs: "/developer/portal/docs",
     marketplaceApps: "/developer/marketplace/apps",
-    submitMarketplaceApp: (listingId: string) => `/developer/marketplace/apps/${listingId}/submit`,
-    reviewMarketplaceApp: (listingId: string) => `/developer/marketplace/apps/${listingId}/review`,
-    publishMarketplaceApp: (listingId: string) => `/developer/marketplace/apps/${listingId}/publish`
+    submitMarketplaceApp: (listingId: string) =>
+      `/developer/marketplace/apps/${listingId}/submit`,
+    reviewMarketplaceApp: (listingId: string) =>
+      `/developer/marketplace/apps/${listingId}/review`,
+    publishMarketplaceApp: (listingId: string) =>
+      `/developer/marketplace/apps/${listingId}/publish`,
   },
   publicApi: {
     me: "/public/v1/me",
     products: "/public/v1/products",
     orders: "/public/v1/orders",
-    customers: "/public/v1/customers"
+    customers: "/public/v1/customers",
   },
   campaigns: {
     segments: "/campaigns/segments",
     segment: (segmentId: string) => `/campaigns/segments/${segmentId}`,
-    previewSegment: (segmentId: string) => `/campaigns/segments/${segmentId}/preview`,
+    previewSegment: (segmentId: string) =>
+      `/campaigns/segments/${segmentId}/preview`,
     templates: "/campaigns/templates",
     template: (templateId: string) => `/campaigns/templates/${templateId}`,
     consent: "/campaigns/consent",
     base: "/campaigns",
-    campaignDispatch: (campaignId: string) => `/campaigns/${campaignId}/dispatch`,
-    campaignRecipients: (campaignId: string) => `/campaigns/${campaignId}/recipients`,
+    campaignDispatch: (campaignId: string) =>
+      `/campaigns/${campaignId}/dispatch`,
+    campaignRecipients: (campaignId: string) =>
+      `/campaigns/${campaignId}/recipients`,
     metrics: "/campaigns/metrics",
     campaignMetrics: (campaignId: string) => `/campaigns/${campaignId}/metrics`,
     retentionTriggers: "/campaigns/retention-triggers",
-    runRetentionTrigger: (triggerId: string) => `/campaigns/retention-triggers/${triggerId}/run`
+    runRetentionTrigger: (triggerId: string) =>
+      `/campaigns/retention-triggers/${triggerId}/run`,
   },
   automation: {
     templates: "/automations/templates",
@@ -126,7 +150,7 @@ export const endpoints = {
     testRule: (ruleId: string) => `/automations/rules/${ruleId}/test`,
     runOutbox: "/automations/outbox/run",
     runs: "/automations/runs",
-    run: (runId: string) => `/automations/runs/${runId}`
+    run: (runId: string) => `/automations/runs/${runId}`,
   },
   analytics: {
     refreshMart: "/analytics/mart/refresh",
@@ -135,35 +159,38 @@ export const endpoints = {
     inventoryAging: "/analytics/inventory-aging",
     attributionEvents: "/analytics/attribution-events",
     exportReport: "/analytics/reports/export",
-    reportSchedules: "/analytics/reports/schedules"
+    reportSchedules: "/analytics/reports/schedules",
   },
   pos: {
     openShift: "/pos/shifts/open",
     currentShift: "/pos/shifts/current",
     closeShift: (shiftId: string) => `/pos/shifts/${shiftId}/close`,
-    syncOfflineOrders: "/pos/offline-orders/sync"
+    syncOfflineOrders: "/pos/offline-orders/sync",
   },
   privacy: {
     rbacMatrix: "/privacy/rbac/matrix",
-    exportCustomer: (customerId: string) => `/privacy/customers/${customerId}/export`,
+    exportCustomer: (customerId: string) =>
+      `/privacy/customers/${customerId}/export`,
+    downloadCustomerExport: (customerId: string) =>
+      `/privacy/customers/${customerId}/export/download`,
     deleteCustomer: (customerId: string) => `/privacy/customers/${customerId}`,
-    archiveAuditLogs: "/privacy/audit-archive"
+    archiveAuditLogs: "/privacy/audit-archive",
   },
   inventory: {
     stockIn: "/inventory/stock-in",
     adjust: "/inventory/adjust",
     stock: (variantId: string) => `/inventory/stock/${variantId}`,
     ledger: "/inventory/ledger",
-    lowStock: "/inventory/low-stock"
+    lowStock: "/inventory/low-stock",
   },
   sales: {
     base: "/sales",
     refund: (saleId: string) => `/sales/${saleId}/refund`,
-    refundOptions: (saleId: string) => `/sales/${saleId}/refund-options`
+    refundOptions: (saleId: string) => `/sales/${saleId}/refund-options`,
   },
   orders: {
     base: "/orders",
-    status: (orderId: string) => `/orders/${orderId}/status`
+    status: (orderId: string) => `/orders/${orderId}/status`,
   },
   invoices: {
     base: "/invoices",
@@ -178,16 +205,19 @@ export const endpoints = {
     reminders: (invoiceId: string) => `/invoices/${invoiceId}/reminders`,
     payments: (invoiceId: string) => `/invoices/${invoiceId}/payments`,
     installments: (invoiceId: string) => `/invoices/${invoiceId}/installments`,
-    reminderPolicy: (invoiceId: string) => `/invoices/${invoiceId}/reminder-policy`
+    reminderPolicy: (invoiceId: string) =>
+      `/invoices/${invoiceId}/reminder-policy`,
   },
   customers: {
     base: "/customers",
     customer: (customerId: string) => `/customers/${customerId}`,
     tags: "/customers/tags",
-    customerTag: (customerId: string, tagId: string) => `/customers/${customerId}/tags/${tagId}`
+    customerTag: (customerId: string, tagId: string) =>
+      `/customers/${customerId}/tags/${tagId}`,
   },
   expenses: {
-    base: "/expenses"
+    base: "/expenses",
+    expense: (expenseId: string) => `/expenses/${expenseId}`,
   },
   ai: {
     ask: "/ai/ask",
@@ -203,16 +233,17 @@ export const endpoints = {
     riskAlertsRun: "/ai/risk-alerts/run",
     riskAlertsEvents: "/ai/risk-alerts/events",
     governanceTraces: "/ai/governance/traces",
-    governanceTraceDetail: (traceId: string) => `/ai/governance/traces/${traceId}`
+    governanceTraceDetail: (traceId: string) =>
+      `/ai/governance/traces/${traceId}`,
   },
   team: {
     members: "/team/members",
     member: (membershipId: string) => `/team/members/${membershipId}`,
     invitations: "/team/invitations",
     invitation: (invitationId: string) => `/team/invitations/${invitationId}`,
-    acceptInvitation: "/team/invitations/accept"
+    acceptInvitation: "/team/invitations/accept",
   },
   audit: {
-    base: "/audit-logs"
-  }
+    base: "/audit-logs",
+  },
 } as const;

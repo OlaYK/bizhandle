@@ -1,9 +1,11 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { Pencil } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { expenseService } from "../api/services";
+import type { ExpenseOut } from "../api/types";
 import { EmptyState } from "../components/state/empty-state";
 import { ErrorState } from "../components/state/error-state";
 import { LoadingState } from "../components/state/loading-state";
@@ -19,7 +21,7 @@ import { formatCurrency, formatDateTime } from "../lib/format";
 const expenseSchema = z.object({
   category: z.string().min(1, "Category is required"),
   amount: z.coerce.number().positive("Amount must be > 0"),
-  note: z.string().optional()
+  note: z.string().optional(),
 });
 
 type ExpenseFormData = z.infer<typeof expenseSchema>;
@@ -31,6 +33,7 @@ export function ExpensesPage() {
   const [endDate, setEndDate] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [editingExpense, setEditingExpense] = useState<ExpenseOut | null>(null);
 
   const offset = (page - 1) * pageSize;
 
@@ -43,8 +46,8 @@ export function ExpensesPage() {
     defaultValues: {
       category: "",
       amount: 0,
-      note: ""
-    }
+      note: "",
+    },
   });
 
   const listQuery = useQuery({
@@ -54,8 +57,8 @@ export function ExpensesPage() {
         start_date: startDate || undefined,
         end_date: endDate || undefined,
         limit: pageSize,
-        offset
-      })
+        offset,
+      }),
   });
 
   const createMutation = useMutation({
@@ -71,32 +74,106 @@ export function ExpensesPage() {
       showToast({
         title: "Expense failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
+      });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({
+      id,
+      ...payload
+    }: {
+      id: string;
+      category: string;
+      amount: number;
+      note?: string;
+    }) => expenseService.update(id, payload),
+    onSuccess: () => {
+      showToast({ title: "Expense updated", variant: "success" });
+      form.reset({ category: "", amount: 0, note: "" });
+      setEditingExpense(null);
+      queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["credit"] });
+    },
+    onError: (error) => {
+      showToast({
+        title: "Update failed",
+        description: getApiErrorMessage(error),
+        variant: "error",
+      });
+    },
+  });
+
+  function startEditing(expense: ExpenseOut) {
+    setEditingExpense(expense);
+    form.reset({
+      category: expense.category,
+      amount: expense.amount,
+      note: expense.note ?? "",
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelEditing() {
+    setEditingExpense(null);
+    form.reset({ category: "", amount: 0, note: "" });
+  }
+
+  function handleSubmit(values: ExpenseFormData) {
+    if (editingExpense) {
+      updateMutation.mutate({
+        id: editingExpense.id,
+        category: values.category,
+        amount: values.amount,
+        note: values.note?.trim() || undefined,
+      });
+    } else {
+      createMutation.mutate({
+        category: values.category,
+        amount: values.amount,
+        note: values.note?.trim() || undefined,
       });
     }
-  });
+  }
 
   if (listQuery.isLoading) {
     return <LoadingState label="Loading expenses..." />;
   }
 
   if (listQuery.isError) {
-    return <ErrorState message="Failed to load expenses." onRetry={() => listQuery.refetch()} />;
+    return (
+      <ErrorState
+        message="Failed to load expenses."
+        onRetry={() => listQuery.refetch()}
+      />
+    );
   }
+
+  const isSaving = createMutation.isPending || updateMutation.isPending;
 
   return (
     <div className="space-y-6">
       <Card>
-        <h3 className="font-heading text-lg font-bold">Add Expense</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="font-heading text-lg font-bold">
+            {editingExpense ? "Edit Expense" : "Add Expense"}
+          </h3>
+          {editingExpense ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={cancelEditing}
+            >
+              Cancel
+            </Button>
+          ) : null}
+        </div>
         <form
           className="mt-4 grid gap-3 md:grid-cols-2"
-          onSubmit={form.handleSubmit((values) =>
-            createMutation.mutate({
-              category: values.category,
-              amount: values.amount,
-              note: values.note?.trim() || undefined
-            })
-          )}
+          onSubmit={form.handleSubmit(handleSubmit)}
         >
           <Input
             label="Category"
@@ -114,10 +191,15 @@ export function ExpensesPage() {
           <div className="md:col-span-2">
             <Textarea label="Note" rows={3} {...form.register("note")} />
           </div>
-          <div className="md:col-span-2">
-            <Button type="submit" loading={createMutation.isPending}>
-              Save Expense
+          <div className="md:col-span-2 flex gap-2">
+            <Button type="submit" loading={isSaving}>
+              {editingExpense ? "Update Expense" : "Save Expense"}
             </Button>
+            {editingExpense ? (
+              <Button type="button" variant="ghost" onClick={cancelEditing}>
+                Cancel
+              </Button>
+            ) : null}
           </div>
         </form>
       </Card>
@@ -139,18 +221,43 @@ export function ExpensesPage() {
         </div>
 
         {!listQuery.data?.items.length ? (
-          <EmptyState title="No expenses found" description="Add your first expense entry." />
+          <EmptyState
+            title="No expenses found"
+            description="Add your first expense entry."
+          />
         ) : (
           <div className="space-y-2">
             <div className="space-y-2 sm:hidden">
               {listQuery.data.items.map((expense) => (
-                <article key={expense.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+                <article
+                  key={expense.id}
+                  className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+                >
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-surface-700">{expense.category}</p>
-                    <p className="text-sm font-semibold text-red-600">{formatCurrency(expense.amount)}</p>
+                    <p className="text-sm font-semibold text-surface-700">
+                      {expense.category}
+                    </p>
+                    <p className="text-sm font-semibold text-red-600">
+                      {formatCurrency(expense.amount)}
+                    </p>
                   </div>
-                  <p className="mt-1 text-xs text-surface-500">{expense.note || "-"}</p>
-                  <p className="mt-1 text-xs text-surface-500">{formatDateTime(expense.created_at)}</p>
+                  <p className="mt-1 text-xs text-surface-500">
+                    {expense.note || "-"}
+                  </p>
+                  <div className="mt-2 flex items-center justify-between">
+                    <p className="text-xs text-surface-500">
+                      {formatDateTime(expense.created_at)}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => startEditing(expense)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      Edit
+                    </Button>
+                  </div>
                 </article>
               ))}
             </div>
@@ -162,15 +269,35 @@ export function ExpensesPage() {
                     <th className="px-2 py-2">Amount</th>
                     <th className="px-2 py-2">Note</th>
                     <th className="px-2 py-2">Date</th>
+                    <th className="px-2 py-2" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-surface-50">
                   {listQuery.data.items.map((expense) => (
                     <tr key={expense.id}>
-                      <td className="px-2 py-2 font-semibold text-surface-700">{expense.category}</td>
-                      <td className="px-2 py-2 font-semibold text-red-600">{formatCurrency(expense.amount)}</td>
-                      <td className="px-2 py-2 text-surface-500">{expense.note || "-"}</td>
-                      <td className="px-2 py-2 text-surface-500">{formatDateTime(expense.created_at)}</td>
+                      <td className="px-2 py-2 font-semibold text-surface-700">
+                        {expense.category}
+                      </td>
+                      <td className="px-2 py-2 font-semibold text-red-600">
+                        {formatCurrency(expense.amount)}
+                      </td>
+                      <td className="px-2 py-2 text-surface-500">
+                        {expense.note || "-"}
+                      </td>
+                      <td className="px-2 py-2 text-surface-500">
+                        {formatDateTime(expense.created_at)}
+                      </td>
+                      <td className="px-2 py-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => startEditing(expense)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit
+                        </Button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

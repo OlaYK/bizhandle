@@ -23,7 +23,7 @@ export function LocationsPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
 
-  const [includeInactive, setIncludeInactive] = useState(false);
+  const [includeInactive, setIncludeInactive] = useState(true);
   const [locationName, setLocationName] = useState("");
   const [locationCode, setLocationCode] = useState("");
   const [selectedLocationId, setSelectedLocationId] = useState("");
@@ -35,7 +35,9 @@ export function LocationsPage() {
   const [adjustNote, setAdjustNote] = useState("");
   const [stockResult, setStockResult] = useState<number | null>(null);
   const [overviewVariantId, setOverviewVariantId] = useState("");
-  const [overviewRows, setOverviewRows] = useState<Array<{ location_id: string; stock: number }>>([]);
+  const [overviewRows, setOverviewRows] = useState<
+    Array<{ location_id: string; stock: number }>
+  >([]);
   const [transferFromLocationId, setTransferFromLocationId] = useState("");
   const [transferToLocationId, setTransferToLocationId] = useState("");
   const [transferVariantId, setTransferVariantId] = useState("");
@@ -67,8 +69,8 @@ export function LocationsPage() {
       locationService.list({
         include_inactive: includeInactive,
         limit: 200,
-        offset: 0
-      })
+        offset: 0,
+      }),
   });
 
   useEffect(() => {
@@ -85,7 +87,7 @@ export function LocationsPage() {
     locationsQuery.data,
     selectedLocationId,
     transferFromLocationId,
-    transferToLocationId
+    transferToLocationId,
   ]);
 
   const transfersQuery = useQuery({
@@ -93,8 +95,8 @@ export function LocationsPage() {
     queryFn: () =>
       locationService.listTransfers({
         limit: transferPageSize,
-        offset: transferOffset
-      })
+        offset: transferOffset,
+      }),
   });
 
   const lowStockQuery = useQuery({
@@ -104,22 +106,22 @@ export function LocationsPage() {
       lowStockLocationFilter,
       lowStockThreshold,
       lowStockPage,
-      lowStockPageSize
+      lowStockPageSize,
     ],
     queryFn: () =>
       locationService.lowStock({
         location_id: lowStockLocationFilter || undefined,
         threshold: lowStockThreshold,
         limit: lowStockPageSize,
-        offset: lowStockOffset
-      })
+        offset: lowStockOffset,
+      }),
   });
 
   const createLocationMutation = useMutation({
     mutationFn: () =>
       locationService.create({
         name: locationName.trim(),
-        code: locationCode.trim()
+        code: locationCode.trim(),
       }),
     onSuccess: () => {
       showToast({ title: "Location created", variant: "success" });
@@ -132,18 +134,26 @@ export function LocationsPage() {
       showToast({
         title: "Could not create location",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
-  const updateLocationMutation = useMutation({
-    mutationFn: ({ locationId, isActive }: { locationId: string; isActive: boolean }) =>
-      locationService.update(locationId, { is_active: isActive }),
+  const toggleLocationMutation = useMutation({
+    mutationFn: ({
+      locationId,
+      isActive,
+    }: {
+      locationId: string;
+      isActive: boolean;
+    }) =>
+      isActive
+        ? locationService.activate(locationId)
+        : locationService.deactivate(locationId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["locations"] });
       queryClient.invalidateQueries({ queryKey: ["audit-logs"] });
-    }
+    },
   });
 
   const stockInMutation = useMutation({
@@ -151,7 +161,7 @@ export function LocationsPage() {
       locationService.stockIn(selectedLocationId, {
         variant_id: stockVariantId.trim(),
         qty: Number(stockInQty || 0),
-        note: normalizeOptional(stockInNote)
+        note: normalizeOptional(stockInNote),
       }),
     onSuccess: (result) => {
       setStockResult(result.stock);
@@ -162,9 +172,9 @@ export function LocationsPage() {
       showToast({
         title: "Stock-in failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const adjustMutation = useMutation({
@@ -173,7 +183,7 @@ export function LocationsPage() {
         variant_id: stockVariantId.trim(),
         qty_delta: Number(adjustQtyDelta || 0),
         reason: adjustReason.trim(),
-        note: normalizeOptional(adjustNote)
+        note: normalizeOptional(adjustNote),
       }),
     onSuccess: (result) => {
       setStockResult(result.stock);
@@ -184,13 +194,14 @@ export function LocationsPage() {
       showToast({
         title: "Stock adjustment failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const readStockMutation = useMutation({
-    mutationFn: () => locationService.stock(selectedLocationId, stockVariantId.trim()),
+    mutationFn: () =>
+      locationService.stock(selectedLocationId, stockVariantId.trim()),
     onSuccess: (result) => {
       setStockResult(result.stock);
     },
@@ -198,23 +209,28 @@ export function LocationsPage() {
       showToast({
         title: "Could not fetch stock",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const stockOverviewMutation = useMutation({
     mutationFn: () => locationService.stockOverview(overviewVariantId.trim()),
     onSuccess: (result) => {
-      setOverviewRows(result.by_location.map((row) => ({ location_id: row.location_id, stock: row.stock })));
+      setOverviewRows(
+        result.by_location.map((row) => ({
+          location_id: row.location_id,
+          stock: row.stock,
+        })),
+      );
     },
     onError: (error) => {
       showToast({
         title: "Could not load stock overview",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const createTransferMutation = useMutation({
@@ -226,15 +242,15 @@ export function LocationsPage() {
         items: [
           {
             variant_id: transferVariantId.trim(),
-            qty: Number(transferQty || 0)
-          }
-        ]
+            qty: Number(transferQty || 0),
+          },
+        ],
       }),
     onSuccess: () => {
       showToast({
         title: "Transfer completed",
         description: "Source and destination ledgers were updated.",
-        variant: "success"
+        variant: "success",
       });
       setTransferVariantId("");
       setTransferQty(1);
@@ -247,22 +263,22 @@ export function LocationsPage() {
       showToast({
         title: "Transfer failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const allocateMutation = useMutation({
     mutationFn: () =>
       locationService.allocateOrder({
         order_id: allocationOrderId.trim(),
-        location_id: allocationLocationId
+        location_id: allocationLocationId,
       }),
     onSuccess: () => {
       showToast({
         title: "Order allocated",
         description: "Order items have been reserved at the selected location.",
-        variant: "success"
+        variant: "success",
       });
       setAllocationOrderId("");
       queryClient.invalidateQueries({ queryKey: ["locations", "low-stock"] });
@@ -273,12 +289,16 @@ export function LocationsPage() {
       showToast({
         title: "Order allocation failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
-  if (locationsQuery.isLoading || transfersQuery.isLoading || lowStockQuery.isLoading) {
+  if (
+    locationsQuery.isLoading ||
+    transfersQuery.isLoading ||
+    lowStockQuery.isLoading
+  ) {
     return <LoadingState label="Loading location operations..." />;
   }
 
@@ -307,15 +327,20 @@ export function LocationsPage() {
   return (
     <div className="space-y-6">
       <Card className="animate-fade-up bg-[linear-gradient(135deg,#132f45_0%,#1f4b66_50%,#2a5b73_100%)] text-white">
-        <h3 className="font-heading text-xl font-black">Multi-Location Inventory Operations</h3>
+        <h3 className="font-heading text-xl font-black">
+          Multi-Location Inventory Operations
+        </h3>
         <p className="mt-1 text-sm text-white/80">
-          Manage locations, move stock across branches, and allocate orders from explicit locations.
+          Manage locations, move stock across branches, and allocate orders from
+          explicit locations.
         </p>
       </Card>
 
       <Card>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-heading text-lg font-bold text-surface-800">Location Setup</h3>
+          <h3 className="font-heading text-lg font-bold text-surface-800">
+            Location Setup
+          </h3>
           <label className="inline-flex items-center gap-2 text-sm font-medium text-surface-700">
             <input
               type="checkbox"
@@ -326,8 +351,16 @@ export function LocationsPage() {
           </label>
         </div>
         <div className="grid gap-3 md:grid-cols-3">
-          <Input label="Location Name" value={locationName} onChange={(event) => setLocationName(event.target.value)} />
-          <Input label="Location Code" value={locationCode} onChange={(event) => setLocationCode(event.target.value)} />
+          <Input
+            label="Location Name"
+            value={locationName}
+            onChange={(event) => setLocationName(event.target.value)}
+          />
+          <Input
+            label="Location Code"
+            value={locationCode}
+            onChange={(event) => setLocationCode(event.target.value)}
+          />
           <div className="md:pt-7">
             <Button
               type="button"
@@ -342,21 +375,38 @@ export function LocationsPage() {
 
         {!locations.length ? (
           <div className="mt-4">
-            <EmptyState title="No locations yet" description="Create your first location to start allocating stock." />
+            <EmptyState
+              title="No locations yet"
+              description="Create your first location to start allocating stock."
+            />
           </div>
         ) : (
           <div className="mt-4 space-y-2">
             {locations.map((location) => (
-              <article key={location.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+              <article
+                key={location.id}
+                className={`rounded-xl border p-3 transition ${
+                  location.is_active
+                    ? "border-surface-100 bg-surface-50 dark:border-surface-700 dark:bg-surface-800/60"
+                    : "border-surface-200/60 bg-surface-100/50 opacity-60 dark:border-surface-700/40 dark:bg-surface-800/30"
+                }`}
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold text-surface-700">
-                      {location.name} <span className="text-surface-400">({location.code})</span>
+                      {location.name}{" "}
+                      <span className="text-surface-400">
+                        ({location.code})
+                      </span>
                     </p>
-                    <p className="text-xs text-surface-500">Created: {formatDateTime(location.created_at)}</p>
+                    <p className="text-xs text-surface-500">
+                      Created: {formatDateTime(location.created_at)}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant={location.is_active ? "positive" : "negative"}>
+                    <Badge
+                      variant={location.is_active ? "positive" : "negative"}
+                    >
                       {location.is_active ? "active" : "inactive"}
                     </Badge>
                     <Button
@@ -364,13 +414,14 @@ export function LocationsPage() {
                       size="sm"
                       variant="ghost"
                       loading={
-                        updateLocationMutation.isPending &&
-                        updateLocationMutation.variables?.locationId === location.id
+                        toggleLocationMutation.isPending &&
+                        toggleLocationMutation.variables?.locationId ===
+                          location.id
                       }
                       onClick={() =>
-                        updateLocationMutation.mutate({
+                        toggleLocationMutation.mutate({
                           locationId: location.id,
-                          isActive: !location.is_active
+                          isActive: !location.is_active,
                         })
                       }
                     >
@@ -385,7 +436,9 @@ export function LocationsPage() {
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">Stock by Location</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Stock by Location
+        </h3>
         <div className="mt-3 grid gap-3 md:grid-cols-4">
           <Select
             label="Location"
@@ -411,17 +464,39 @@ export function LocationsPage() {
             value={stockInQty}
             onChange={(event) => setStockInQty(Number(event.target.value || 0))}
           />
-          <Input label="Stock In Note" value={stockInNote} onChange={(event) => setStockInNote(event.target.value)} />
+          <Input
+            label="Stock In Note"
+            value={stockInNote}
+            onChange={(event) => setStockInNote(event.target.value)}
+          />
           <Input
             label="Adjust Qty Delta"
             type="number"
             value={adjustQtyDelta}
-            onChange={(event) => setAdjustQtyDelta(Number(event.target.value || 0))}
+            onChange={(event) =>
+              setAdjustQtyDelta(Number(event.target.value || 0))
+            }
           />
-          <Input label="Adjust Reason" value={adjustReason} onChange={(event) => setAdjustReason(event.target.value)} />
-          <Input label="Adjust Note" value={adjustNote} onChange={(event) => setAdjustNote(event.target.value)} />
+          <Input
+            label="Adjust Reason"
+            value={adjustReason}
+            onChange={(event) => setAdjustReason(event.target.value)}
+          />
+          <Input
+            label="Adjust Note"
+            value={adjustNote}
+            onChange={(event) => setAdjustNote(event.target.value)}
+          />
           <div className="mt-7">
-            <Badge variant={stockResult === null ? "neutral" : stockResult > 0 ? "positive" : "negative"}>
+            <Badge
+              variant={
+                stockResult === null
+                  ? "neutral"
+                  : stockResult > 0
+                    ? "positive"
+                    : "negative"
+              }
+            >
               Current stock: {stockResult ?? "-"}
             </Badge>
           </div>
@@ -440,7 +515,9 @@ export function LocationsPage() {
             type="button"
             variant="secondary"
             loading={stockInMutation.isPending}
-            disabled={!selectedLocationId || !stockVariantId.trim() || stockInQty <= 0}
+            disabled={
+              !selectedLocationId || !stockVariantId.trim() || stockInQty <= 0
+            }
             onClick={() => stockInMutation.mutate()}
           >
             Stock In
@@ -448,7 +525,11 @@ export function LocationsPage() {
           <Button
             type="button"
             loading={adjustMutation.isPending}
-            disabled={!selectedLocationId || !stockVariantId.trim() || adjustQtyDelta === 0}
+            disabled={
+              !selectedLocationId ||
+              !stockVariantId.trim() ||
+              adjustQtyDelta === 0
+            }
             onClick={() => adjustMutation.mutate()}
           >
             Adjust Stock
@@ -457,7 +538,9 @@ export function LocationsPage() {
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">Variant Stock Overview</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Variant Stock Overview
+        </h3>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           <Input
             label="Variant ID"
@@ -478,8 +561,13 @@ export function LocationsPage() {
         {overviewRows.length ? (
           <div className="mt-4 space-y-2">
             {overviewRows.map((row) => (
-              <div key={row.location_id} className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm">
-                <p className="font-semibold text-surface-700">Location: {row.location_id}</p>
+              <div
+                key={row.location_id}
+                className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm"
+              >
+                <p className="font-semibold text-surface-700">
+                  Location: {row.location_id}
+                </p>
                 <p className="text-surface-500">Stock: {row.stock}</p>
               </div>
             ))}
@@ -488,7 +576,9 @@ export function LocationsPage() {
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">Inter-Location Transfer</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Inter-Location Transfer
+        </h3>
         <div className="mt-3 grid gap-3 md:grid-cols-4">
           <Select
             label="From Location"
@@ -523,10 +613,16 @@ export function LocationsPage() {
             label="Qty"
             type="number"
             value={transferQty}
-            onChange={(event) => setTransferQty(Number(event.target.value || 0))}
+            onChange={(event) =>
+              setTransferQty(Number(event.target.value || 0))
+            }
           />
           <div className="md:col-span-3">
-            <Input label="Note" value={transferNote} onChange={(event) => setTransferNote(event.target.value)} />
+            <Input
+              label="Note"
+              value={transferNote}
+              onChange={(event) => setTransferNote(event.target.value)}
+            />
           </div>
           <div className="md:pt-7">
             <Button
@@ -547,7 +643,9 @@ export function LocationsPage() {
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">Order Allocation</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Order Allocation
+        </h3>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           <Input
             label="Order ID"
@@ -580,29 +678,46 @@ export function LocationsPage() {
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">Transfers Log</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Transfers Log
+        </h3>
         {!transfersQuery.data.items.length ? (
           <div className="mt-3">
-            <EmptyState title="No transfers yet" description="Stock transfers will appear here after execution." />
+            <EmptyState
+              title="No transfers yet"
+              description="Stock transfers will appear here after execution."
+            />
           </div>
         ) : (
           <div className="mt-3 space-y-2">
             {transfersQuery.data.items.map((transfer) => (
-              <article key={transfer.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+              <article
+                key={transfer.id}
+                className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold text-surface-700">
-                      {transfer.from_location_id} {"->"} {transfer.to_location_id}
+                      {transfer.from_location_id} {"->"}{" "}
+                      {transfer.to_location_id}
                     </p>
                     <p className="text-xs text-surface-500">
-                      {transfer.items.map((item) => `${item.variant_id} x${item.qty}`).join(", ")}
+                      {transfer.items
+                        .map((item) => `${item.variant_id} x${item.qty}`)
+                        .join(", ")}
                     </p>
                   </div>
-                  <Badge variant={transfer.status === "completed" ? "positive" : "neutral"}>
+                  <Badge
+                    variant={
+                      transfer.status === "completed" ? "positive" : "neutral"
+                    }
+                  >
                     {transfer.status}
                   </Badge>
                 </div>
-                <p className="mt-1 text-xs text-surface-500">{formatDateTime(transfer.created_at)}</p>
+                <p className="mt-1 text-xs text-surface-500">
+                  {formatDateTime(transfer.created_at)}
+                </p>
               </article>
             ))}
             <PaginationControls
@@ -624,7 +739,9 @@ export function LocationsPage() {
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">Low Stock by Location</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Low Stock by Location
+        </h3>
         <div className="mt-3 grid gap-3 md:grid-cols-4">
           <Select
             label="Location Filter"
@@ -642,16 +759,23 @@ export function LocationsPage() {
             label="Default Threshold"
             type="number"
             value={lowStockThreshold}
-            onChange={(event) => setLowStockThreshold(Number(event.target.value || 0))}
+            onChange={(event) =>
+              setLowStockThreshold(Number(event.target.value || 0))
+            }
           />
           <div className="mt-7">
-            <Badge variant="info">{lowStockQuery.data.pagination.total} records</Badge>
+            <Badge variant="info">
+              {lowStockQuery.data.pagination.total} records
+            </Badge>
           </div>
         </div>
 
         {!lowStockQuery.data.items.length ? (
           <div className="mt-3">
-            <EmptyState title="No low stock records" description="Inventory levels are above reorder thresholds." />
+            <EmptyState
+              title="No low stock records"
+              description="Inventory levels are above reorder thresholds."
+            />
           </div>
         ) : (
           <div className="mt-3 space-y-2">
