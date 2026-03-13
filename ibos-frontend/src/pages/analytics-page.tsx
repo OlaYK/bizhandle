@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BarChart3, Download, RefreshCcw } from "lucide-react";
 import { useMemo, useState } from "react";
-import { analyticsService } from "../api/services";
+import { analyticsService, authService } from "../api/services";
 import { ErrorState } from "../components/state/error-state";
 import { LoadingState } from "../components/state/loading-state";
 import { Badge } from "../components/ui/badge";
@@ -24,41 +24,51 @@ export function AnalyticsPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [startDate, setStartDate] = useState(
-    toDateInputValue(new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+    toDateInputValue(
+      new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+    ),
   );
   const [endDate, setEndDate] = useState(toDateInputValue(new Date()));
-  const [reportType, setReportType] = useState<"channel_profitability" | "cohorts" | "inventory_aging">(
-    "channel_profitability"
-  );
+  const [reportType, setReportType] = useState<
+    "channel_profitability" | "cohorts" | "inventory_aging"
+  >("channel_profitability");
   const [recipientEmail, setRecipientEmail] = useState("");
 
   const channelQuery = useQuery({
     queryKey: ["analytics", "channel-profitability", startDate, endDate],
-    queryFn: () => analyticsService.channelProfitability({ start_date: startDate, end_date: endDate })
+    queryFn: () =>
+      analyticsService.channelProfitability({
+        start_date: startDate,
+        end_date: endDate,
+      }),
   });
 
   const cohortQuery = useQuery({
     queryKey: ["analytics", "cohorts"],
-    queryFn: () => analyticsService.cohorts({ months_after: 1 })
+    queryFn: () => analyticsService.cohorts({ months_after: 1 }),
   });
 
   const inventoryAgingQuery = useQuery({
     queryKey: ["analytics", "inventory-aging", endDate],
-    queryFn: () => analyticsService.inventoryAging({ as_of_date: endDate })
+    queryFn: () => analyticsService.inventoryAging({ as_of_date: endDate }),
   });
 
   const schedulesQuery = useQuery({
     queryKey: ["analytics", "schedules"],
-    queryFn: () => analyticsService.listReportSchedules()
+    queryFn: () => analyticsService.listReportSchedules(),
   });
 
   const refreshMutation = useMutation({
-    mutationFn: () => analyticsService.refreshMart({ start_date: startDate, end_date: endDate }),
+    mutationFn: () =>
+      analyticsService.refreshMart({
+        start_date: startDate,
+        end_date: endDate,
+      }),
     onSuccess: (result) => {
       showToast({
         title: "Analytics mart refreshed",
         description: `${result.rows_refreshed} rows rebuilt.`,
-        variant: "success"
+        variant: "success",
       });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
     },
@@ -66,9 +76,14 @@ export function AnalyticsPage() {
       showToast({
         title: "Refresh failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
+  });
+
+  const profileQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: authService.me,
   });
 
   const exportMutation = useMutation({
@@ -76,10 +91,12 @@ export function AnalyticsPage() {
       analyticsService.exportReport({
         report_type: reportType,
         start_date: startDate,
-        end_date: endDate
+        end_date: endDate,
       }),
     onSuccess: (result) => {
-      const blob = new Blob([result.csv_content], { type: result.content_type || "text/csv" });
+      const blob = new Blob([result.csv_content], {
+        type: result.content_type || "text/csv",
+      });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -91,16 +108,16 @@ export function AnalyticsPage() {
       showToast({
         title: "Export ready",
         description: `${result.row_count} rows downloaded.`,
-        variant: "success"
+        variant: "success",
       });
     },
     onError: (error) => {
       showToast({
         title: "Export failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const scheduleMutation = useMutation({
@@ -110,7 +127,7 @@ export function AnalyticsPage() {
         report_type: reportType,
         recipient_email: recipientEmail.trim(),
         frequency: "weekly",
-        status: "active"
+        status: "active",
       }),
     onSuccess: () => {
       showToast({ title: "Schedule created", variant: "success" });
@@ -121,9 +138,9 @@ export function AnalyticsPage() {
       showToast({
         title: "Schedule failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const totals = useMemo(() => {
@@ -135,15 +152,25 @@ export function AnalyticsPage() {
         acc.orders += row.orders_count;
         return acc;
       },
-      { revenue: 0, net: 0, orders: 0 }
+      { revenue: 0, net: 0, orders: 0 },
     );
   }, [channelQuery.data]);
 
-  if (channelQuery.isLoading || cohortQuery.isLoading || inventoryAgingQuery.isLoading || schedulesQuery.isLoading) {
+  if (
+    channelQuery.isLoading ||
+    cohortQuery.isLoading ||
+    inventoryAgingQuery.isLoading ||
+    schedulesQuery.isLoading
+  ) {
     return <LoadingState label="Loading analytics workspace..." />;
   }
 
-  if (channelQuery.isError || cohortQuery.isError || inventoryAgingQuery.isError || schedulesQuery.isError) {
+  if (
+    channelQuery.isError ||
+    cohortQuery.isError ||
+    inventoryAgingQuery.isError ||
+    schedulesQuery.isError
+  ) {
     return (
       <ErrorState
         message="Failed to load analytics data."
@@ -166,7 +193,9 @@ export function AnalyticsPage() {
               <BarChart3 className="h-4 w-4" />
               Analytics Intelligence
             </p>
-            <h3 className="font-heading text-lg font-bold">Profitability, Cohorts, and Inventory Impact</h3>
+            <h3 className="font-heading text-lg font-bold">
+              Profitability, Cohorts, and Inventory Impact
+            </h3>
           </div>
           <Button
             type="button"
@@ -179,21 +208,37 @@ export function AnalyticsPage() {
           </Button>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-4">
-          <Input label="Start Date" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
-          <Input label="End Date" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+          <Input
+            label="Start Date"
+            type="date"
+            value={startDate}
+            onChange={(event) => setStartDate(event.target.value)}
+          />
+          <Input
+            label="End Date"
+            type="date"
+            value={endDate}
+            onChange={(event) => setEndDate(event.target.value)}
+          />
           <div className="rounded-lg border border-surface-100 bg-surface-50 p-3">
             <p className="text-xs uppercase text-surface-500">Revenue</p>
-            <p className="mt-1 font-semibold text-mint-700">{formatCurrency(totals.revenue)}</p>
+            <p className="mt-1 font-semibold text-mint-700">
+              {formatCurrency(totals.revenue, profileQuery.data?.base_currency)}
+            </p>
           </div>
           <div className="rounded-lg border border-surface-100 bg-surface-50 p-3">
             <p className="text-xs uppercase text-surface-500">Net Profit</p>
-            <p className="mt-1 font-semibold text-mint-700">{formatCurrency(totals.net)}</p>
+            <p className="mt-1 font-semibold text-mint-700">
+              {formatCurrency(totals.net, profileQuery.data?.base_currency)}
+            </p>
           </div>
         </div>
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold">Channel Profitability</h3>
+        <h3 className="font-heading text-lg font-bold">
+          Channel Profitability
+        </h3>
         <div className="mt-3 overflow-x-auto">
           <table className="min-w-full divide-y divide-surface-100 text-sm">
             <thead>
@@ -209,8 +254,18 @@ export function AnalyticsPage() {
               {(channelQuery.data?.items ?? []).map((row) => (
                 <tr key={row.channel}>
                   <td className="px-2 py-2">{row.channel}</td>
-                  <td className="px-2 py-2">{formatCurrency(row.revenue)}</td>
-                  <td className="px-2 py-2">{formatCurrency(row.net_profit)}</td>
+                  <td className="px-2 py-2">
+                    {formatCurrency(
+                      row.revenue,
+                      profileQuery.data?.base_currency,
+                    )}
+                  </td>
+                  <td className="px-2 py-2">
+                    {formatCurrency(
+                      row.net_profit,
+                      profileQuery.data?.base_currency,
+                    )}
+                  </td>
                   <td className="px-2 py-2">{row.margin_pct.toFixed(2)}%</td>
                   <td className="px-2 py-2">{row.orders_count}</td>
                 </tr>
@@ -225,10 +280,15 @@ export function AnalyticsPage() {
           <h3 className="font-heading text-lg font-bold">Cohort Retention</h3>
           <div className="mt-3 space-y-2">
             {(cohortQuery.data?.items ?? []).map((row) => (
-              <div key={row.cohort_month} className="rounded-lg border border-surface-100 bg-surface-50 p-3">
+              <div
+                key={row.cohort_month}
+                className="rounded-lg border border-surface-100 bg-surface-50 p-3"
+              >
                 <div className="flex items-center justify-between">
                   <Badge variant="info">{row.cohort_month}</Badge>
-                  <p className="text-sm font-semibold">{row.retention_rate.toFixed(2)}%</p>
+                  <p className="text-sm font-semibold">
+                    {row.retention_rate.toFixed(2)}%
+                  </p>
                 </div>
                 <p className="mt-1 text-xs text-surface-500">
                   {row.retained_customers} retained of {row.total_customers}
@@ -245,13 +305,22 @@ export function AnalyticsPage() {
           </p>
           <div className="mt-3 space-y-2">
             {(inventoryAgingQuery.data?.items ?? []).slice(0, 6).map((row) => (
-              <div key={row.variant_id} className="rounded-lg border border-surface-100 bg-surface-50 p-3">
+              <div
+                key={row.variant_id}
+                className="rounded-lg border border-surface-100 bg-surface-50 p-3"
+              >
                 <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-surface-700">{row.variant_id.slice(0, 8)}...</p>
+                  <p className="text-xs font-semibold text-surface-700">
+                    {row.variant_id.slice(0, 8)}...
+                  </p>
                   <Badge variant="neutral">{row.bucket}</Badge>
                 </div>
                 <p className="mt-1 text-xs text-surface-500">
-                  Stock: {row.stock} | Value: {formatCurrency(row.estimated_value)}
+                  Stock: {row.stock} | Value:{" "}
+                  {formatCurrency(
+                    row.estimated_value,
+                    profileQuery.data?.base_currency,
+                  )}
                 </p>
               </div>
             ))}
@@ -260,16 +329,38 @@ export function AnalyticsPage() {
       </div>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold">Report Export & Scheduling</h3>
+        <h3 className="font-heading text-lg font-bold">
+          Report Export & Scheduling
+        </h3>
         <div className="mt-4 grid gap-3 md:grid-cols-4">
-          <Select label="Report Type" value={reportType} onChange={(event) => setReportType(event.target.value as "channel_profitability" | "cohorts" | "inventory_aging")}>
+          <Select
+            label="Report Type"
+            value={reportType}
+            onChange={(event) =>
+              setReportType(
+                event.target.value as
+                  | "channel_profitability"
+                  | "cohorts"
+                  | "inventory_aging",
+              )
+            }
+          >
             <option value="channel_profitability">Channel Profitability</option>
             <option value="cohorts">Cohorts</option>
             <option value="inventory_aging">Inventory Aging</option>
           </Select>
-          <Input label="Recipient Email" value={recipientEmail} onChange={(event) => setRecipientEmail(event.target.value)} />
+          <Input
+            label="Recipient Email"
+            value={recipientEmail}
+            onChange={(event) => setRecipientEmail(event.target.value)}
+          />
           <div className="mt-7">
-            <Button type="button" variant="ghost" onClick={() => exportMutation.mutate()} loading={exportMutation.isPending}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => exportMutation.mutate()}
+              loading={exportMutation.isPending}
+            >
               <Download className="h-4 w-4" />
               Export CSV
             </Button>
@@ -288,7 +379,10 @@ export function AnalyticsPage() {
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           {(schedulesQuery.data?.items ?? []).map((item) => (
-            <Badge key={item.id} variant={item.status === "active" ? "positive" : "neutral"}>
+            <Badge
+              key={item.id}
+              variant={item.status === "active" ? "positive" : "neutral"}
+            >
               {item.report_type}
               {" -> "}
               {item.recipient_email}

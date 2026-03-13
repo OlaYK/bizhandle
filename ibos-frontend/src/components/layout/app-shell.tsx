@@ -29,6 +29,8 @@ import { MoniDeskLogo } from "../brand/monidesk-logo";
 import { cn } from "../../lib/cn";
 import { useAuth } from "../../hooks/use-auth";
 import { useTheme } from "../../hooks/use-theme";
+import { useQuery } from "@tanstack/react-query";
+// import { settingsService } from "../../api/services";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -84,6 +86,10 @@ const titleByPath: Record<string, string> = {
 export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
+  const profileQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: authService.me,
+  });
   const title = titleByPath[location.pathname] ?? "MoniDesk";
   const mobileTitle = title.includes(" ") ? title.split(" ")[0] : title;
   const { resolvedTheme, toggleTheme } = useTheme();
@@ -161,7 +167,10 @@ export function AppShell() {
           <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6">
             {/* <p className="text-xs uppercase tracking-wide text-surface-500 dark:text-surface-300">Control Center</p> */}
             <div className="flex items-center justify-between gap-3">
-              <h2 className="font-heading text-base md:text-xl font-bold text-surface-800 dark:text-surface-100">
+              <h2 className="font-heading text-base md:text-xl font-bold flex items-center gap-2 text-surface-800 dark:text-surface-100">
+                <span className="uppercase">
+                  {profileQuery.data?.business_name}
+                </span>
                 <span className="md:hidden">{mobileTitle}</span>
                 <span className="hidden md:inline">{title}</span>
               </h2>

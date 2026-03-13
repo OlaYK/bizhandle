@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import {
+  authService,
   dashboardService,
   expenseService,
   salesService,
@@ -69,6 +70,11 @@ export function DashboardPage() {
         limit: 100,
         offset: 0,
       }),
+  });
+
+  const profileQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: authService.me,
   });
 
   const loading =
@@ -188,7 +194,10 @@ export function DashboardPage() {
             Sales Total
           </p>
           <p className="mt-2 font-heading text-2xl font-black text-surface-800">
-            {formatCurrency(summaryQuery.data.sales_total)}
+            {formatCurrency(
+              summaryQuery.data.sales_total,
+              profileQuery.data?.base_currency,
+            )}
           </p>
           <p className="mt-1 text-xs text-surface-500">
             {formatNumber(summaryQuery.data.sales_count)} sales
@@ -199,7 +208,10 @@ export function DashboardPage() {
             Expenses
           </p>
           <p className="mt-2 font-heading text-2xl font-black text-surface-800">
-            {formatCurrency(summaryQuery.data.expense_total)}
+            {formatCurrency(
+              summaryQuery.data.expense_total,
+              profileQuery.data?.base_currency,
+            )}
           </p>
           <p className="mt-1 text-xs text-surface-500">
             {formatNumber(summaryQuery.data.expense_count)} records
@@ -210,7 +222,10 @@ export function DashboardPage() {
             Profit (Simple)
           </p>
           <p className="mt-2 font-heading text-2xl font-black text-surface-800">
-            {formatCurrency(summaryQuery.data.profit_simple)}
+            {formatCurrency(
+              summaryQuery.data.profit_simple,
+              profileQuery.data?.base_currency,
+            )}
           </p>
           <p className="mt-1 text-xs text-surface-500">
             Margin{" "}
@@ -224,7 +239,10 @@ export function DashboardPage() {
             Average Sale
           </p>
           <p className="mt-2 font-heading text-2xl font-black text-surface-800">
-            {formatCurrency(summaryQuery.data.average_sale_value)}
+            {formatCurrency(
+              summaryQuery.data.average_sale_value,
+              profileQuery.data?.base_currency,
+            )}
           </p>
           <p className="mt-1 text-xs text-surface-500">Per order average</p>
         </Card>
@@ -299,7 +317,10 @@ export function DashboardPage() {
                       {customer.customer_name}
                     </td>
                     <td className="px-2 py-2 text-surface-700">
-                      {formatCurrency(customer.total_spent)}
+                      {formatCurrency(
+                        customer.total_spent,
+                        profileQuery.data?.base_currency,
+                      )}
                     </td>
                     <td className="px-2 py-2 text-surface-500">
                       {formatNumber(customer.transactions)}
@@ -395,7 +416,10 @@ export function DashboardPage() {
                         entry.amount >= 0 ? "text-mint-700" : "text-red-600"
                       }`}
                     >
-                      {formatCurrency(entry.amount)}
+                      {formatCurrency(
+                        entry.amount,
+                        profileQuery.data?.base_currency,
+                      )}
                     </p>
                   </div>
                   <p className="mt-1 text-xs text-surface-500">
@@ -428,7 +452,10 @@ export function DashboardPage() {
                           entry.amount >= 0 ? "text-mint-700" : "text-red-600"
                         }`}
                       >
-                        {formatCurrency(entry.amount)}
+                        {formatCurrency(
+                          entry.amount,
+                          profileQuery.data?.base_currency,
+                        )}
                       </td>
                       <td className="px-2 py-2 text-surface-500">
                         {entry.note ?? "-"}

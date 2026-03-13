@@ -1,7 +1,7 @@
 import axios from "axios";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { shippingService } from "../api/services";
+import { authService, shippingService } from "../api/services";
 import type { ShippingQuoteOptionOut } from "../api/types";
 import { EmptyState } from "../components/state/empty-state";
 import { ErrorState } from "../components/state/error-state";
@@ -105,6 +105,10 @@ function toRulePayload(rule: ShippingServiceRuleDraft) {
 export function ShippingPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const profileQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: authService.me,
+  });
 
   const [originCountry, setOriginCountry] = useState("NG");
   const [originState, setOriginState] = useState("");
@@ -924,7 +928,10 @@ export function ShippingPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="info">
-                      {formatCurrency(option.amount)}
+                      {formatCurrency(
+                        option.amount,
+                        profileQuery.data?.base_currency,
+                      )}
                     </Badge>
                     <Button
                       type="button"
@@ -1095,7 +1102,10 @@ export function ShippingPage() {
                       {shipment.status}
                     </Badge>
                     <p className="font-semibold text-mint-700">
-                      {formatCurrency(shipment.shipping_cost)}
+                      {formatCurrency(
+                        shipment.shipping_cost,
+                        profileQuery.data?.base_currency,
+                      )}
                     </p>
                   </div>
                   <p className="mt-1 text-xs text-surface-500">
@@ -1166,7 +1176,10 @@ export function ShippingPage() {
                         {shipment.tracking_number ?? "-"}
                       </td>
                       <td className="px-2 py-2 font-semibold text-mint-700">
-                        {formatCurrency(shipment.shipping_cost)}
+                        {formatCurrency(
+                          shipment.shipping_cost,
+                          profileQuery.data?.base_currency,
+                        )}
                       </td>
                       <td className="px-2 py-2 text-surface-500">
                         {formatDateTime(shipment.created_at)}

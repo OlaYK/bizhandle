@@ -4,7 +4,7 @@ import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { z } from "zod";
-import { productService, salesService } from "../api/services";
+import { authService, productService, salesService } from "../api/services";
 import { EmptyState } from "../components/state/empty-state";
 import { ErrorState } from "../components/state/error-state";
 import { LoadingState } from "../components/state/loading-state";
@@ -23,14 +23,14 @@ import { formatCurrency, formatDateTime } from "../lib/format";
 const saleItemSchema = z.object({
   variant_id: z.string().min(1, "Variant is required"),
   qty: z.coerce.number().int().min(1, "Qty must be at least 1"),
-  unit_price: z.coerce.number().positive("Unit price must be > 0")
+  unit_price: z.coerce.number().positive("Unit price must be > 0"),
 });
 
 const saleSchema = z.object({
   payment_method: z.enum(["cash", "transfer", "pos"]),
   channel: z.enum(["whatsapp", "instagram", "walk-in"]),
   note: z.string().optional(),
-  items: z.array(saleItemSchema).min(1, "Add at least one item")
+  items: z.array(saleItemSchema).min(1, "Add at least one item"),
 });
 
 const optionalPositiveNumber = z.preprocess((value) => {
@@ -50,7 +50,7 @@ const refundSchema = z.object({
   unit_price: optionalPositiveNumber,
   payment_method: z.enum(["cash", "transfer", "pos"]).optional(),
   channel: z.enum(["whatsapp", "instagram", "walk-in"]).optional(),
-  note: z.string().optional()
+  note: z.string().optional(),
 });
 
 type SaleFormData = z.infer<typeof saleSchema>;
@@ -66,6 +66,10 @@ function defaultUnitPrice(price: number | null | undefined) {
 export function SalesPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const profileQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: authService.me,
+  });
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [includeRefunds, setIncludeRefunds] = useState(true);
@@ -82,7 +86,7 @@ export function SalesPage() {
 
   const productsQuery = useQuery({
     queryKey: ["sales", "products"],
-    queryFn: () => productService.list({ limit: 100, offset: 0 })
+    queryFn: () => productService.list({ limit: 100, offset: 0 }),
   });
 
   useEffect(() => {
@@ -94,8 +98,9 @@ export function SalesPage() {
 
   const variantsQuery = useQuery({
     queryKey: ["sales", "variants", selectedProductId],
-    queryFn: () => productService.listVariants(selectedProductId, { limit: 100, offset: 0 }),
-    enabled: Boolean(selectedProductId)
+    queryFn: () =>
+      productService.listVariants(selectedProductId, { limit: 100, offset: 0 }),
+    enabled: Boolean(selectedProductId),
   });
 
   const saleForm = useForm<SaleFormData>({
@@ -104,33 +109,44 @@ export function SalesPage() {
       payment_method: "cash",
       channel: "walk-in",
       note: "",
-      items: [{ variant_id: "", qty: 1, unit_price: 1 }]
-    }
+      items: [{ variant_id: "", qty: 1, unit_price: 1 }],
+    },
   });
 
   useEffect(() => {
     const firstVariant = variantsQuery.data?.items[0];
     if (firstVariant && saleForm.getValues("items.0.variant_id") === "") {
       saleForm.setValue("items.0.variant_id", firstVariant.id);
-      saleForm.setValue("items.0.unit_price", defaultUnitPrice(firstVariant.selling_price));
+      saleForm.setValue(
+        "items.0.unit_price",
+        defaultUnitPrice(firstVariant.selling_price),
+      );
     }
   }, [variantsQuery.data, saleForm]);
 
   const { fields, append, remove } = useFieldArray({
     control: saleForm.control,
-    name: "items"
+    name: "items",
   });
 
   const listQuery = useQuery({
-    queryKey: ["sales", "list", startDate, endDate, includeRefunds, page, pageSize],
+    queryKey: [
+      "sales",
+      "list",
+      startDate,
+      endDate,
+      includeRefunds,
+      page,
+      pageSize,
+    ],
     queryFn: () =>
       salesService.list({
         start_date: startDate || undefined,
         end_date: endDate || undefined,
         include_refunds: includeRefunds,
         limit: pageSize,
-        offset
-      })
+        offset,
+      }),
   });
 
   const createSaleMutation = useMutation({
@@ -145,9 +161,11 @@ export function SalesPage() {
           {
             variant_id: variantsQuery.data?.items[0]?.id ?? "",
             qty: 1,
-            unit_price: defaultUnitPrice(variantsQuery.data?.items[0]?.selling_price)
-          }
-        ]
+            unit_price: defaultUnitPrice(
+              variantsQuery.data?.items[0]?.selling_price,
+            ),
+          },
+        ],
       });
       queryClient.invalidateQueries({ queryKey: ["sales"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -157,9 +175,9 @@ export function SalesPage() {
       showToast({
         title: "Sale failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const refundForm = useForm<RefundFormData>({
@@ -170,21 +188,23 @@ export function SalesPage() {
       unit_price: undefined,
       payment_method: undefined,
       channel: undefined,
-      note: ""
-    }
+      note: "",
+    },
   });
 
   const refundOptionsQuery = useQuery({
     queryKey: ["sales", "refund-options", refundSaleId],
     queryFn: () => salesService.refundOptions(refundSaleId as string),
-    enabled: Boolean(refundSaleId)
+    enabled: Boolean(refundSaleId),
   });
 
   const selectedRefundVariantId = refundForm.watch("variant_id");
   const selectedRefundOption = useMemo(() => {
     if (!selectedRefundVariantId) return null;
     return (
-      refundOptionsQuery.data?.items.find((item) => item.variant_id === selectedRefundVariantId) ?? null
+      refundOptionsQuery.data?.items.find(
+        (item) => item.variant_id === selectedRefundVariantId,
+      ) ?? null
     );
   }, [selectedRefundVariantId, refundOptionsQuery.data]);
 
@@ -196,12 +216,15 @@ export function SalesPage() {
 
     const currentVariantId = refundForm.getValues("variant_id");
     const hasCurrentVariant = refundOptionsQuery.data?.items.some(
-      (item) => item.variant_id === currentVariantId
+      (item) => item.variant_id === currentVariantId,
     );
     if (!currentVariantId || !hasCurrentVariant) {
       refundForm.setValue("variant_id", firstOption.variant_id);
       refundForm.setValue("qty", 1);
-      refundForm.setValue("unit_price", firstOption.default_unit_price ?? undefined);
+      refundForm.setValue(
+        "unit_price",
+        firstOption.default_unit_price ?? undefined,
+      );
     }
   }, [refundOptionsQuery.data, refundForm]);
 
@@ -209,7 +232,10 @@ export function SalesPage() {
     if (!selectedRefundOption) return;
     const currentPrice = refundForm.getValues("unit_price");
     if (currentPrice === undefined || Number.isNaN(currentPrice)) {
-      refundForm.setValue("unit_price", selectedRefundOption.default_unit_price ?? undefined);
+      refundForm.setValue(
+        "unit_price",
+        selectedRefundOption.default_unit_price ?? undefined,
+      );
     }
   }, [selectedRefundOption, refundForm]);
 
@@ -222,7 +248,9 @@ export function SalesPage() {
         throw new Error("Select a refundable sale item");
       }
       if (values.qty > selectedRefundOption.refundable_qty) {
-        throw new Error(`Maximum refundable quantity is ${selectedRefundOption.refundable_qty}`);
+        throw new Error(
+          `Maximum refundable quantity is ${selectedRefundOption.refundable_qty}`,
+        );
       }
 
       return salesService.refund(refundSaleId, {
@@ -234,11 +262,12 @@ export function SalesPage() {
             variant_id: values.variant_id,
             qty: values.qty,
             unit_price:
-              values.unit_price !== undefined && !Number.isNaN(values.unit_price)
+              values.unit_price !== undefined &&
+              !Number.isNaN(values.unit_price)
                 ? values.unit_price
-                : undefined
-          }
-        ]
+                : undefined,
+          },
+        ],
       });
     },
     onSuccess: () => {
@@ -250,7 +279,7 @@ export function SalesPage() {
         unit_price: undefined,
         payment_method: undefined,
         channel: undefined,
-        note: ""
+        note: "",
       });
       queryClient.invalidateQueries({ queryKey: ["sales"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -260,9 +289,9 @@ export function SalesPage() {
       showToast({
         title: "Refund failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   if (productsQuery.isLoading || listQuery.isLoading) {
@@ -293,12 +322,16 @@ export function SalesPage() {
               payment_method: values.payment_method,
               channel: values.channel,
               note: values.note?.trim() || undefined,
-              items: values.items
-            })
+              items: values.items,
+            }),
           )}
         >
           <div className="grid gap-3 md:grid-cols-3">
-            <Select label="Product" value={selectedProductId} onChange={(e) => setSelectedProductId(e.target.value)}>
+            <Select
+              label="Product"
+              value={selectedProductId}
+              onChange={(e) => setSelectedProductId(e.target.value)}
+            >
               {(productsQuery.data?.items ?? []).map((product) => (
                 <option key={product.id} value={product.id}>
                   {product.name}
@@ -327,7 +360,9 @@ export function SalesPage() {
 
           <div className="space-y-3 rounded-2xl border border-surface-100 p-3">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-surface-700">Sale Items</p>
+              <p className="text-sm font-semibold text-surface-700">
+                Sale Items
+              </p>
               <Button
                 type="button"
                 size="sm"
@@ -336,7 +371,9 @@ export function SalesPage() {
                   append({
                     variant_id: variantsQuery.data?.items[0]?.id ?? "",
                     qty: 1,
-                    unit_price: defaultUnitPrice(variantsQuery.data?.items[0]?.selling_price)
+                    unit_price: defaultUnitPrice(
+                      variantsQuery.data?.items[0]?.selling_price,
+                    ),
                   })
                 }
               >
@@ -345,9 +382,14 @@ export function SalesPage() {
             </div>
 
             {fields.map((field, index) => {
-              const variantField = saleForm.register(`items.${index}.variant_id`);
+              const variantField = saleForm.register(
+                `items.${index}.variant_id`,
+              );
               return (
-                <div key={field.id} className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12">
+                <div
+                  key={field.id}
+                  className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12"
+                >
                   <div className="md:col-span-5">
                     <Select
                       label="Variant"
@@ -355,7 +397,7 @@ export function SalesPage() {
                       onChange={(event) => {
                         variantField.onChange(event);
                         const selectedVariant = variantsQuery.data?.items.find(
-                          (variant) => variant.id === event.target.value
+                          (variant) => variant.id === event.target.value,
                         );
                         if (!selectedVariant) {
                           return;
@@ -365,50 +407,60 @@ export function SalesPage() {
                           defaultUnitPrice(selectedVariant.selling_price),
                           {
                             shouldDirty: true,
-                            shouldValidate: true
-                          }
+                            shouldValidate: true,
+                          },
                         );
                       }}
-                      error={saleForm.formState.errors.items?.[index]?.variant_id?.message}
+                      error={
+                        saleForm.formState.errors.items?.[index]?.variant_id
+                          ?.message
+                      }
                     >
                       <option value="">Select variant</option>
                       {(variantsQuery.data?.items ?? []).map((variant) => (
                         <option key={variant.id} value={variant.id}>
-                          {variant.size} {variant.label ? `- ${variant.label}` : ""} ({variant.stock} in stock)
+                          {variant.size}{" "}
+                          {variant.label ? `- ${variant.label}` : ""} (
+                          {variant.stock} in stock)
                         </option>
                       ))}
                     </Select>
                   </div>
-                <div className="md:col-span-3">
-                  <Input
-                    label="Qty"
-                    type="number"
-                    {...saleForm.register(`items.${index}.qty`)}
-                    error={saleForm.formState.errors.items?.[index]?.qty?.message}
-                  />
+                  <div className="md:col-span-3">
+                    <Input
+                      label="Qty"
+                      type="number"
+                      {...saleForm.register(`items.${index}.qty`)}
+                      error={
+                        saleForm.formState.errors.items?.[index]?.qty?.message
+                      }
+                    />
+                  </div>
+                  <div className="md:col-span-3">
+                    <Input
+                      label="Unit Price"
+                      type="number"
+                      step="0.01"
+                      {...saleForm.register(`items.${index}.unit_price`)}
+                      error={
+                        saleForm.formState.errors.items?.[index]?.unit_price
+                          ?.message
+                      }
+                    />
+                  </div>
+                  <div className="md:col-span-1 md:self-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="w-full"
+                      onClick={() => remove(index)}
+                      disabled={fields.length <= 1}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
-                <div className="md:col-span-3">
-                  <Input
-                    label="Unit Price"
-                    type="number"
-                    step="0.01"
-                    {...saleForm.register(`items.${index}.unit_price`)}
-                    error={saleForm.formState.errors.items?.[index]?.unit_price?.message}
-                  />
-                </div>
-                <div className="md:col-span-1 md:self-end">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="w-full"
-                    onClick={() => remove(index)}
-                    disabled={fields.length <= 1}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
               );
             })}
           </div>
@@ -443,31 +495,50 @@ export function SalesPage() {
             Include refunds
           </label>
           <div className="mt-7">
-            <Badge variant="info">{listQuery.data?.pagination.total ?? 0} records</Badge>
+            <Badge variant="info">
+              {listQuery.data?.pagination.total ?? 0} records
+            </Badge>
           </div>
         </div>
 
         {!listQuery.data?.items.length ? (
-          <EmptyState title="No sales found" description="Change filters or record a new sale." />
+          <EmptyState
+            title="No sales found"
+            description="Change filters or record a new sale."
+          />
         ) : (
           <div className="space-y-2">
             <div className="space-y-2 sm:hidden">
               {listQuery.data.items.map((sale) => (
-                <article key={sale.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+                <article
+                  key={sale.id}
+                  className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+                >
                   <div className="flex items-center justify-between">
-                    <Badge variant={sale.kind === "refund" ? "negative" : "positive"}>{sale.kind}</Badge>
+                    <Badge
+                      variant={sale.kind === "refund" ? "negative" : "positive"}
+                    >
+                      {sale.kind}
+                    </Badge>
                     <p
                       className={`text-sm font-semibold ${
-                        sale.total_amount >= 0 ? "text-mint-700" : "text-red-600"
+                        sale.total_amount >= 0
+                          ? "text-mint-700"
+                          : "text-red-600"
                       }`}
                     >
-                      {formatCurrency(sale.total_amount)}
+                      {formatCurrency(
+                        sale.total_amount,
+                        profileQuery.data?.base_currency,
+                      )}
                     </p>
                   </div>
                   <p className="mt-1 text-xs text-surface-500">
                     {sale.channel} / {sale.payment_method}
                   </p>
-                  <p className="mt-1 text-xs text-surface-500">{formatDateTime(sale.created_at)}</p>
+                  <p className="mt-1 text-xs text-surface-500">
+                    {formatDateTime(sale.created_at)}
+                  </p>
                   {sale.kind === "sale" ? (
                     <Button
                       type="button"
@@ -499,18 +570,35 @@ export function SalesPage() {
                   {listQuery.data.items.map((sale) => (
                     <tr key={sale.id}>
                       <td className="px-2 py-2">
-                        <Badge variant={sale.kind === "refund" ? "negative" : "positive"}>{sale.kind}</Badge>
+                        <Badge
+                          variant={
+                            sale.kind === "refund" ? "negative" : "positive"
+                          }
+                        >
+                          {sale.kind}
+                        </Badge>
                       </td>
                       <td
                         className={`px-2 py-2 font-semibold ${
-                          sale.total_amount >= 0 ? "text-mint-700" : "text-red-600"
+                          sale.total_amount >= 0
+                            ? "text-mint-700"
+                            : "text-red-600"
                         }`}
                       >
-                        {formatCurrency(sale.total_amount)}
+                        {formatCurrency(
+                          sale.total_amount,
+                          profileQuery.data?.base_currency,
+                        )}
                       </td>
-                      <td className="px-2 py-2 text-surface-600">{sale.channel}</td>
-                      <td className="px-2 py-2 text-surface-600">{sale.payment_method}</td>
-                      <td className="px-2 py-2 text-surface-500">{formatDateTime(sale.created_at)}</td>
+                      <td className="px-2 py-2 text-surface-600">
+                        {sale.channel}
+                      </td>
+                      <td className="px-2 py-2 text-surface-600">
+                        {sale.payment_method}
+                      </td>
+                      <td className="px-2 py-2 text-surface-500">
+                        {formatDateTime(sale.created_at)}
+                      </td>
                       <td className="px-2 py-2">
                         {sale.kind === "sale" ? (
                           <Button
@@ -548,7 +636,11 @@ export function SalesPage() {
         )}
       </Card>
 
-      <Modal open={Boolean(refundSaleId)} title="Create Refund" onClose={() => setRefundSaleId(null)}>
+      <Modal
+        open={Boolean(refundSaleId)}
+        title="Create Refund"
+        onClose={() => setRefundSaleId(null)}
+      >
         {refundOptionsQuery.isLoading ? (
           <LoadingState label="Loading refundable items..." />
         ) : refundOptionsQuery.isError ? (
@@ -564,7 +656,9 @@ export function SalesPage() {
         ) : (
           <form
             className="grid gap-3"
-            onSubmit={refundForm.handleSubmit((values) => refundMutation.mutate(values))}
+            onSubmit={refundForm.handleSubmit((values) =>
+              refundMutation.mutate(values),
+            )}
           >
             <Select
               label="Sale Item"
@@ -573,13 +667,15 @@ export function SalesPage() {
             >
               {refundOptionsQuery.data.items.map((item) => (
                 <option key={item.variant_id} value={item.variant_id}>
-                  {item.product_name} - {item.size} {item.label ? `(${item.label})` : ""}
+                  {item.product_name} - {item.size}{" "}
+                  {item.label ? `(${item.label})` : ""}
                 </option>
               ))}
             </Select>
             {selectedRefundOption ? (
               <p className="text-xs text-surface-500">
-                Sold: {selectedRefundOption.sold_qty} | Refunded: {selectedRefundOption.refunded_qty} | Remaining:{" "}
+                Sold: {selectedRefundOption.sold_qty} | Refunded:{" "}
+                {selectedRefundOption.refunded_qty} | Remaining:{" "}
                 {selectedRefundOption.refundable_qty}
               </p>
             ) : null}
@@ -598,14 +694,21 @@ export function SalesPage() {
               error={refundForm.formState.errors.unit_price?.message}
             />
             <div className="grid gap-3 sm:grid-cols-2">
-              <Select label="Payment Method" {...refundForm.register("payment_method")}>
-                <option value="">Use original ({refundOptionsQuery.data.payment_method})</option>
+              <Select
+                label="Payment Method"
+                {...refundForm.register("payment_method")}
+              >
+                <option value="">
+                  Use original ({refundOptionsQuery.data.payment_method})
+                </option>
                 <option value="cash">Cash</option>
                 <option value="transfer">Transfer</option>
                 <option value="pos">POS</option>
               </Select>
               <Select label="Channel" {...refundForm.register("channel")}>
-                <option value="">Use original ({refundOptionsQuery.data.channel})</option>
+                <option value="">
+                  Use original ({refundOptionsQuery.data.channel})
+                </option>
                 <option value="walk-in">Walk-in</option>
                 <option value="whatsapp">WhatsApp</option>
                 <option value="instagram">Instagram</option>
@@ -613,10 +716,18 @@ export function SalesPage() {
             </div>
             <Textarea label="Note" rows={3} {...refundForm.register("note")} />
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setRefundSaleId(null)}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setRefundSaleId(null)}
+              >
                 Cancel
               </Button>
-              <Button type="submit" variant="secondary" loading={refundMutation.isPending}>
+              <Button
+                type="submit"
+                variant="secondary"
+                loading={refundMutation.isPending}
+              >
                 Save Refund
               </Button>
             </div>

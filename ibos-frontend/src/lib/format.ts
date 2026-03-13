@@ -1,15 +1,17 @@
-export const currencyFormatter = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2
-});
-
 export const numberFormatter = new Intl.NumberFormat("en-US");
 
-export function formatCurrency(value: number) {
-  if (Number.isNaN(value)) return "$0.00";
-  return currencyFormatter.format(value);
+export function formatCurrency(value: number, currency = "USD") {
+  if (Number.isNaN(value))
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+    }).format(0);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
 }
 
 export function formatNumber(value: number) {
@@ -23,7 +25,7 @@ export function formatDate(dateString: string) {
   return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
-    year: "numeric"
+    year: "numeric",
   });
 }
 
@@ -35,6 +37,6 @@ export function formatDateTime(dateString: string) {
     day: "numeric",
     year: "numeric",
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
   });
 }

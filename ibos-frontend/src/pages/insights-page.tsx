@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import type { AIResponseOut } from "../api/types";
-import { aiService } from "../api/services";
+import { aiService, authService } from "../api/services";
 import { EmptyState } from "../components/state/empty-state";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -17,7 +17,7 @@ import { getApiErrorMessage } from "../lib/api-error";
 import { formatCurrency, formatNumber } from "../lib/format";
 
 const askSchema = z.object({
-  question: z.string().min(3, "Enter at least 3 characters")
+  question: z.string().min(3, "Enter at least 3 characters"),
 });
 
 type AskFormData = z.infer<typeof askSchema>;
@@ -25,13 +25,17 @@ type AskFormData = z.infer<typeof askSchema>;
 export function InsightsPage() {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
+  const profileQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: authService.me,
+  });
   const [responses, setResponses] = useState<AIResponseOut[]>([]);
   const [windowDays, setWindowDays] = useState(30);
   const form = useForm<AskFormData>({
     resolver: zodResolver(askSchema),
     defaultValues: {
-      question: ""
-    }
+      question: "",
+    },
   });
 
   const askMutation = useMutation({
@@ -41,16 +45,16 @@ export function InsightsPage() {
       form.reset({ question: "" });
       showToast({
         title: "Insight generated",
-        variant: "success"
+        variant: "success",
       });
     },
     onError: (error) => {
       showToast({
         title: "AI request failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const dailyMutation = useMutation({
@@ -59,54 +63,55 @@ export function InsightsPage() {
       setResponses((prev) => [response, ...prev]);
       showToast({
         title: "Daily insight ready",
-        variant: "success"
+        variant: "success",
       });
     },
     onError: (error) => {
       showToast({
         title: "Daily insight failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const featureStoreQuery = useQuery({
     queryKey: ["ai", "feature-store", "latest"],
     queryFn: aiService.latestFeatureStore,
-    retry: false
+    retry: false,
   });
 
   const insightsV2Query = useQuery({
     queryKey: ["ai", "insights", "v2"],
-    queryFn: () => aiService.listInsightsV2()
+    queryFn: () => aiService.listInsightsV2(),
   });
 
   const actionsQuery = useQuery({
     queryKey: ["ai", "actions"],
-    queryFn: () => aiService.listActions()
+    queryFn: () => aiService.listActions(),
   });
 
   const refreshFeatureStoreMutation = useMutation({
-    mutationFn: () => aiService.refreshFeatureStore({ window_days: windowDays }),
+    mutationFn: () =>
+      aiService.refreshFeatureStore({ window_days: windowDays }),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["ai", "feature-store"] }),
         queryClient.invalidateQueries({ queryKey: ["ai", "insights", "v2"] }),
-        queryClient.invalidateQueries({ queryKey: ["ai", "actions"] })
+        queryClient.invalidateQueries({ queryKey: ["ai", "actions"] }),
       ]);
       showToast({
         title: "Feature store refreshed",
-        variant: "success"
+        variant: "success",
       });
     },
     onError: (error) => {
       showToast({
         title: "Feature refresh failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const generateInsightsV2Mutation = useMutation({
@@ -115,45 +120,52 @@ export function InsightsPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["ai", "feature-store"] }),
         queryClient.invalidateQueries({ queryKey: ["ai", "insights", "v2"] }),
-        queryClient.invalidateQueries({ queryKey: ["ai", "actions"] })
+        queryClient.invalidateQueries({ queryKey: ["ai", "actions"] }),
       ]);
       showToast({
         title: `Generated ${payload.insights.length} v2 insight(s)`,
-        variant: "success"
+        variant: "success",
       });
     },
     onError: (error) => {
       showToast({
         title: "V2 generation failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const decideActionMutation = useMutation({
-    mutationFn: ({ actionId, decision }: { actionId: string; decision: "approve" | "reject" }) =>
-      aiService.decideAction(actionId, { decision }),
+    mutationFn: ({
+      actionId,
+      decision,
+    }: {
+      actionId: string;
+      decision: "approve" | "reject";
+    }) => aiService.decideAction(actionId, { decision }),
     onSuccess: async (action) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["ai", "insights", "v2"] }),
-        queryClient.invalidateQueries({ queryKey: ["ai", "actions"] })
+        queryClient.invalidateQueries({ queryKey: ["ai", "actions"] }),
       ]);
       showToast({
         title: `Action ${action.status}`,
-        variant: "success"
+        variant: "success",
       });
     },
     onError: (error) => {
       showToast({
         title: "Action decision failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
-  const proposedActions = (actionsQuery.data?.items ?? []).filter((item) => item.status === "proposed");
+  const proposedActions = (actionsQuery.data?.items ?? []).filter(
+    (item) => item.status === "proposed",
+  );
 
   return (
     <div className="space-y-6">
@@ -167,7 +179,12 @@ export function InsightsPage() {
               Ask questions and generate business insights
             </h3>
           </div>
-          <Button type="button" variant="secondary" onClick={() => dailyMutation.mutate()} loading={dailyMutation.isPending}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => dailyMutation.mutate()}
+            loading={dailyMutation.isPending}
+          >
             <Sparkles className="h-4 w-4" />
             Generate Daily Insight
           </Button>
@@ -234,36 +251,57 @@ export function InsightsPage() {
         {featureStoreQuery.data ? (
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <div className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm text-surface-700">
-              <p className="text-xs uppercase tracking-wide text-surface-500">Orders</p>
-              <p className="mt-1 font-semibold">{formatNumber(featureStoreQuery.data.orders_count)}</p>
-              <p className="text-xs text-surface-500">Paid: {formatNumber(featureStoreQuery.data.paid_orders_count)}</p>
-            </div>
-            <div className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm text-surface-700">
-              <p className="text-xs uppercase tracking-wide text-surface-500">Revenue</p>
-              <p className="mt-1 font-semibold">{formatCurrency(featureStoreQuery.data.net_revenue)}</p>
-              <p className="text-xs text-surface-500">
-                Refund Rate: {(featureStoreQuery.data.refund_rate * 100).toFixed(1)}%
+              <p className="text-xs uppercase tracking-wide text-surface-500">
+                Orders
               </p>
-            </div>
-            <div className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm text-surface-700">
-              <p className="text-xs uppercase tracking-wide text-surface-500">Operational Risk</p>
               <p className="mt-1 font-semibold">
-                Stockout: {formatNumber(featureStoreQuery.data.stockout_events_count)}
+                {formatNumber(featureStoreQuery.data.orders_count)}
               </p>
               <p className="text-xs text-surface-500">
-                Campaign Failures: {formatNumber(featureStoreQuery.data.campaigns_failed_count)}
+                Paid: {formatNumber(featureStoreQuery.data.paid_orders_count)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm text-surface-700">
+              <p className="text-xs uppercase tracking-wide text-surface-500">
+                Revenue
+              </p>
+              <p className="mt-1 font-semibold">
+                {formatCurrency(
+                  featureStoreQuery.data.net_revenue,
+                  profileQuery.data?.base_currency,
+                )}
+              </p>
+              <p className="text-xs text-surface-500">
+                Refund Rate:{" "}
+                {(featureStoreQuery.data.refund_rate * 100).toFixed(1)}%
+              </p>
+            </div>
+            <div className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm text-surface-700">
+              <p className="text-xs uppercase tracking-wide text-surface-500">
+                Operational Risk
+              </p>
+              <p className="mt-1 font-semibold">
+                Stockout:{" "}
+                {formatNumber(featureStoreQuery.data.stockout_events_count)}
+              </p>
+              <p className="text-xs text-surface-500">
+                Campaign Failures:{" "}
+                {formatNumber(featureStoreQuery.data.campaigns_failed_count)}
               </p>
             </div>
           </div>
         ) : (
           <div className="mt-4 rounded-xl border border-dashed border-surface-200 p-3 text-sm text-surface-500">
-            Feature snapshot not found yet. Refresh the feature store to populate event-aware context.
+            Feature snapshot not found yet. Refresh the feature store to
+            populate event-aware context.
           </div>
         )}
       </Card>
 
       <Card className="animate-fade-up [animation-delay:90ms]">
-        <h3 className="font-heading text-lg font-bold text-surface-800">Insight Log</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Insight Log
+        </h3>
         {responses.length === 0 ? (
           <div className="mt-4">
             <EmptyState
@@ -274,7 +312,10 @@ export function InsightsPage() {
         ) : (
           <div className="mt-4 space-y-3">
             {responses.map((entry) => (
-              <article key={entry.id} className="rounded-xl border border-surface-100 bg-surface-50 p-4">
+              <article
+                key={entry.id}
+                className="rounded-xl border border-surface-100 bg-surface-50 p-4"
+              >
                 <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
                   <span className="rounded-full bg-surface-100 px-2 py-1 font-semibold text-surface-700">
                     {entry.insight_type}
@@ -286,7 +327,9 @@ export function InsightsPage() {
                     {entry.model}
                   </span>
                 </div>
-                <p className="whitespace-pre-wrap text-sm text-surface-700">{entry.response}</p>
+                <p className="whitespace-pre-wrap text-sm text-surface-700">
+                  {entry.response}
+                </p>
                 <div className="mt-3 flex flex-wrap gap-3 text-xs text-surface-500">
                   <span>
                     Tokens:{" "}
@@ -296,8 +339,12 @@ export function InsightsPage() {
                   </span>
                   <span>
                     Cost:{" "}
-                    {entry.estimated_cost_usd !== null && entry.estimated_cost_usd !== undefined
-                      ? formatCurrency(entry.estimated_cost_usd)
+                    {entry.estimated_cost_usd !== null &&
+                    entry.estimated_cost_usd !== undefined
+                      ? formatCurrency(
+                          entry.estimated_cost_usd,
+                          profileQuery.data?.base_currency,
+                        )
                       : "-"}
                   </span>
                   <span>ID: {entry.id}</span>
@@ -310,11 +357,16 @@ export function InsightsPage() {
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card className="animate-fade-up [animation-delay:120ms]">
-          <h3 className="font-heading text-lg font-bold text-surface-800">V2 Insight Taxonomy</h3>
+          <h3 className="font-heading text-lg font-bold text-surface-800">
+            V2 Insight Taxonomy
+          </h3>
           {insightsV2Query.data?.items.length ? (
             <div className="mt-4 space-y-3">
               {insightsV2Query.data.items.map((item) => (
-                <article key={item.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+                <article
+                  key={item.id}
+                  className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+                >
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="rounded-full bg-surface-100 px-2 py-1 font-semibold text-surface-700">
                       {item.insight_type}
@@ -326,8 +378,12 @@ export function InsightsPage() {
                       Confidence {(item.confidence_score * 100).toFixed(0)}%
                     </span>
                   </div>
-                  <p className="mt-2 text-sm font-semibold text-surface-800">{item.title}</p>
-                  <p className="mt-1 text-sm text-surface-600">{item.summary}</p>
+                  <p className="mt-2 text-sm font-semibold text-surface-800">
+                    {item.title}
+                  </p>
+                  <p className="mt-1 text-sm text-surface-600">
+                    {item.summary}
+                  </p>
                 </article>
               ))}
             </div>
@@ -342,18 +398,32 @@ export function InsightsPage() {
         </Card>
 
         <Card className="animate-fade-up [animation-delay:150ms]">
-          <h3 className="font-heading text-lg font-bold text-surface-800">Prescriptive Actions</h3>
+          <h3 className="font-heading text-lg font-bold text-surface-800">
+            Prescriptive Actions
+          </h3>
           {proposedActions.length ? (
             <div className="mt-4 space-y-3">
               {proposedActions.map((action) => (
-                <article key={action.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
-                  <p className="text-sm font-semibold text-surface-800">{action.title}</p>
-                  <p className="mt-1 text-sm text-surface-600">{action.description}</p>
+                <article
+                  key={action.id}
+                  className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+                >
+                  <p className="text-sm font-semibold text-surface-800">
+                    {action.title}
+                  </p>
+                  <p className="mt-1 text-sm text-surface-600">
+                    {action.description}
+                  </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Button
                       type="button"
                       size="sm"
-                      onClick={() => decideActionMutation.mutate({ actionId: action.id, decision: "approve" })}
+                      onClick={() =>
+                        decideActionMutation.mutate({
+                          actionId: action.id,
+                          decision: "approve",
+                        })
+                      }
                       loading={decideActionMutation.isPending}
                     >
                       <CheckCheck className="h-4 w-4" />
@@ -363,7 +433,12 @@ export function InsightsPage() {
                       type="button"
                       size="sm"
                       variant="ghost"
-                      onClick={() => decideActionMutation.mutate({ actionId: action.id, decision: "reject" })}
+                      onClick={() =>
+                        decideActionMutation.mutate({
+                          actionId: action.id,
+                          decision: "reject",
+                        })
+                      }
                       loading={decideActionMutation.isPending}
                     >
                       <X className="h-4 w-4" />
