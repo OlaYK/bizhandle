@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Printer, Radio, RefreshCcw, UploadCloud } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { posService, productService } from "../api/services";
+import { authService, posService, productService } from "../api/services";
 import type { PosOfflineOrderIn } from "../api/types";
 import { EmptyState } from "../components/state/empty-state";
 import { ErrorState } from "../components/state/error-state";
@@ -37,12 +37,20 @@ function saveQueue(items: PosOfflineOrderIn[]) {
 export function PosPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const profileQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: authService.me,
+  });
   const [selectedProductId, setSelectedProductId] = useState("");
   const [selectedVariantId, setSelectedVariantId] = useState("");
   const [qty, setQty] = useState(1);
   const [unitPrice, setUnitPrice] = useState(1);
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "pos">("cash");
-  const [channel, setChannel] = useState<"walk-in" | "whatsapp" | "instagram">("walk-in");
+  const [paymentMethod, setPaymentMethod] = useState<
+    "cash" | "transfer" | "pos"
+  >("cash");
+  const [channel, setChannel] = useState<"walk-in" | "whatsapp" | "instagram">(
+    "walk-in",
+  );
   const [openingCash, setOpeningCash] = useState("0");
   const [closingCash, setClosingCash] = useState("0");
   const [queue, setQueue] = useState<PosOfflineOrderIn[]>([]);
@@ -53,7 +61,7 @@ export function PosPage() {
 
   const productsQuery = useQuery({
     queryKey: ["pos", "products"],
-    queryFn: () => productService.list({ limit: 200, offset: 0 })
+    queryFn: () => productService.list({ limit: 200, offset: 0 }),
   });
 
   useEffect(() => {
@@ -65,8 +73,9 @@ export function PosPage() {
 
   const variantsQuery = useQuery({
     queryKey: ["pos", "variants", selectedProductId],
-    queryFn: () => productService.listVariants(selectedProductId, { limit: 300, offset: 0 }),
-    enabled: Boolean(selectedProductId)
+    queryFn: () =>
+      productService.listVariants(selectedProductId, { limit: 300, offset: 0 }),
+    enabled: Boolean(selectedProductId),
   });
 
   useEffect(() => {
@@ -74,19 +83,23 @@ export function PosPage() {
     if (!first) return;
     if (!selectedVariantId) {
       setSelectedVariantId(first.id);
-      setUnitPrice(first.selling_price && first.selling_price > 0 ? first.selling_price : 1);
+      setUnitPrice(
+        first.selling_price && first.selling_price > 0
+          ? first.selling_price
+          : 1,
+      );
     }
   }, [variantsQuery.data, selectedVariantId]);
 
   const currentShiftQuery = useQuery({
     queryKey: ["pos", "current-shift"],
-    queryFn: () => posService.currentShift()
+    queryFn: () => posService.currentShift(),
   });
 
   const openShiftMutation = useMutation({
     mutationFn: () =>
       posService.openShift({
-        opening_cash: Number(openingCash) || 0
+        opening_cash: Number(openingCash) || 0,
       }),
     onSuccess: () => {
       showToast({ title: "Shift opened", variant: "success" });
@@ -96,9 +109,9 @@ export function PosPage() {
       showToast({
         title: "Open shift failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const closeShiftMutation = useMutation({
@@ -106,14 +119,14 @@ export function PosPage() {
       const shiftId = currentShiftQuery.data?.shift?.id;
       if (!shiftId) throw new Error("No open shift");
       return posService.closeShift(shiftId, {
-        closing_cash: Number(closingCash) || 0
+        closing_cash: Number(closingCash) || 0,
       });
     },
     onSuccess: (result) => {
       showToast({
         title: "Shift closed",
-        description: `Difference: ${formatCurrency(result.cash_difference ?? 0)}`,
-        variant: "success"
+        description: `Difference: ${formatCurrency(result.cash_difference ?? 0, profileQuery.data?.base_currency)}`,
+        variant: "success",
       });
       queryClient.invalidateQueries({ queryKey: ["pos"] });
     },
@@ -121,20 +134,22 @@ export function PosPage() {
       showToast({
         title: "Close shift failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const syncMutation = useMutation({
     mutationFn: () =>
       posService.syncOfflineOrders({
         conflict_policy: "adjust_to_available",
-        orders: queue
+        orders: queue,
       }),
     onSuccess: (result) => {
       const unresolved = queue.filter((item) => {
-        const matched = result.results.find((row) => row.client_event_id === item.client_event_id);
+        const matched = result.results.find(
+          (row) => row.client_event_id === item.client_event_id,
+        );
         return !matched || matched.status === "conflict";
       });
       setQueue(unresolved);
@@ -142,7 +157,7 @@ export function PosPage() {
       showToast({
         title: "Offline queue synced",
         description: `${result.created} created, ${result.conflicted} conflicted, ${result.duplicate} duplicate.`,
-        variant: "success"
+        variant: "success",
       });
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       queryClient.invalidateQueries({ queryKey: ["inventory"] });
@@ -151,19 +166,22 @@ export function PosPage() {
       showToast({
         title: "Sync failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
-  const cartTotal = useMemo(() => (Number(qty) || 0) * (Number(unitPrice) || 0), [qty, unitPrice]);
+  const cartTotal = useMemo(
+    () => (Number(qty) || 0) * (Number(unitPrice) || 0),
+    [qty, unitPrice],
+  );
 
   function queueOrder() {
     if (!selectedVariantId || qty <= 0 || unitPrice <= 0) {
       showToast({
         title: "Invalid order",
         description: "Select variant and enter valid quantity/price.",
-        variant: "error"
+        variant: "error",
       });
       return;
     }
@@ -172,7 +190,7 @@ export function PosPage() {
       payment_method: paymentMethod,
       channel,
       items: [{ variant_id: selectedVariantId, qty, unit_price: unitPrice }],
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
     };
     const nextQueue = [order, ...queue];
     setQueue(nextQueue);
@@ -180,15 +198,23 @@ export function PosPage() {
     showToast({
       title: "Order queued offline",
       description: "Sync queue when network is available.",
-      variant: "success"
+      variant: "success",
     });
   }
 
-  if (productsQuery.isLoading || variantsQuery.isLoading || currentShiftQuery.isLoading) {
+  if (
+    productsQuery.isLoading ||
+    variantsQuery.isLoading ||
+    currentShiftQuery.isLoading
+  ) {
     return <LoadingState label="Loading mobile POS..." />;
   }
 
-  if (productsQuery.isError || variantsQuery.isError || currentShiftQuery.isError) {
+  if (
+    productsQuery.isError ||
+    variantsQuery.isError ||
+    currentShiftQuery.isError
+  ) {
     return (
       <ErrorState
         message="Failed to load POS workspace."
@@ -212,7 +238,11 @@ export function PosPage() {
           Optimized for touch devices with local queueing and one-tap sync.
         </p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <Select label="Product" value={selectedProductId} onChange={(event) => setSelectedProductId(event.target.value)}>
+          <Select
+            label="Product"
+            value={selectedProductId}
+            onChange={(event) => setSelectedProductId(event.target.value)}
+          >
             {(productsQuery.data?.items ?? []).map((product) => (
               <option key={product.id} value={product.id}>
                 {product.name}
@@ -224,7 +254,9 @@ export function PosPage() {
             value={selectedVariantId}
             onChange={(event) => {
               setSelectedVariantId(event.target.value);
-              const found = variantsQuery.data?.items.find((item) => item.id === event.target.value);
+              const found = variantsQuery.data?.items.find(
+                (item) => item.id === event.target.value,
+              );
               if (found?.selling_price && found.selling_price > 0) {
                 setUnitPrice(found.selling_price);
               }
@@ -237,7 +269,12 @@ export function PosPage() {
               </option>
             ))}
           </Select>
-          <Input label="Qty" type="number" value={String(qty)} onChange={(event) => setQty(Number(event.target.value) || 0)} />
+          <Input
+            label="Qty"
+            type="number"
+            value={String(qty)}
+            onChange={(event) => setQty(Number(event.target.value) || 0)}
+          />
           <Input
             label="Unit Price"
             type="number"
@@ -245,21 +282,46 @@ export function PosPage() {
             value={String(unitPrice)}
             onChange={(event) => setUnitPrice(Number(event.target.value) || 0)}
           />
-          <Select label="Payment" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as "cash" | "transfer" | "pos")}>
+          <Select
+            label="Payment"
+            value={paymentMethod}
+            onChange={(event) =>
+              setPaymentMethod(
+                event.target.value as "cash" | "transfer" | "pos",
+              )
+            }
+          >
             <option value="cash">Cash</option>
             <option value="transfer">Transfer</option>
             <option value="pos">POS</option>
           </Select>
-          <Select label="Channel" value={channel} onChange={(event) => setChannel(event.target.value as "walk-in" | "whatsapp" | "instagram")}>
+          <Select
+            label="Channel"
+            value={channel}
+            onChange={(event) =>
+              setChannel(
+                event.target.value as "walk-in" | "whatsapp" | "instagram",
+              )
+            }
+          >
             <option value="walk-in">Walk-in</option>
             <option value="whatsapp">WhatsApp</option>
             <option value="instagram">Instagram</option>
           </Select>
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <Badge variant="positive">Order Total: {formatCurrency(cartTotal)}</Badge>
+          <Badge variant="positive">
+            Order Total:{" "}
+            {formatCurrency(cartTotal, profileQuery.data?.base_currency)}
+          </Badge>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="ghost" onClick={() => printReceiptText(`MoniDesk POS Receipt\nTotal: ${cartTotal}`)}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() =>
+                printReceiptText(`MoniDesk POS Receipt\nTotal: ${cartTotal}`)
+              }
+            >
               <Printer className="h-4 w-4" />
               Print Hook
             </Button>
@@ -273,22 +335,50 @@ export function PosPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <h3 className="font-heading text-lg font-bold">Shift Reconciliation</h3>
+          <h3 className="font-heading text-lg font-bold">
+            Shift Reconciliation
+          </h3>
           {!currentShiftQuery.data?.shift ? (
             <div className="mt-3 space-y-3">
-              <Input label="Opening Cash" type="number" value={openingCash} onChange={(event) => setOpeningCash(event.target.value)} />
-              <Button type="button" onClick={() => openShiftMutation.mutate()} loading={openShiftMutation.isPending}>
+              <Input
+                label="Opening Cash"
+                type="number"
+                value={openingCash}
+                onChange={(event) => setOpeningCash(event.target.value)}
+              />
+              <Button
+                type="button"
+                onClick={() => openShiftMutation.mutate()}
+                loading={openShiftMutation.isPending}
+              >
                 Open Shift
               </Button>
             </div>
           ) : (
             <div className="mt-3 space-y-3">
               <p className="text-sm text-surface-600">
-                Opened by {currentShiftQuery.data.shift.opened_by_user_id.slice(0, 8)}...
+                Opened by{" "}
+                {currentShiftQuery.data.shift.opened_by_user_id.slice(0, 8)}...
               </p>
-              <Badge variant="info">Opening Cash: {formatCurrency(currentShiftQuery.data.shift.opening_cash)}</Badge>
-              <Input label="Closing Cash" type="number" value={closingCash} onChange={(event) => setClosingCash(event.target.value)} />
-              <Button type="button" variant="secondary" onClick={() => closeShiftMutation.mutate()} loading={closeShiftMutation.isPending}>
+              <Badge variant="info">
+                Opening Cash:{" "}
+                {formatCurrency(
+                  currentShiftQuery.data.shift.opening_cash,
+                  profileQuery.data?.base_currency,
+                )}
+              </Badge>
+              <Input
+                label="Closing Cash"
+                type="number"
+                value={closingCash}
+                onChange={(event) => setClosingCash(event.target.value)}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => closeShiftMutation.mutate()}
+                loading={closeShiftMutation.isPending}
+              >
                 Close Shift
               </Button>
             </div>
@@ -302,24 +392,49 @@ export function PosPage() {
           </div>
           {queue.length === 0 ? (
             <div className="mt-3">
-              <EmptyState title="Queue is empty" description="Add offline orders from the POS panel above." />
+              <EmptyState
+                title="Queue is empty"
+                description="Add offline orders from the POS panel above."
+              />
             </div>
           ) : (
             <div className="mt-3 space-y-2">
               {queue.slice(0, 8).map((item) => (
-                <div key={item.client_event_id} className="rounded-lg border border-surface-100 bg-surface-50 p-3">
-                  <p className="text-xs font-semibold text-surface-700">{item.client_event_id}</p>
+                <div
+                  key={item.client_event_id}
+                  className="rounded-lg border border-surface-100 bg-surface-50 p-3"
+                >
+                  <p className="text-xs font-semibold text-surface-700">
+                    {item.client_event_id}
+                  </p>
                   <p className="mt-1 text-xs text-surface-500">
-                    {item.channel} / {item.payment_method} / {item.items[0].qty} x {formatCurrency(item.items[0].unit_price)}
+                    {item.channel} / {item.payment_method} / {item.items[0].qty}{" "}
+                    x{" "}
+                    {formatCurrency(
+                      item.items[0].unit_price,
+                      profileQuery.data?.base_currency,
+                    )}
                   </p>
                 </div>
               ))}
               <div className="flex gap-2">
-                <Button type="button" variant="ghost" onClick={() => { setQueue([]); saveQueue([]); }}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setQueue([]);
+                    saveQueue([]);
+                  }}
+                >
                   <RefreshCcw className="h-4 w-4" />
                   Clear
                 </Button>
-                <Button type="button" variant="secondary" onClick={() => syncMutation.mutate()} loading={syncMutation.isPending}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => syncMutation.mutate()}
+                  loading={syncMutation.isPending}
+                >
                   <UploadCloud className="h-4 w-4" />
                   Sync Queue
                 </Button>

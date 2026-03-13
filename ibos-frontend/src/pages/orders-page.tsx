@@ -4,7 +4,7 @@ import { Plus, ScanLine, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { z } from "zod";
-import { orderService, productService } from "../api/services";
+import { authService, orderService, productService } from "../api/services";
 import type { OrderStatus } from "../api/types";
 import { EmptyState } from "../components/state/empty-state";
 import { ErrorState } from "../components/state/error-state";
@@ -23,7 +23,7 @@ import { formatCurrency, formatDateTime } from "../lib/format";
 const orderItemSchema = z.object({
   variant_id: z.string().min(1, "Variant is required"),
   qty: z.coerce.number().int().min(1, "Qty must be at least 1"),
-  unit_price: z.coerce.number().positive("Unit price must be > 0")
+  unit_price: z.coerce.number().positive("Unit price must be > 0"),
 });
 
 const orderCreateSchema = z.object({
@@ -31,7 +31,7 @@ const orderCreateSchema = z.object({
   payment_method: z.enum(["cash", "transfer", "pos"]),
   channel: z.enum(["whatsapp", "instagram", "walk-in"]),
   note: z.string().optional(),
-  items: z.array(orderItemSchema).min(1, "Add at least one item")
+  items: z.array(orderItemSchema).min(1, "Add at least one item"),
 });
 
 type OrderCreateFormData = z.infer<typeof orderCreateSchema>;
@@ -42,7 +42,7 @@ const statusOptions: OrderStatus[] = [
   "processing",
   "fulfilled",
   "cancelled",
-  "refunded"
+  "refunded",
 ];
 
 const orderTransitions: Record<OrderStatus, OrderStatus[]> = {
@@ -51,14 +51,16 @@ const orderTransitions: Record<OrderStatus, OrderStatus[]> = {
   processing: ["fulfilled", "cancelled", "refunded"],
   fulfilled: ["refunded"],
   cancelled: [],
-  refunded: []
+  refunded: [],
 };
 
 function getAllowedStatusOptions(status: OrderStatus) {
   return [status, ...(orderTransitions[status] ?? [])];
 }
 
-function badgeVariantForStatus(status: OrderStatus): "neutral" | "positive" | "negative" | "info" {
+function badgeVariantForStatus(
+  status: OrderStatus,
+): "neutral" | "positive" | "negative" | "info" {
   if (status === "paid" || status === "fulfilled") return "positive";
   if (status === "cancelled" || status === "refunded") return "negative";
   if (status === "processing") return "info";
@@ -75,18 +77,26 @@ function defaultUnitPrice(price: number | null | undefined) {
 export function OrdersPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const profileQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: authService.me,
+  });
   const quickInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedProductId, setSelectedProductId] = useState("");
   const [quickCode, setQuickCode] = useState("");
   const [statusFilter, setStatusFilter] = useState<OrderStatus | "">("");
-  const [channelFilter, setChannelFilter] = useState<"whatsapp" | "instagram" | "walk-in" | "">("");
+  const [channelFilter, setChannelFilter] = useState<
+    "whatsapp" | "instagram" | "walk-in" | ""
+  >("");
   const [customerFilter, setCustomerFilter] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [statusDraftByOrderId, setStatusDraftByOrderId] = useState<Record<string, OrderStatus>>({});
+  const [statusDraftByOrderId, setStatusDraftByOrderId] = useState<
+    Record<string, OrderStatus>
+  >({});
 
   const offset = (page - 1) * pageSize;
 
@@ -96,7 +106,7 @@ export function OrdersPage() {
 
   const productsQuery = useQuery({
     queryKey: ["orders", "products"],
-    queryFn: () => productService.list({ limit: 200, offset: 0 })
+    queryFn: () => productService.list({ limit: 200, offset: 0 }),
   });
 
   useEffect(() => {
@@ -108,8 +118,9 @@ export function OrdersPage() {
 
   const variantsQuery = useQuery({
     queryKey: ["orders", "variants", selectedProductId],
-    queryFn: () => productService.listVariants(selectedProductId, { limit: 300, offset: 0 }),
-    enabled: Boolean(selectedProductId)
+    queryFn: () =>
+      productService.listVariants(selectedProductId, { limit: 300, offset: 0 }),
+    enabled: Boolean(selectedProductId),
   });
 
   const orderForm = useForm<OrderCreateFormData>({
@@ -119,13 +130,13 @@ export function OrdersPage() {
       payment_method: "cash",
       channel: "walk-in",
       note: "",
-      items: [{ variant_id: "", qty: 1, unit_price: 1 }]
-    }
+      items: [{ variant_id: "", qty: 1, unit_price: 1 }],
+    },
   });
 
   const { fields, append, remove } = useFieldArray({
     control: orderForm.control,
-    name: "items"
+    name: "items",
   });
 
   useEffect(() => {
@@ -133,7 +144,10 @@ export function OrdersPage() {
     if (!firstVariant) return;
     if (!orderForm.getValues("items.0.variant_id")) {
       orderForm.setValue("items.0.variant_id", firstVariant.id);
-      orderForm.setValue("items.0.unit_price", defaultUnitPrice(firstVariant.selling_price));
+      orderForm.setValue(
+        "items.0.unit_price",
+        defaultUnitPrice(firstVariant.selling_price),
+      );
     }
   }, [variantsQuery.data, orderForm]);
 
@@ -145,7 +159,7 @@ export function OrdersPage() {
         const unitPrice = Number(item.unit_price) || 0;
         return sum + qty * unitPrice;
       }, 0),
-    [orderItems]
+    [orderItems],
   );
 
   const listQuery = useQuery({
@@ -158,7 +172,7 @@ export function OrdersPage() {
       startDate,
       endDate,
       page,
-      pageSize
+      pageSize,
     ],
     queryFn: () =>
       orderService.list({
@@ -168,8 +182,8 @@ export function OrdersPage() {
         start_date: startDate || undefined,
         end_date: endDate || undefined,
         limit: pageSize,
-        offset
-      })
+        offset,
+      }),
   });
 
   useEffect(() => {
@@ -188,8 +202,9 @@ export function OrdersPage() {
     onSuccess: () => {
       showToast({
         title: "Order created",
-        description: "Order is now pending and can be tracked in the lifecycle list.",
-        variant: "success"
+        description:
+          "Order is now pending and can be tracked in the lifecycle list.",
+        variant: "success",
       });
       orderForm.reset({
         customer_id: "",
@@ -200,9 +215,11 @@ export function OrdersPage() {
           {
             variant_id: variantsQuery.data?.items[0]?.id ?? "",
             qty: 1,
-            unit_price: defaultUnitPrice(variantsQuery.data?.items[0]?.selling_price)
-          }
-        ]
+            unit_price: defaultUnitPrice(
+              variantsQuery.data?.items[0]?.selling_price,
+            ),
+          },
+        ],
       });
       setQuickCode("");
       queryClient.invalidateQueries({ queryKey: ["orders"] });
@@ -212,14 +229,19 @@ export function OrdersPage() {
       showToast({
         title: "Could not create order",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: ({ orderId, status }: { orderId: string; status: OrderStatus }) =>
-      orderService.updateStatus(orderId, { status }),
+    mutationFn: ({
+      orderId,
+      status,
+    }: {
+      orderId: string;
+      status: OrderStatus;
+    }) => orderService.updateStatus(orderId, { status }),
     onSuccess: () => {
       showToast({ title: "Order status updated", variant: "success" });
       queryClient.invalidateQueries({ queryKey: ["orders"] });
@@ -231,9 +253,9 @@ export function OrdersPage() {
       showToast({
         title: "Status update failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const variantQuickLookup = useMemo(() => {
@@ -242,7 +264,7 @@ export function OrdersPage() {
       variant,
       sku: variant.sku?.trim().toLowerCase() ?? "",
       label: variant.label?.trim().toLowerCase() ?? "",
-      size: variant.size.trim().toLowerCase()
+      size: variant.size.trim().toLowerCase(),
     }));
   }, [variantsQuery.data]);
 
@@ -250,36 +272,52 @@ export function OrdersPage() {
     const code = quickCode.trim().toLowerCase();
     if (!code) return;
 
-    const exact = variantQuickLookup.find((entry) => entry.sku && entry.sku === code);
+    const exact = variantQuickLookup.find(
+      (entry) => entry.sku && entry.sku === code,
+    );
     const fallback = variantQuickLookup.find(
-      (entry) => entry.size === code || entry.label === code || `${entry.size} ${entry.label}`.trim() === code
+      (entry) =>
+        entry.size === code ||
+        entry.label === code ||
+        `${entry.size} ${entry.label}`.trim() === code,
     );
     const partial = variantQuickLookup.find(
-      (entry) => entry.sku.includes(code) || entry.size.includes(code) || entry.label.includes(code)
+      (entry) =>
+        entry.sku.includes(code) ||
+        entry.size.includes(code) ||
+        entry.label.includes(code),
     );
-    const match = exact?.variant ?? fallback?.variant ?? partial?.variant ?? null;
+    const match =
+      exact?.variant ?? fallback?.variant ?? partial?.variant ?? null;
 
     if (!match) {
       showToast({
         title: "Variant not found",
-        description: "Scan SKU or enter SKU/size/label for the selected product.",
-        variant: "error"
+        description:
+          "Scan SKU or enter SKU/size/label for the selected product.",
+        variant: "error",
       });
       return;
     }
 
     const currentItems = orderForm.getValues("items");
-    const existingIndex = currentItems.findIndex((item) => item.variant_id === match.id);
+    const existingIndex = currentItems.findIndex(
+      (item) => item.variant_id === match.id,
+    );
     if (existingIndex >= 0) {
       const existingQty = Number(currentItems[existingIndex]?.qty ?? 0);
-      orderForm.setValue(`items.${existingIndex}.qty`, Math.max(1, existingQty + 1), {
-        shouldDirty: true
-      });
+      orderForm.setValue(
+        `items.${existingIndex}.qty`,
+        Math.max(1, existingQty + 1),
+        {
+          shouldDirty: true,
+        },
+      );
     } else {
       append({
         variant_id: match.id,
         qty: 1,
-        unit_price: defaultUnitPrice(match.selling_price)
+        unit_price: defaultUnitPrice(match.selling_price),
       });
     }
 
@@ -312,7 +350,8 @@ export function OrdersPage() {
           <Badge variant="info">Scanner-ready</Badge>
         </div>
         <p className="mt-1 text-sm text-surface-500">
-          Pick a product, scan or type SKU/size/label, then press Enter to add to cart.
+          Pick a product, scan or type SKU/size/label, then press Enter to add
+          to cart.
         </p>
         <form
           className="mt-4 space-y-4"
@@ -322,19 +361,27 @@ export function OrdersPage() {
               payment_method: values.payment_method,
               channel: values.channel,
               note: values.note?.trim() || undefined,
-              items: values.items
-            })
+              items: values.items,
+            }),
           )}
         >
           <div className="grid gap-3 md:grid-cols-4">
-            <Select label="Product" value={selectedProductId} onChange={(event) => setSelectedProductId(event.target.value)}>
+            <Select
+              label="Product"
+              value={selectedProductId}
+              onChange={(event) => setSelectedProductId(event.target.value)}
+            >
               {(productsQuery.data?.items ?? []).map((product) => (
                 <option key={product.id} value={product.id}>
                   {product.name}
                 </option>
               ))}
             </Select>
-            <Input label="Customer ID (optional)" placeholder="customer-001" {...orderForm.register("customer_id")} />
+            <Input
+              label="Customer ID (optional)"
+              placeholder="customer-001"
+              {...orderForm.register("customer_id")}
+            />
             <Select
               label="Payment Method"
               {...orderForm.register("payment_method")}
@@ -371,7 +418,12 @@ export function OrdersPage() {
                 }}
               />
               <div className="md:self-end">
-                <Button type="button" variant="secondary" className="w-full md:w-auto" onClick={handleQuickAdd}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full md:w-auto"
+                  onClick={handleQuickAdd}
+                >
                   <ScanLine className="h-4 w-4" />
                   Add
                 </Button>
@@ -381,7 +433,9 @@ export function OrdersPage() {
 
           <div className="space-y-3 rounded-2xl border border-surface-100 p-3">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-surface-700">Order Items</p>
+              <p className="text-sm font-semibold text-surface-700">
+                Order Items
+              </p>
               <Button
                 type="button"
                 size="sm"
@@ -390,7 +444,9 @@ export function OrdersPage() {
                   append({
                     variant_id: variantsQuery.data?.items[0]?.id ?? "",
                     qty: 1,
-                    unit_price: defaultUnitPrice(variantsQuery.data?.items[0]?.selling_price)
+                    unit_price: defaultUnitPrice(
+                      variantsQuery.data?.items[0]?.selling_price,
+                    ),
                   })
                 }
               >
@@ -400,9 +456,14 @@ export function OrdersPage() {
             </div>
 
             {fields.map((field, index) => {
-              const variantField = orderForm.register(`items.${index}.variant_id`);
+              const variantField = orderForm.register(
+                `items.${index}.variant_id`,
+              );
               return (
-                <div key={field.id} className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12">
+                <div
+                  key={field.id}
+                  className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12"
+                >
                   <div className="md:col-span-6">
                     <Select
                       label="Variant"
@@ -410,7 +471,7 @@ export function OrdersPage() {
                       onChange={(event) => {
                         variantField.onChange(event);
                         const selectedVariant = variantsQuery.data?.items.find(
-                          (variant) => variant.id === event.target.value
+                          (variant) => variant.id === event.target.value,
                         );
                         if (!selectedVariant) {
                           return;
@@ -420,11 +481,14 @@ export function OrdersPage() {
                           defaultUnitPrice(selectedVariant.selling_price),
                           {
                             shouldDirty: true,
-                            shouldValidate: true
-                          }
+                            shouldValidate: true,
+                          },
                         );
                       }}
-                      error={orderForm.formState.errors.items?.[index]?.variant_id?.message}
+                      error={
+                        orderForm.formState.errors.items?.[index]?.variant_id
+                          ?.message
+                      }
                     >
                       <option value="">Select variant</option>
                       {(variantsQuery.data?.items ?? []).map((variant) => (
@@ -436,36 +500,41 @@ export function OrdersPage() {
                       ))}
                     </Select>
                   </div>
-                <div className="md:col-span-2">
-                  <Input
-                    label="Qty"
-                    type="number"
-                    {...orderForm.register(`items.${index}.qty`)}
-                    error={orderForm.formState.errors.items?.[index]?.qty?.message}
-                  />
+                  <div className="md:col-span-2">
+                    <Input
+                      label="Qty"
+                      type="number"
+                      {...orderForm.register(`items.${index}.qty`)}
+                      error={
+                        orderForm.formState.errors.items?.[index]?.qty?.message
+                      }
+                    />
+                  </div>
+                  <div className="md:col-span-3">
+                    <Input
+                      label="Unit Price"
+                      type="number"
+                      step="0.01"
+                      {...orderForm.register(`items.${index}.unit_price`)}
+                      error={
+                        orderForm.formState.errors.items?.[index]?.unit_price
+                          ?.message
+                      }
+                    />
+                  </div>
+                  <div className="md:col-span-1 md:self-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="w-full"
+                      onClick={() => remove(index)}
+                      disabled={fields.length <= 1}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
-                <div className="md:col-span-3">
-                  <Input
-                    label="Unit Price"
-                    type="number"
-                    step="0.01"
-                    {...orderForm.register(`items.${index}.unit_price`)}
-                    error={orderForm.formState.errors.items?.[index]?.unit_price?.message}
-                  />
-                </div>
-                <div className="md:col-span-1 md:self-end">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="w-full"
-                    onClick={() => remove(index)}
-                    disabled={fields.length <= 1}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
               );
             })}
           </div>
@@ -473,7 +542,10 @@ export function OrdersPage() {
           <Textarea label="Note" rows={3} {...orderForm.register("note")} />
 
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <Badge variant="positive">Cart Total: {formatCurrency(orderTotal)}</Badge>
+            <Badge variant="positive">
+              Cart Total:{" "}
+              {formatCurrency(orderTotal, profileQuery.data?.base_currency)}
+            </Badge>
             <Button type="submit" loading={createOrderMutation.isPending}>
               Create Order
             </Button>
@@ -483,9 +555,25 @@ export function OrdersPage() {
 
       <Card>
         <div className="mb-4 grid gap-3 md:grid-cols-6">
-          <Input label="Start Date" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
-          <Input label="End Date" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
-          <Select label="Status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as OrderStatus | "")}>
+          <Input
+            label="Start Date"
+            type="date"
+            value={startDate}
+            onChange={(event) => setStartDate(event.target.value)}
+          />
+          <Input
+            label="End Date"
+            type="date"
+            value={endDate}
+            onChange={(event) => setEndDate(event.target.value)}
+          />
+          <Select
+            label="Status"
+            value={statusFilter}
+            onChange={(event) =>
+              setStatusFilter(event.target.value as OrderStatus | "")
+            }
+          >
             <option value="">All statuses</option>
             {statusOptions.map((status) => (
               <option key={status} value={status}>
@@ -497,7 +585,9 @@ export function OrdersPage() {
             label="Channel"
             value={channelFilter}
             onChange={(event) =>
-              setChannelFilter(event.target.value as "whatsapp" | "instagram" | "walk-in" | "")
+              setChannelFilter(
+                event.target.value as "whatsapp" | "instagram" | "walk-in" | "",
+              )
             }
           >
             <option value="">All channels</option>
@@ -512,7 +602,9 @@ export function OrdersPage() {
             onChange={(event) => setCustomerFilter(event.target.value)}
           />
           <div className="mt-7">
-            <Badge variant="info">{listQuery.data?.pagination.total ?? 0} orders</Badge>
+            <Badge variant="info">
+              {listQuery.data?.pagination.total ?? 0} orders
+            </Badge>
           </div>
         </div>
 
@@ -525,19 +617,34 @@ export function OrdersPage() {
           <div className="space-y-2">
             <div className="space-y-2 sm:hidden">
               {listQuery.data.items.map((order) => {
-                const draftStatus = statusDraftByOrderId[order.id] ?? order.status;
+                const draftStatus =
+                  statusDraftByOrderId[order.id] ?? order.status;
                 const allowedStatuses = getAllowedStatusOptions(order.status);
                 return (
-                  <article key={order.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+                  <article
+                    key={order.id}
+                    className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+                  >
                     <div className="flex items-center justify-between gap-2">
-                      <Badge variant={badgeVariantForStatus(order.status)}>{order.status}</Badge>
-                      <p className="text-sm font-semibold text-mint-700">{formatCurrency(order.total_amount)}</p>
+                      <Badge variant={badgeVariantForStatus(order.status)}>
+                        {order.status}
+                      </Badge>
+                      <p className="text-sm font-semibold text-mint-700">
+                        {formatCurrency(
+                          order.total_amount,
+                          profileQuery.data?.base_currency,
+                        )}
+                      </p>
                     </div>
                     <p className="mt-1 text-xs text-surface-500">
                       {order.channel} / {order.payment_method}
                     </p>
-                    <p className="mt-1 text-xs text-surface-500">{formatDateTime(order.created_at)}</p>
-                    <p className="mt-1 text-xs text-surface-500">Customer: {order.customer_id || "-"}</p>
+                    <p className="mt-1 text-xs text-surface-500">
+                      {formatDateTime(order.created_at)}
+                    </p>
+                    <p className="mt-1 text-xs text-surface-500">
+                      Customer: {order.customer_id || "-"}
+                    </p>
                     <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
                       <select
                         className="h-9 rounded border border-surface-200 bg-white px-2 text-sm text-surface-700 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100"
@@ -545,7 +652,7 @@ export function OrdersPage() {
                         onChange={(event) =>
                           setStatusDraftByOrderId((previous) => ({
                             ...previous,
-                            [order.id]: event.target.value as OrderStatus
+                            [order.id]: event.target.value as OrderStatus,
                           }))
                         }
                       >
@@ -562,13 +669,14 @@ export function OrdersPage() {
                         onClick={() =>
                           updateStatusMutation.mutate({
                             orderId: order.id,
-                            status: draftStatus
+                            status: draftStatus,
                           })
                         }
                         disabled={
                           draftStatus === order.status ||
                           (updateStatusMutation.isPending &&
-                            updateStatusMutation.variables?.orderId === order.id)
+                            updateStatusMutation.variables?.orderId ===
+                              order.id)
                         }
                       >
                         Update
@@ -593,18 +701,36 @@ export function OrdersPage() {
                 </thead>
                 <tbody className="divide-y divide-surface-50">
                   {listQuery.data.items.map((order) => {
-                    const draftStatus = statusDraftByOrderId[order.id] ?? order.status;
-                    const allowedStatuses = getAllowedStatusOptions(order.status);
+                    const draftStatus =
+                      statusDraftByOrderId[order.id] ?? order.status;
+                    const allowedStatuses = getAllowedStatusOptions(
+                      order.status,
+                    );
                     return (
                       <tr key={order.id}>
                         <td className="px-2 py-2">
-                          <Badge variant={badgeVariantForStatus(order.status)}>{order.status}</Badge>
+                          <Badge variant={badgeVariantForStatus(order.status)}>
+                            {order.status}
+                          </Badge>
                         </td>
-                        <td className="px-2 py-2 font-semibold text-mint-700">{formatCurrency(order.total_amount)}</td>
-                        <td className="px-2 py-2 text-surface-600">{order.channel}</td>
-                        <td className="px-2 py-2 text-surface-600">{order.payment_method}</td>
-                        <td className="px-2 py-2 text-surface-600">{order.customer_id || "-"}</td>
-                        <td className="px-2 py-2 text-surface-500">{formatDateTime(order.created_at)}</td>
+                        <td className="px-2 py-2 font-semibold text-mint-700">
+                          {formatCurrency(
+                            order.total_amount,
+                            profileQuery.data?.base_currency,
+                          )}
+                        </td>
+                        <td className="px-2 py-2 text-surface-600">
+                          {order.channel}
+                        </td>
+                        <td className="px-2 py-2 text-surface-600">
+                          {order.payment_method}
+                        </td>
+                        <td className="px-2 py-2 text-surface-600">
+                          {order.customer_id || "-"}
+                        </td>
+                        <td className="px-2 py-2 text-surface-500">
+                          {formatDateTime(order.created_at)}
+                        </td>
                         <td className="px-2 py-2">
                           <div className="flex items-center gap-2">
                             <select
@@ -613,7 +739,7 @@ export function OrdersPage() {
                               onChange={(event) =>
                                 setStatusDraftByOrderId((previous) => ({
                                   ...previous,
-                                  [order.id]: event.target.value as OrderStatus
+                                  [order.id]: event.target.value as OrderStatus,
                                 }))
                               }
                             >
@@ -630,13 +756,14 @@ export function OrdersPage() {
                               onClick={() =>
                                 updateStatusMutation.mutate({
                                   orderId: order.id,
-                                  status: draftStatus
+                                  status: draftStatus,
                                 })
                               }
                               disabled={
                                 draftStatus === order.status ||
                                 (updateStatusMutation.isPending &&
-                                  updateStatusMutation.variables?.orderId === order.id)
+                                  updateStatusMutation.variables?.orderId ===
+                                    order.id)
                               }
                             >
                               Update

@@ -4,7 +4,7 @@ import { Pencil } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { expenseService } from "../api/services";
+import { authService, expenseService } from "../api/services";
 import type { ExpenseOut } from "../api/types";
 import { EmptyState } from "../components/state/empty-state";
 import { ErrorState } from "../components/state/error-state";
@@ -29,6 +29,10 @@ type ExpenseFormData = z.infer<typeof expenseSchema>;
 export function ExpensesPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const profileQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: authService.me,
+  });
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [page, setPage] = useState(1);
@@ -238,7 +242,10 @@ export function ExpensesPage() {
                       {expense.category}
                     </p>
                     <p className="text-sm font-semibold text-red-600">
-                      {formatCurrency(expense.amount)}
+                      {formatCurrency(
+                        expense.amount,
+                        profileQuery.data?.base_currency,
+                      )}
                     </p>
                   </div>
                   <p className="mt-1 text-xs text-surface-500">
@@ -279,7 +286,10 @@ export function ExpensesPage() {
                         {expense.category}
                       </td>
                       <td className="px-2 py-2 font-semibold text-red-600">
-                        {formatCurrency(expense.amount)}
+                        {formatCurrency(
+                          expense.amount,
+                          profileQuery.data?.base_currency,
+                        )}
                       </td>
                       <td className="px-2 py-2 text-surface-500">
                         {expense.note || "-"}

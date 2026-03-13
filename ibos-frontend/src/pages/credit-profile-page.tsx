@@ -14,7 +14,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { dashboardService } from "../api/services";
+import { authService, dashboardService } from "../api/services";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { EmptyState } from "../components/state/empty-state";
@@ -39,6 +39,11 @@ export function CreditProfilePage() {
   const [historyDays, setHistoryDays] = useState("90");
   const [intervalDays, setIntervalDays] = useState("7");
   const [targetScore, setTargetScore] = useState("80");
+
+  const MeProfileQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: authService.me,
+  });
 
   const [priceChangePct, setPriceChangePct] = useState("0");
   const [expenseChangePct, setExpenseChangePct] = useState("0");
@@ -331,7 +336,11 @@ export function CreditProfilePage() {
           <p className="mt-3 text-xs text-surface-500">
             Forecast error bound: {forecastQuery.data.error_bound_pct}% with
             baseline daily net{" "}
-            {formatCurrency(forecastQuery.data.baseline_daily_net)}.
+            {formatCurrency(
+              forecastQuery.data.baseline_daily_net,
+              MeProfileQuery.data?.base_currency,
+            )}
+            .
           </p>
         </Card>
       </div>
@@ -343,15 +352,25 @@ export function CreditProfilePage() {
           </h4>
           <div className="mt-4 space-y-2 text-sm text-surface-600">
             <p>
-              Net Sales: {formatCurrency(profileQuery.data.current_net_sales)}
+              Net Sales:{" "}
+              {formatCurrency(
+                profileQuery.data.current_net_sales,
+                MeProfileQuery.data?.base_currency,
+              )}
             </p>
             <p>
               Expenses:{" "}
-              {formatCurrency(profileQuery.data.current_expenses_total)}
+              {formatCurrency(
+                profileQuery.data.current_expenses_total,
+                MeProfileQuery.data?.base_currency,
+              )}
             </p>
             <p>
               Net Cashflow:{" "}
-              {formatCurrency(profileQuery.data.current_net_cashflow)}
+              {formatCurrency(
+                profileQuery.data.current_net_cashflow,
+                MeProfileQuery.data?.base_currency,
+              )}
             </p>
             <p>
               Forecast Intervals:{" "}
@@ -498,25 +517,36 @@ export function CreditProfilePage() {
                 Baseline Net:{" "}
                 {formatCurrency(
                   scenarioMutation.data.baseline.projected_net_cashflow,
+                  MeProfileQuery.data?.base_currency,
                 )}
               </p>
               <p>
                 Scenario Net:{" "}
                 {formatCurrency(
                   scenarioMutation.data.scenario.projected_net_cashflow,
+                  MeProfileQuery.data?.base_currency,
                 )}
               </p>
               <p>
                 Net Delta:{" "}
-                {formatCurrency(scenarioMutation.data.delta.net_cashflow_delta)}
+                {formatCurrency(
+                  scenarioMutation.data.delta.net_cashflow_delta,
+                  MeProfileQuery.data?.base_currency,
+                )}
               </p>
               <p>
                 Revenue Delta:{" "}
-                {formatCurrency(scenarioMutation.data.delta.revenue_delta)}
+                {formatCurrency(
+                  scenarioMutation.data.delta.revenue_delta,
+                  MeProfileQuery.data?.base_currency,
+                )}
               </p>
               <p>
                 Expense Delta:{" "}
-                {formatCurrency(scenarioMutation.data.delta.expenses_delta)}
+                {formatCurrency(
+                  scenarioMutation.data.delta.expenses_delta,
+                  MeProfileQuery.data?.base_currency,
+                )}
               </p>
               <p>
                 Margin Delta:{" "}

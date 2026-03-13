@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
-import { checkoutService, storefrontService } from "../api/services";
+import {
+  authService,
+  checkoutService,
+  storefrontService,
+} from "../api/services";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -31,11 +35,17 @@ function setMetaDescription(description: string | null | undefined) {
 export function StorefrontProductPage() {
   const params = useParams();
   const { showToast } = useToast();
+  const profileQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: authService.me,
+  });
   const slug = params.slug ?? "";
   const productId = params.productId ?? "";
   const [selectedVariantId, setSelectedVariantId] = useState("");
   const [qty, setQty] = useState(1);
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "pos">("transfer");
+  const [paymentMethod, setPaymentMethod] = useState<
+    "cash" | "transfer" | "pos"
+  >("transfer");
   const [note, setNote] = useState("");
   const [checkoutResult, setCheckoutResult] = useState<{
     sessionToken: string;
@@ -48,13 +58,13 @@ export function StorefrontProductPage() {
   const storefrontQuery = useQuery({
     queryKey: ["storefront", "public", slug],
     enabled: Boolean(slug),
-    queryFn: () => storefrontService.getPublicStorefront(slug)
+    queryFn: () => storefrontService.getPublicStorefront(slug),
   });
 
   const productQuery = useQuery({
     queryKey: ["storefront", "public-product", slug, productId],
     enabled: Boolean(slug && productId),
-    queryFn: () => storefrontService.getPublicProductDetail(slug, productId)
+    queryFn: () => storefrontService.getPublicProductDetail(slug, productId),
   });
 
   useEffect(() => {
@@ -63,7 +73,7 @@ export function StorefrontProductPage() {
     setMetaDescription(
       storefrontQuery.data.seo_description ||
         productQuery.data.description ||
-        storefrontQuery.data.description
+        storefrontQuery.data.description,
     );
   }, [productQuery.data, storefrontQuery.data]);
 
@@ -75,8 +85,11 @@ export function StorefrontProductPage() {
   }, [productQuery.data, selectedVariantId]);
 
   const selectedVariant = useMemo(
-    () => productQuery.data?.variants.find((variant) => variant.id === selectedVariantId) ?? null,
-    [productQuery.data, selectedVariantId]
+    () =>
+      productQuery.data?.variants.find(
+        (variant) => variant.id === selectedVariantId,
+      ) ?? null,
+    [productQuery.data, selectedVariantId],
   );
 
   const checkoutMutation = useMutation({
@@ -100,12 +113,15 @@ export function StorefrontProductPage() {
         channel: "instagram",
         note: note.trim() || undefined,
         success_redirect_url: window.location.href,
-        cancel_redirect_url: window.location.href
+        cancel_redirect_url: window.location.href,
       });
-      const placed = await checkoutService.placePublicOrder(session.session_token, {
-        payment_method: paymentMethod,
-        note: note.trim() || undefined
-      });
+      const placed = await checkoutService.placePublicOrder(
+        session.session_token,
+        {
+          payment_method: paymentMethod,
+          note: note.trim() || undefined,
+        },
+      );
       return { session, placed };
     },
     onSuccess: ({ session, placed }) => {
@@ -114,28 +130,34 @@ export function StorefrontProductPage() {
         paymentCheckoutUrl: session.payment_checkout_url,
         orderId: placed.order_id,
         orderStatus: placed.order_status,
-        totalAmount: placed.total_amount
+        totalAmount: placed.total_amount,
       });
       showToast({
         title: "Checkout initiated",
-        description: "Order created. Continue to payment to complete the purchase.",
-        variant: "success"
+        description:
+          "Order created. Continue to payment to complete the purchase.",
+        variant: "success",
       });
     },
     onError: (error) => {
       showToast({
         title: "Could not start checkout",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   if (storefrontQuery.isLoading || productQuery.isLoading) {
     return <LoadingState label="Loading product..." />;
   }
 
-  if (storefrontQuery.isError || productQuery.isError || !storefrontQuery.data || !productQuery.data) {
+  if (
+    storefrontQuery.isError ||
+    productQuery.isError ||
+    !storefrontQuery.data ||
+    !productQuery.data
+  ) {
     return (
       <ErrorState
         message="Unable to load product details."
@@ -163,17 +185,28 @@ export function StorefrontProductPage() {
 
         <Card className="overflow-hidden border-0 bg-[linear-gradient(140deg,#152e48_0%,#214563_50%,#2d4f68_100%)] text-white">
           <div className="space-y-3 p-6 sm:p-8">
-            <p className="text-xs uppercase tracking-[0.28em] text-white/70">{storefront.display_name}</p>
+            <p className="text-xs uppercase tracking-[0.28em] text-white/70">
+              {storefront.display_name}
+            </p>
             <h1 className="font-heading text-3xl font-black">{product.name}</h1>
-            <p className="text-sm text-white/80">{product.category ?? "General category"}</p>
-            {product.description ? <p className="text-sm text-white/75">{product.description}</p> : null}
+            <p className="text-sm text-white/80">
+              {product.category ?? "General category"}
+            </p>
+            {product.description ? (
+              <p className="text-sm text-white/75">{product.description}</p>
+            ) : null}
           </div>
         </Card>
 
         <Card>
-          <h2 className="font-heading text-xl font-bold text-surface-800">Available Variants</h2>
+          <h2 className="font-heading text-xl font-bold text-surface-800">
+            Available Variants
+          </h2>
           {product.variants.length === 0 ? (
-            <EmptyState title="No variants available" description="This product has no published variants." />
+            <EmptyState
+              title="No variants available"
+              description="This product has no published variants."
+            />
           ) : (
             <div className="mt-4 space-y-3">
               {product.variants.map((variant) => (
@@ -183,12 +216,25 @@ export function StorefrontProductPage() {
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-bold text-surface-800">{variant.label ?? "Standard Variant"}</p>
-                      <p className="text-xs text-surface-500">Size: {variant.size}</p>
-                      {variant.sku ? <p className="text-xs text-surface-500">SKU: {variant.sku}</p> : null}
+                      <p className="text-sm font-bold text-surface-800">
+                        {variant.label ?? "Standard Variant"}
+                      </p>
+                      <p className="text-xs text-surface-500">
+                        Size: {variant.size}
+                      </p>
+                      {variant.sku ? (
+                        <p className="text-xs text-surface-500">
+                          SKU: {variant.sku}
+                        </p>
+                      ) : null}
                     </div>
                     <p className="font-heading text-lg font-black text-surface-800">
-                      {variant.selling_price != null ? formatCurrency(variant.selling_price) : "Price on request"}
+                      {variant.selling_price != null
+                        ? formatCurrency(
+                            variant.selling_price,
+                            profileQuery.data?.base_currency,
+                          )
+                        : "Price on request"}
                     </p>
                   </div>
                 </article>
@@ -198,9 +244,12 @@ export function StorefrontProductPage() {
         </Card>
 
         <Card>
-          <h3 className="font-heading text-lg font-bold text-surface-800">Checkout</h3>
+          <h3 className="font-heading text-lg font-bold text-surface-800">
+            Checkout
+          </h3>
           <p className="mt-2 text-sm text-surface-500">
-            Select your variant and quantity, then create your order to continue to payment.
+            Select your variant and quantity, then create your order to continue
+            to payment.
           </p>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <Select
@@ -211,7 +260,9 @@ export function StorefrontProductPage() {
               {product.variants.map((variant) => (
                 <option key={variant.id} value={variant.id}>
                   {variant.label ?? "Standard"} - {variant.size}
-                  {variant.selling_price != null ? ` (${formatCurrency(variant.selling_price)})` : ""}
+                  {variant.selling_price != null
+                    ? ` (${formatCurrency(variant.selling_price, profileQuery.data?.base_currency)})`
+                    : ""}
                 </option>
               ))}
             </Select>
@@ -225,7 +276,11 @@ export function StorefrontProductPage() {
             <Select
               label="Payment Method"
               value={paymentMethod}
-              onChange={(event) => setPaymentMethod(event.target.value as "cash" | "transfer" | "pos")}
+              onChange={(event) =>
+                setPaymentMethod(
+                  event.target.value as "cash" | "transfer" | "pos",
+                )
+              }
             >
               <option value="transfer">Transfer</option>
               <option value="pos">POS</option>
@@ -235,7 +290,11 @@ export function StorefrontProductPage() {
               <p className="text-surface-500">Estimated Total</p>
               <p className="mt-1 text-lg font-black text-surface-800">
                 {selectedVariant?.selling_price != null
-                  ? formatCurrency(selectedVariant.selling_price * Math.max(1, Number(qty || 1)))
+                  ? formatCurrency(
+                      selectedVariant.selling_price *
+                        Math.max(1, Number(qty || 1)),
+                      profileQuery.data?.base_currency,
+                    )
                   : "Price unavailable"}
               </p>
             </div>
@@ -254,7 +313,9 @@ export function StorefrontProductPage() {
               type="button"
               loading={checkoutMutation.isPending}
               onClick={() => checkoutMutation.mutate()}
-              disabled={!selectedVariantId || selectedVariant?.selling_price == null}
+              disabled={
+                !selectedVariantId || selectedVariant?.selling_price == null
+              }
             >
               Start Checkout
             </Button>
@@ -275,7 +336,13 @@ export function StorefrontProductPage() {
               <p className="mt-1">Order ID: {checkoutResult.orderId}</p>
               <p>Order Status: {checkoutResult.orderStatus}</p>
               <p>Checkout Token: {checkoutResult.sessionToken}</p>
-              <p>Total: {formatCurrency(checkoutResult.totalAmount)}</p>
+              <p>
+                Total:{" "}
+                {formatCurrency(
+                  checkoutResult.totalAmount,
+                  profileQuery.data?.base_currency,
+                )}
+              </p>
             </div>
           ) : null}
           <div className="mt-4 border-t border-surface-100 pt-3 text-sm text-surface-500">
