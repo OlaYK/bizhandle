@@ -128,7 +128,7 @@ def create_sale(
         },
     )
     db.commit()
-    return SaleCreateOut(id=sale_id, total=float(to_money(total)))
+    return SaleCreateOut(id=sale_id, total=float(to_money(total)), currency=biz.base_currency)
 
 
 def _resolve_refund_unit_prices(
@@ -302,7 +302,11 @@ def create_refund(
         },
     )
     db.commit()
-    return SaleCreateOut(id=refund_sale_id, total=float(to_money(-refund_total)))
+    return SaleCreateOut(
+        id=refund_sale_id,
+        total=float(to_money(-refund_total)),
+        currency=biz.base_currency,
+    )
 
 
 @router.get(
@@ -491,6 +495,7 @@ def list_sales(
             payment_method=row.payment_method,
             channel=row.channel,
             note=row.note,
+            currency=biz.base_currency,
             total_amount=float(to_money(row.total_amount)),
             created_at=row.created_at,
         )
@@ -506,6 +511,7 @@ def list_sales(
             count=count,
             has_next=(offset + count) < total_count,
         ),
+        base_currency=biz.base_currency,
         start_date=start_date,
         end_date=end_date,
         items=items,

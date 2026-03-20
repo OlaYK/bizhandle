@@ -83,6 +83,11 @@ class ProductOut(BaseModel):
     category: Optional[str] = None
     active: bool
     is_published: bool = False
+    variant_count: int = 0
+    default_variant_id: str | None = None
+    default_sku: str | None = None
+    default_selling_price: float | None = None
+    default_stock: int | None = None
 
 
 class VariantCreateOut(BaseModel):
@@ -92,6 +97,7 @@ class VariantCreateOut(BaseModel):
 class VariantOut(BaseModel):
     id: str
     product_id: str
+    product_name: str
     business_id: str
     size: str
     label: Optional[str] = None
@@ -101,6 +107,7 @@ class VariantOut(BaseModel):
     selling_price: Optional[float] = None
     is_published: bool = False
     stock: int
+    location_stock: int | None = None
     created_at: datetime
 
 

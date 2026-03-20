@@ -4,6 +4,7 @@ import uuid
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, func, select
@@ -15,6 +16,7 @@ from app.core.money import ZERO_MONEY, to_money
 from app.core.permissions import require_permission
 from app.core.security_current import BusinessAccess, get_current_user
 from app.models.analytics import AnalyticsDailyMetric, AnalyticsReportSchedule, MarketingAttributionEvent
+from app.models.business import Business
 from app.models.expense import Expense
 from app.models.inventory import InventoryLedger
 from app.models.order import Order
@@ -37,6 +39,7 @@ from app.schemas.analytics import (
     ReportScheduleOut,
 )
 from app.services.audit_service import log_audit_event
+from app.services.display_service import get_variant_display_map
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -64,6 +67,17 @@ def _validate_date_range(start_date: date | None, end_date: date | None) -> tupl
 
 def _as_of_end_datetime(value: date) -> datetime:
     return datetime.combine(value, time.max, tzinfo=timezone.utc)
+
+
+def _build_export_business_access(db: Session, *, business_id: str) -> BusinessAccess:
+    base_currency = db.execute(
+        select(Business.base_currency).where(Business.id == business_id)
+    ).scalar_one_or_none() or "USD"
+    return BusinessAccess(
+        business=SimpleNamespace(id=business_id, base_currency=base_currency),
+        role="owner",
+        membership_id=None,
+    )
 
 
 def _upsert_daily_metric(
@@ -372,7 +386,12 @@ def channel_profitability(
                 margin_pct=margin_pct,
             )
         )
-    return ChannelProfitabilityOut(start_date=resolved_start, end_date=resolved_end, items=items)
+    return ChannelProfitabilityOut(
+        start_date=resolved_start,
+        end_date=resolved_end,
+        base_currency=access.business.base_currency,
+        items=items,
+    )
 
 
 @router.get(
@@ -458,6 +477,11 @@ def inventory_aging(
         .where(ProductVariant.business_id == access.business.id)
         .group_by(ProductVariant.id, ProductVariant.cost_price)
     ).all()
+    variant_display_map = get_variant_display_map(
+        db,
+        business_id=access.business.id,
+        variant_ids=[variant_id for variant_id, _cost_price, _stock, _last_movement_at in stock_rows],
+    )
 
     items: list[InventoryAgingItemOut] = []
     total_value = ZERO_MONEY
@@ -484,9 +508,16 @@ def inventory_aging(
         else:
             bucket = "91_plus"
 
+        variant = variant_display_map.get(variant_id)
         items.append(
             InventoryAgingItemOut(
                 variant_id=variant_id,
+                product_id=variant.product_id if variant else "",
+                product_name=variant.product_name if variant else "Unknown Product",
+                size=variant.size if variant else "",
+                label=variant.label if variant else None,
+                sku=variant.sku if variant else None,
+                reorder_level=variant.reorder_level if variant else 0,
                 bucket=bucket,
                 stock=stock_int,
                 estimated_value=float(estimated_value),
@@ -496,6 +527,7 @@ def inventory_aging(
     items.sort(key=lambda row: (row.days_since_last_movement or 10_000, -row.stock), reverse=True)
     return InventoryAgingOut(
         as_of_date=snapshot_date,
+        base_currency=access.business.base_currency,
         stockout_count=stockout_count,
         total_estimated_inventory_value=float(to_money(total_value)),
         items=items,
@@ -565,11 +597,12 @@ def _export_channel_profitability_csv(
     start_date: date,
     end_date: date,
 ) -> tuple[int, str]:
+    export_access = _build_export_business_access(db, business_id=business_id)
     payload = channel_profitability(
         start_date=start_date,
         end_date=end_date,
         db=db,
-        access=BusinessAccess(business=type("Biz", (), {"id": business_id})(), role="owner", membership_id=None),
+        access=export_access,
     )
     writer_io = io.StringIO()
     writer = csv.DictWriter(
@@ -588,10 +621,11 @@ def _export_cohorts_csv(
     business_id: str,
     months_after: int,
 ) -> tuple[int, str]:
+    export_access = _build_export_business_access(db, business_id=business_id)
     payload = cohort_retention(
         months_after=months_after,
         db=db,
-        access=BusinessAccess(business=type("Biz", (), {"id": business_id})(), role="owner", membership_id=None),
+        access=export_access,
     )
     writer_io = io.StringIO()
     writer = csv.DictWriter(
@@ -610,15 +644,28 @@ def _export_inventory_aging_csv(
     business_id: str,
     as_of_date: date,
 ) -> tuple[int, str]:
+    export_access = _build_export_business_access(db, business_id=business_id)
     payload = inventory_aging(
         as_of_date=as_of_date,
         db=db,
-        access=BusinessAccess(business=type("Biz", (), {"id": business_id})(), role="owner", membership_id=None),
+        access=export_access,
     )
     writer_io = io.StringIO()
     writer = csv.DictWriter(
         writer_io,
-        fieldnames=["variant_id", "bucket", "stock", "estimated_value", "days_since_last_movement"],
+        fieldnames=[
+            "variant_id",
+            "product_id",
+            "product_name",
+            "size",
+            "label",
+            "sku",
+            "reorder_level",
+            "bucket",
+            "stock",
+            "estimated_value",
+            "days_since_last_movement",
+        ],
     )
     writer.writeheader()
     for item in payload.items:

@@ -1722,7 +1722,11 @@ def test_invoices_create_send_reminder_mark_paid_flow(test_context):
 
     create_customer = client.post(
         "/customers",
-        json={"name": "Invoice Flow Customer", "email": "invoice.flow@example.com"},
+        json={
+            "name": "Invoice Flow Customer",
+            "email": "invoice.flow@example.com",
+            "phone": "+2348000000100",
+        },
         headers=_auth_headers(token),
     )
     assert create_customer.status_code == 200, create_customer.text

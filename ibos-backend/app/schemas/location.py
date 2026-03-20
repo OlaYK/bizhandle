@@ -85,12 +85,23 @@ class LocationStockAdjustIn(BaseModel):
 
 class LocationVariantStockOut(BaseModel):
     location_id: str
+    location_name: str | None = None
     variant_id: str
+    product_id: str | None = None
+    product_name: str | None = None
+    size: str | None = None
+    label: str | None = None
+    sku: str | None = None
     stock: int
 
 
 class LocationStockOverviewOut(BaseModel):
     variant_id: str
+    product_id: str | None = None
+    product_name: str | None = None
+    size: str | None = None
+    label: str | None = None
+    sku: str | None = None
     by_location: list[LocationVariantStockOut]
 
 
@@ -108,13 +119,20 @@ class StockTransferCreateIn(BaseModel):
 
 class StockTransferItemOut(BaseModel):
     variant_id: str
+    product_id: str | None = None
+    product_name: str | None = None
+    size: str | None = None
+    label: str | None = None
+    sku: str | None = None
     qty: int
 
 
 class StockTransferOut(BaseModel):
     id: str
     from_location_id: str
+    from_location_name: str | None = None
     to_location_id: str
+    to_location_name: str | None = None
     status: str
     note: str | None = None
     created_at: datetime
@@ -128,7 +146,13 @@ class StockTransferListOut(BaseModel):
 
 class LocationLowStockItemOut(BaseModel):
     location_id: str
+    location_name: str | None = None
     variant_id: str
+    product_id: str | None = None
+    product_name: str | None = None
+    size: str | None = None
+    label: str | None = None
+    sku: str | None = None
     reorder_level: int
     stock: int
 
@@ -147,4 +171,5 @@ class OrderLocationAllocationOut(BaseModel):
     id: str
     order_id: str
     location_id: str
+    location_name: str | None = None
     allocated_at: datetime

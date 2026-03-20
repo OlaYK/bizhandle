@@ -43,6 +43,7 @@ from app.schemas.location import (
     StockTransferOut,
 )
 from app.services.audit_service import log_audit_event
+from app.services.display_service import get_location_name_map, get_variant_display_map
 from app.services.location_inventory_service import (
     add_location_ledger_entry,
     get_location_variant_stock,
@@ -83,18 +84,73 @@ def _location_out(location: Location) -> LocationOut:
     )
 
 
+def _location_variant_stock_out(
+    *,
+    location_id: str,
+    variant_id: str,
+    stock: int,
+    location_name_map: dict[str, str],
+    variant_display_map,
+) -> LocationVariantStockOut:
+    variant = variant_display_map.get(variant_id)
+    return LocationVariantStockOut(
+        location_id=location_id,
+        location_name=location_name_map.get(location_id),
+        variant_id=variant_id,
+        product_id=variant.product_id if variant else None,
+        product_name=variant.product_name if variant else None,
+        size=variant.size if variant else None,
+        label=variant.label if variant else None,
+        sku=variant.sku if variant else None,
+        stock=stock,
+    )
+
+
 def _transfer_out(db: Session, transfer: StockTransfer) -> StockTransferOut:
     items = db.execute(
         select(StockTransferItem).where(StockTransferItem.stock_transfer_id == transfer.id)
     ).scalars().all()
+    location_name_map = get_location_name_map(
+        db,
+        business_id=transfer.business_id,
+        location_ids=[transfer.from_location_id, transfer.to_location_id],
+    )
+    variant_display_map = get_variant_display_map(
+        db,
+        business_id=transfer.business_id,
+        variant_ids=[item.variant_id for item in items],
+    )
     return StockTransferOut(
         id=transfer.id,
         from_location_id=transfer.from_location_id,
+        from_location_name=location_name_map.get(transfer.from_location_id),
         to_location_id=transfer.to_location_id,
+        to_location_name=location_name_map.get(transfer.to_location_id),
         status=transfer.status,
         note=transfer.note,
         created_at=transfer.created_at,
-        items=[StockTransferItemOut(variant_id=item.variant_id, qty=item.qty) for item in items],
+        items=[
+            StockTransferItemOut(
+                variant_id=item.variant_id,
+                product_id=variant_display_map.get(item.variant_id).product_id
+                if item.variant_id in variant_display_map
+                else None,
+                product_name=variant_display_map.get(item.variant_id).product_name
+                if item.variant_id in variant_display_map
+                else None,
+                size=variant_display_map.get(item.variant_id).size
+                if item.variant_id in variant_display_map
+                else None,
+                label=variant_display_map.get(item.variant_id).label
+                if item.variant_id in variant_display_map
+                else None,
+                sku=variant_display_map.get(item.variant_id).sku
+                if item.variant_id in variant_display_map
+                else None,
+                qty=item.qty,
+            )
+            for item in items
+        ],
     )
 
 
@@ -403,6 +459,16 @@ def stock_in_location(
         location_id=location_id,
         variant_id=payload.variant_id,
     )
+    location_name_map = get_location_name_map(
+        db,
+        business_id=access.business.id,
+        location_ids=[location_id],
+    )
+    variant_display_map = get_variant_display_map(
+        db,
+        business_id=access.business.id,
+        variant_ids=[payload.variant_id],
+    )
     log_audit_event(
         db,
         business_id=access.business.id,
@@ -413,7 +479,13 @@ def stock_in_location(
         metadata_json={"variant_id": payload.variant_id, "qty": payload.qty, "stock_after": stock},
     )
     db.commit()
-    return LocationVariantStockOut(location_id=location_id, variant_id=payload.variant_id, stock=stock)
+    return _location_variant_stock_out(
+        location_id=location_id,
+        variant_id=payload.variant_id,
+        stock=stock,
+        location_name_map=location_name_map,
+        variant_display_map=variant_display_map,
+    )
 
 
 @router.post(
@@ -458,6 +530,16 @@ def adjust_location_stock(
         location_id=location_id,
         variant_id=payload.variant_id,
     )
+    location_name_map = get_location_name_map(
+        db,
+        business_id=access.business.id,
+        location_ids=[location_id],
+    )
+    variant_display_map = get_variant_display_map(
+        db,
+        business_id=access.business.id,
+        variant_ids=[payload.variant_id],
+    )
     log_audit_event(
         db,
         business_id=access.business.id,
@@ -473,7 +555,13 @@ def adjust_location_stock(
         },
     )
     db.commit()
-    return LocationVariantStockOut(location_id=location_id, variant_id=payload.variant_id, stock=stock_after)
+    return _location_variant_stock_out(
+        location_id=location_id,
+        variant_id=payload.variant_id,
+        stock=stock_after,
+        location_name_map=location_name_map,
+        variant_display_map=variant_display_map,
+    )
 
 
 @router.get(
@@ -496,7 +584,23 @@ def get_location_stock(
         location_id=location_id,
         variant_id=variant_id,
     )
-    return LocationVariantStockOut(location_id=location_id, variant_id=variant_id, stock=stock)
+    location_name_map = get_location_name_map(
+        db,
+        business_id=access.business.id,
+        location_ids=[location_id],
+    )
+    variant_display_map = get_variant_display_map(
+        db,
+        business_id=access.business.id,
+        variant_ids=[variant_id],
+    )
+    return _location_variant_stock_out(
+        location_id=location_id,
+        variant_id=variant_id,
+        stock=stock,
+        location_name_map=location_name_map,
+        variant_display_map=variant_display_map,
+    )
 
 
 @router.get(
@@ -517,8 +621,14 @@ def get_location_stock_overview(
             Location.is_active.is_(True),
         )
     ).scalars().all()
+    location_name_map = {location.id: location.name for location in locations}
+    variant_display_map = get_variant_display_map(
+        db,
+        business_id=access.business.id,
+        variant_ids=[variant_id],
+    )
     by_location = [
-        LocationVariantStockOut(
+        _location_variant_stock_out(
             location_id=location.id,
             variant_id=variant_id,
             stock=get_location_variant_stock(
@@ -527,10 +637,21 @@ def get_location_stock_overview(
                 location_id=location.id,
                 variant_id=variant_id,
             ),
+            location_name_map=location_name_map,
+            variant_display_map=variant_display_map,
         )
         for location in locations
     ]
-    return LocationStockOverviewOut(variant_id=variant_id, by_location=by_location)
+    variant = variant_display_map.get(variant_id)
+    return LocationStockOverviewOut(
+        variant_id=variant_id,
+        product_id=variant.product_id if variant else None,
+        product_name=variant.product_name if variant else None,
+        size=variant.size if variant else None,
+        label=variant.label if variant else None,
+        sku=variant.sku if variant else None,
+        by_location=by_location,
+    )
 
 
 @router.post(
@@ -714,15 +835,32 @@ def list_location_low_stock(
     }
 
     items: list[LocationLowStockItemOut] = []
+    location_name_map = get_location_name_map(
+        db,
+        business_id=access.business.id,
+        location_ids=list(location_ids),
+    )
+    variant_display_map = get_variant_display_map(
+        db,
+        business_id=access.business.id,
+        variant_ids=variant_ids,
+    )
     for location_row_id in location_ids:
         for variant_id, reorder_level in variant_rows:
             stock = stock_by_pair.get((location_row_id, variant_id), 0)
             threshold_value = reorder_level if reorder_level > 0 else threshold
             if stock <= threshold_value:
+                variant = variant_display_map.get(variant_id)
                 items.append(
                     LocationLowStockItemOut(
                         location_id=location_row_id,
+                        location_name=location_name_map.get(location_row_id),
                         variant_id=variant_id,
+                        product_id=variant.product_id if variant else None,
+                        product_name=variant.product_name if variant else None,
+                        size=variant.size if variant else None,
+                        label=variant.label if variant else None,
+                        sku=variant.sku if variant else None,
                         reorder_level=threshold_value,
                         stock=stock,
                     )
@@ -798,6 +936,11 @@ def allocate_order_to_location(
         allocated_by_user_id=actor.id,
     )
     db.add(allocation)
+    location_name = get_location_name_map(
+        db,
+        business_id=access.business.id,
+        location_ids=[payload.location_id],
+    ).get(payload.location_id)
 
     for variant_id, qty in qty_by_variant.items():
         add_location_ledger_entry(
@@ -822,6 +965,7 @@ def allocate_order_to_location(
         metadata_json={
             "order_id": allocation.order_id,
             "location_id": allocation.location_id,
+            "location_name": location_name,
             "items_count": len(qty_by_variant),
         },
     )
@@ -831,5 +975,10 @@ def allocate_order_to_location(
         id=allocation.id,
         order_id=allocation.order_id,
         location_id=allocation.location_id,
+        location_name=get_location_name_map(
+            db,
+            business_id=access.business.id,
+            location_ids=[allocation.location_id],
+        ).get(allocation.location_id),
         allocated_at=allocation.allocated_at,
     )

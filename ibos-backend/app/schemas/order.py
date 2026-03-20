@@ -67,18 +67,29 @@ class OrderStatusUpdateIn(BaseModel):
 class OrderCreateOut(BaseModel):
     id: str
     total: float
+    currency: str
     status: str
     sale_id: str | None = None
+
+
+class OrderAllocationSummaryOut(BaseModel):
+    id: str
+    location_id: str
+    location_name: str | None = None
+    allocated_at: datetime
 
 
 class OrderOut(BaseModel):
     id: str
     customer_id: str | None = None
+    customer_name: str | None = None
     payment_method: PaymentMethod
     channel: SalesChannel
     status: str
+    currency: str
     total_amount: float
     sale_id: str | None = None
+    allocation: OrderAllocationSummaryOut | None = None
     note: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -86,6 +97,7 @@ class OrderOut(BaseModel):
 
 class OrderListOut(BaseModel):
     pagination: PaginationMeta
+    base_currency: str
     start_date: date | None = None
     end_date: date | None = None
     status: str | None = None

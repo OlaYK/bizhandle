@@ -9,8 +9,15 @@ from app.core.deps import get_db
 from app.core.permissions import require_business_roles
 from app.core.security_current import BusinessAccess
 from app.models.audit_log import AuditLog
+from app.models.user import User
 from app.schemas.audit import AuditLogListOut, AuditLogOut
 from app.schemas.common import PaginationMeta
+from app.services.audit_service import (
+    build_audit_metadata_preview,
+    build_audit_summary,
+    build_audit_target_label,
+    sanitize_audit_metadata,
+)
 
 router = APIRouter(prefix="/audit-logs", tags=["audit"])
 
@@ -35,7 +42,11 @@ def list_audit_logs(
         raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
 
     count_stmt = select(func.count(AuditLog.id)).where(AuditLog.business_id == access.business.id)
-    data_stmt = select(AuditLog).where(AuditLog.business_id == access.business.id)
+    data_stmt = (
+        select(AuditLog, User.full_name, User.email)
+        .outerjoin(User, User.id == AuditLog.actor_user_id)
+        .where(AuditLog.business_id == access.business.id)
+    )
 
     if actor_user_id:
         count_stmt = count_stmt.where(AuditLog.actor_user_id == actor_user_id)
@@ -53,19 +64,35 @@ def list_audit_logs(
     total = int(db.execute(count_stmt).scalar_one())
     rows = db.execute(
         data_stmt.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit)
-    ).scalars().all()
+    ).all()
 
     items = [
         AuditLogOut(
-            id=row.id,
-            actor_user_id=row.actor_user_id,
-            action=row.action,
-            target_type=row.target_type,
-            target_id=row.target_id,
-            metadata_json=row.metadata_json,
-            created_at=row.created_at,
+            id=log_row.id,
+            actor_user_id=log_row.actor_user_id,
+            actor_name=actor_name,
+            actor_email=sanitize_audit_metadata({"email": actor_email}).get("email") if actor_email else None,
+            action=log_row.action,
+            summary=build_audit_summary(
+                action=log_row.action,
+                target_type=log_row.target_type,
+                target_id=log_row.target_id,
+                metadata_json=log_row.metadata_json,
+            ),
+            target_type=log_row.target_type,
+            target_id=log_row.target_id,
+            target_label=build_audit_target_label(
+                target_type=log_row.target_type,
+                target_id=log_row.target_id,
+                metadata_json=log_row.metadata_json,
+            ),
+            metadata_json=sanitize_audit_metadata(log_row.metadata_json),
+            metadata_preview=build_audit_metadata_preview(
+                sanitize_audit_metadata(log_row.metadata_json)
+            ),
+            created_at=log_row.created_at,
         )
-        for row in rows
+        for log_row, actor_name, actor_email in rows
     ]
     count = len(items)
     return AuditLogListOut(

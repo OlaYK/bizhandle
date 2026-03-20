@@ -9,6 +9,7 @@ from app.core.deps import get_db
 from app.core.permissions import require_business_roles
 from app.core.security_current import BusinessAccess, get_current_business, get_current_user
 from app.models.inventory import InventoryLedger
+from app.models.location import Location, LocationInventoryLedger
 from app.models.product import Product, ProductVariant
 from app.models.user import User
 from app.schemas.common import PaginationMeta
@@ -26,6 +27,7 @@ from app.schemas.product import (
     VariantOut,
 )
 from app.services.audit_service import log_audit_event
+from app.services.display_service import get_product_default_variant_map
 
 router = APIRouter(prefix="/products", tags=["products"])
 MAX_PRODUCT_PAGE_SIZE = 500
@@ -174,6 +176,9 @@ def list_products(
     has_products_is_published = _table_has_column(
         db, table_name="products", column_name="is_published"
     )
+    has_variant_business_id = _table_has_column(
+        db, table_name="product_variants", column_name="business_id"
+    )
     total = int(
         db.execute(select(func.count(Product.id)).where(Product.business_id == biz.id)).scalar_one()
     )
@@ -192,6 +197,28 @@ def list_products(
         .offset(offset)
         .limit(limit)
     ).mappings().all()
+    product_ids = [row["id"] for row in rows]
+    variant_count_stmt = (
+        select(ProductVariant.product_id, func.count(ProductVariant.id))
+        .where(ProductVariant.product_id.in_(product_ids))
+        .group_by(ProductVariant.product_id)
+    )
+    if has_variant_business_id:
+        variant_count_stmt = variant_count_stmt.where(
+            or_(
+                ProductVariant.business_id == biz.id,
+                ProductVariant.business_id.is_(None),
+            )
+        )
+    variant_count_map = {
+        product_id: int(count)
+        for product_id, count in db.execute(variant_count_stmt).all()
+    } if product_ids else {}
+    default_variant_map = get_product_default_variant_map(
+        db,
+        business_id=biz.id,
+        product_ids=product_ids,
+    )
     items = [
         {
             "id": row["id"],
@@ -199,6 +226,15 @@ def list_products(
             "category": row["category"],
             "active": bool(row["active"]) if row["active"] is not None else True,
             "is_published": bool(row["is_published"]) if has_products_is_published else False,
+            "variant_count": variant_count_map.get(row["id"], 0),
+            "default_variant_id": default_variant_map.get(row["id"]).variant_id if row["id"] in default_variant_map else None,
+            "default_sku": default_variant_map.get(row["id"]).sku if row["id"] in default_variant_map else None,
+            "default_selling_price": (
+                float(default_variant_map.get(row["id"]).selling_price)
+                if row["id"] in default_variant_map and default_variant_map.get(row["id"]).selling_price is not None
+                else None
+            ),
+            "default_stock": default_variant_map.get(row["id"]).stock if row["id"] in default_variant_map else None,
         }
         for row in rows
     ]
@@ -256,6 +292,7 @@ def list_products(
 )
 def list_product_variants(
     product_id: str,
+    location_id: str | None = Query(default=None, description="Optional location context for stock lookup"),
     limit: int = Query(default=50, ge=1, le=MAX_PRODUCT_PAGE_SIZE, description="Page size"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     db: Session = Depends(get_db),
@@ -266,6 +303,12 @@ def list_product_variants(
     ).scalar_one_or_none()
     if not resolved_product_id:
         raise HTTPException(status_code=404, detail="Product not found")
+    if location_id:
+        resolved_location_id = db.execute(
+            select(Location.id).where(Location.id == location_id, Location.business_id == biz.id)
+        ).scalar_one_or_none()
+        if not resolved_location_id:
+            raise HTTPException(status_code=404, detail="Location not found")
 
     has_variant_business_id = _table_has_column(
         db, table_name="product_variants", column_name="business_id"
@@ -316,6 +359,8 @@ def list_product_variants(
                 ProductVariant.business_id.is_(None),
             )
         )
+    variant_stmt = variant_stmt.join(Product, Product.id == ProductVariant.product_id)
+    variant_stmt = variant_stmt.add_columns(Product.name.label("product_name"))
     variants = db.execute(
         variant_stmt
         .order_by(ProductVariant.created_at.desc())
@@ -339,10 +384,27 @@ def list_product_variants(
         ).all()
         stock_by_variant = {variant_id: int(stock) for variant_id, stock in stock_rows}
 
+    location_stock_by_variant: dict[str, int] = {}
+    if variant_ids and location_id:
+        location_rows = db.execute(
+            select(
+                LocationInventoryLedger.variant_id,
+                func.coalesce(func.sum(LocationInventoryLedger.qty_delta), 0),
+            )
+            .where(
+                LocationInventoryLedger.business_id == biz.id,
+                LocationInventoryLedger.location_id == location_id,
+                LocationInventoryLedger.variant_id.in_(variant_ids),
+            )
+            .group_by(LocationInventoryLedger.variant_id)
+        ).all()
+        location_stock_by_variant = {variant_id: int(stock) for variant_id, stock in location_rows}
+
     items = [
         VariantOut(
             id=row["id"],
             product_id=row["product_id"],
+            product_name=row["product_name"],
             business_id=row.get("business_id") or biz.id,
             size=row["size"],
             label=row["label"],
@@ -352,6 +414,7 @@ def list_product_variants(
             selling_price=float(row["selling_price"]) if row["selling_price"] is not None else None,
             is_published=bool(row["is_published"]) if has_variant_is_published else False,
             stock=stock_by_variant.get(row["id"], 0),
+            location_stock=location_stock_by_variant.get(row["id"]) if location_id else None,
             created_at=row["created_at"],
         )
         for row in variants

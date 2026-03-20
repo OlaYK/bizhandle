@@ -42,6 +42,7 @@ class SaleCreate(BaseModel):
 class SaleCreateOut(BaseModel):
     id: str
     total: float
+    currency: str
 
 
 class SaleOut(BaseModel):
@@ -51,12 +52,14 @@ class SaleOut(BaseModel):
     payment_method: PaymentMethod
     channel: SalesChannel
     note: Optional[str] = None
+    currency: str
     total_amount: float
     created_at: datetime
 
 
 class SaleListOut(BaseModel):
     pagination: PaginationMeta
+    base_currency: str
     start_date: date | None = None
     end_date: date | None = None
     items: list[SaleOut]

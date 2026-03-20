@@ -24,6 +24,7 @@ class ChannelProfitabilityItemOut(BaseModel):
 class ChannelProfitabilityOut(BaseModel):
     start_date: date
     end_date: date
+    base_currency: str
     items: list[ChannelProfitabilityItemOut]
 
 
@@ -41,6 +42,12 @@ class CohortRetentionOut(BaseModel):
 
 class InventoryAgingItemOut(BaseModel):
     variant_id: str
+    product_id: str
+    product_name: str
+    size: str
+    label: str | None = None
+    sku: str | None = None
+    reorder_level: int
     bucket: str
     stock: int
     estimated_value: float
@@ -49,6 +56,7 @@ class InventoryAgingItemOut(BaseModel):
 
 class InventoryAgingOut(BaseModel):
     as_of_date: date
+    base_currency: str
     stockout_count: int
     total_estimated_inventory_value: float
     items: list[InventoryAgingItemOut]

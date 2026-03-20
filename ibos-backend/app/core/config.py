@@ -1,5 +1,5 @@
 import json
-from typing import List, Union
+from typing import Any, List, Union
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -20,13 +20,22 @@ class Settings(BaseSettings):
 
     # AI
     ai_provider: str = "stub"
+    ai_fallback_providers: List[str] = Field(default_factory=list)
+    ai_stub_fallback_enabled: bool = True
     ai_model: str = "monidesk-rule-v1"
     ai_vendor: str = "local"
     ai_temperature: float = 0.2
     ai_max_question_chars: int = 500
     ai_cost_per_1k_tokens_usd: float = 0.0
+    deepseek_api_key: str | None = None
+    deepseek_base_url: str | None = None
+    deepseek_model: str | None = None
     openai_api_key: str | None = None
     openai_base_url: str | None = None
+    openai_model: str | None = None
+    groq_api_key: str | None = None
+    groq_base_url: str | None = None
+    groq_model: str | None = None
 
     # GOOGLE AUTH
     google_client_id: str | None = None
@@ -63,9 +72,8 @@ class Settings(BaseSettings):
     cors_origins: List[str] = Field(default_factory=lambda: ["http://localhost:3000"])
     cors_origin_regex: str | None = None
 
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+    @staticmethod
+    def _parse_list_value(v: Union[str, List[str], None], *, field_name: str) -> List[str]:
         if v is None:
             return []
         if isinstance(v, str):
@@ -74,7 +82,7 @@ class Settings(BaseSettings):
             if v.startswith("["):
                 parsed = json.loads(v)
                 if not isinstance(parsed, list):
-                    raise ValueError("CORS_ORIGINS JSON value must be a list")
+                    raise ValueError(f"{field_name} JSON value must be a list")
                 return [str(i).strip() for i in parsed if str(i).strip()]
             if not v.startswith("["):
                 return [i.strip() for i in v.split(",") if i.strip()]
@@ -82,13 +90,35 @@ class Settings(BaseSettings):
             return [str(i).strip() for i in v if str(i).strip()]
         raise ValueError(v)
 
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        return cls._parse_list_value(v, field_name="CORS_ORIGINS")
+
+    @field_validator("ai_fallback_providers", mode="before")
+    @classmethod
+    def assemble_ai_fallback_providers(cls, v: Union[str, List[str], None]) -> List[str]:
+        return [item.lower() for item in cls._parse_list_value(v, field_name="AI_FALLBACK_PROVIDERS")]
+
     @field_validator(
+        "deepseek_api_key",
+        "deepseek_base_url",
+        "deepseek_model",
+        "openai_api_key",
+        "openai_base_url",
+        "openai_model",
+        "groq_api_key",
+        "groq_base_url",
+        "groq_model",
         "smtp_host",
         "smtp_username",
         "smtp_password",
         "smtp_sender_email",
         "smtp_reply_to_email",
         "team_invite_web_base_url",
+        "ai_provider",
+        "ai_model",
+        "ai_vendor",
         mode="before",
     )
     @classmethod

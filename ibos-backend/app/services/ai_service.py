@@ -122,6 +122,14 @@ class AIServiceResult:
 
 
 @dataclass
+class AIProviderExecution:
+    provider: str
+    model: str
+    completion: AIProviderResult
+    attempts: list[dict[str, Any]]
+
+
+@dataclass
 class CuratedMetric:
     key: str
     value: float | str
@@ -150,9 +158,8 @@ class AIProvider(Protocol):
 
 
 class StubAIProvider:
-    provider = f"{settings.ai_vendor}:{settings.ai_provider}"
-
     def __init__(self, model: str):
+        self.provider = "stub"
         self.model = model
 
     def complete(self, *, system_prompt: str, user_prompt: str) -> AIProviderResult:
@@ -270,10 +277,10 @@ class StubAIProvider:
         )
 
 
-class OpenAIProvider:
-    provider = f"{settings.ai_vendor}:openai"
+class OpenAICompatibleProvider:
+    def __init__(self, *, provider: str, api_key: str, model: str, base_url: str | None = None):
+        self.provider = provider
 
-    def __init__(self, *, api_key: str, model: str, base_url: str | None = None):
         try:
             from openai import OpenAI
         except ImportError as exc:
@@ -319,26 +326,37 @@ class OpenAIProvider:
             estimated_cost_usd=estimated_cost_usd,
         )
 
+
+DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_DEFAULT_MODEL = "deepseek-chat"
+OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
+GROQ_DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
+GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+
 def generate_insight(db: Session, business_id: str) -> AIServiceResult:
     snapshot = _load_permitted_snapshot(db, business_id)
     context = snapshot.to_dict()
-    provider = _get_provider()
 
     system_prompt = _insight_system_prompt()
     user_prompt = _daily_insight_user_prompt(context)
-    completion = provider.complete(system_prompt=system_prompt, user_prompt=user_prompt)
+    execution = _complete_with_provider_fallback(system_prompt=system_prompt, user_prompt=user_prompt)
+    completion = execution.completion
     log = _build_log(
         business_id=business_id,
         insight_type="daily_insight",
         prompt=_compose_prompt(system_prompt, user_prompt),
         response=completion.text,
-        provider=provider.provider,
-        model=provider.model,
+        provider=execution.provider,
+        model=execution.model,
         prompt_tokens=completion.prompt_tokens,
         completion_tokens=completion.completion_tokens,
         total_tokens=completion.total_tokens,
         estimated_cost_usd=completion.estimated_cost_usd,
-        metadata_json={"allowed_fields": list(context.keys()), "context": context},
+        metadata_json={
+            "allowed_fields": list(context.keys()),
+            "context": context,
+            "provider_attempts": execution.attempts,
+        },
     )
     return AIServiceResult(response=completion.text, log=log)
 
@@ -346,7 +364,6 @@ def generate_insight(db: Session, business_id: str) -> AIServiceResult:
 def answer_business_question(db: Session, business_id: str, question: str) -> AIServiceResult:
     snapshot = _load_permitted_snapshot(db, business_id)
     context = snapshot.to_dict()
-    provider = _get_provider()
 
     clean_question = question.strip()
     if len(clean_question) > settings.ai_max_question_chars:
@@ -354,14 +371,15 @@ def answer_business_question(db: Session, business_id: str, question: str) -> AI
 
     system_prompt = _ask_system_prompt()
     user_prompt = _ask_user_prompt(context, clean_question)
-    completion = provider.complete(system_prompt=system_prompt, user_prompt=user_prompt)
+    execution = _complete_with_provider_fallback(system_prompt=system_prompt, user_prompt=user_prompt)
+    completion = execution.completion
     log = _build_log(
         business_id=business_id,
         insight_type="question_answer",
         prompt=_compose_prompt(system_prompt, user_prompt),
         response=completion.text,
-        provider=provider.provider,
-        model=provider.model,
+        provider=execution.provider,
+        model=execution.model,
         prompt_tokens=completion.prompt_tokens,
         completion_tokens=completion.completion_tokens,
         total_tokens=completion.total_tokens,
@@ -370,6 +388,7 @@ def answer_business_question(db: Session, business_id: str, question: str) -> AI
             "allowed_fields": list(context.keys()),
             "context": context,
             "question": clean_question,
+            "provider_attempts": execution.attempts,
         },
     )
     return AIServiceResult(response=completion.text, log=log)
@@ -1259,16 +1278,178 @@ def _ask_user_prompt(context: dict[str, Any], question: str) -> str:
     )
 
 
-def _get_provider() -> AIProvider:
-    provider_name = settings.ai_provider.strip().lower()
+def _complete_with_provider_fallback(*, system_prompt: str, user_prompt: str) -> AIProviderExecution:
+    providers, attempts = _build_provider_chain()
+    if not providers:
+        if attempts:
+            details = "; ".join(
+                f"{item['provider']} ({item.get('error') or item['status']})"
+                for item in attempts
+            )
+            raise ValueError(f"No usable AI provider is configured. {details}")
+        raise ValueError("No usable AI provider is configured.")
+
+    last_error: Exception | None = None
+    for provider in providers:
+        try:
+            completion = provider.complete(system_prompt=system_prompt, user_prompt=user_prompt)
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            attempts.append(
+                {
+                    "provider": provider.provider,
+                    "model": provider.model,
+                    "status": "failed",
+                    "error": str(exc),
+                }
+            )
+            continue
+
+        attempts.append(
+            {
+                "provider": provider.provider,
+                "model": provider.model,
+                "status": "success",
+                "error": None,
+            }
+        )
+        return AIProviderExecution(
+            provider=provider.provider,
+            model=provider.model,
+            completion=completion,
+            attempts=attempts,
+        )
+
+    detail = "; ".join(
+        f"{item['provider']} ({item.get('error') or item['status']})"
+        for item in attempts
+    )
+    raise ValueError(f"All configured AI providers failed. {detail}") from last_error
+
+
+def _build_provider_chain() -> tuple[list[AIProvider], list[dict[str, Any]]]:
+    providers: list[AIProvider] = []
+    attempts: list[dict[str, Any]] = []
+
+    for provider_name in _resolve_provider_order():
+        provider, skip_reason = _create_provider(provider_name)
+        if provider is not None:
+            providers.append(provider)
+            continue
+        attempts.append(
+            {
+                "provider": provider_name,
+                "model": _resolve_provider_model(provider_name),
+                "status": "skipped",
+                "error": skip_reason,
+            }
+        )
+
+    return providers, attempts
+
+
+def _resolve_provider_order() -> list[str]:
+    primary = _normalize_provider_name(settings.ai_provider)
+    fallbacks = [_normalize_provider_name(item) for item in settings.ai_fallback_providers]
+    if not fallbacks and primary == "deepseek":
+        fallbacks = ["openai", "groq"]
+    ordered = [primary, *fallbacks]
+
+    unique: list[str] = []
+    for item in ordered:
+        if item and item not in unique:
+            unique.append(item)
+    if settings.ai_stub_fallback_enabled and "stub" not in unique:
+        unique.append("stub")
+    return unique
+
+
+def _normalize_provider_name(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    aliases = {
+        "deep_seek": "deepseek",
+        "deep-seek": "deepseek",
+        "open-ai": "openai",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in {"stub", "openai", "deepseek", "groq"}:
+        raise ValueError(f"Unsupported ai_provider: {value}")
+    return normalized
+
+
+def _resolve_provider_model(provider_name: str) -> str:
+    shared_model = _resolve_shared_ai_model()
     if provider_name == "stub":
-        return StubAIProvider(model=settings.ai_model)
+        return settings.ai_model
+    if provider_name == "deepseek":
+        return (
+            settings.deepseek_model
+            or shared_model
+            or DEEPSEEK_DEFAULT_MODEL
+        )
+    if provider_name == "openai":
+        return (
+            settings.openai_model
+            or shared_model
+            or OPENAI_DEFAULT_MODEL
+        )
+    if provider_name == "groq":
+        return (
+            settings.groq_model
+            or shared_model
+            or GROQ_DEFAULT_MODEL
+        )
+    raise ValueError(f"Unsupported ai_provider: {provider_name}")
+
+
+def _resolve_shared_ai_model() -> str | None:
+    candidate = (settings.ai_model or "").strip()
+    if not candidate or candidate == "monidesk-rule-v1":
+        return None
+    return candidate
+
+
+def _create_provider(provider_name: str) -> tuple[AIProvider | None, str | None]:
+    if provider_name == "stub":
+        return StubAIProvider(model=_resolve_provider_model("stub")), None
+
+    if provider_name == "deepseek":
+        if not settings.deepseek_api_key:
+            return None, "DEEPSEEK_API_KEY is not configured"
+        return (
+            OpenAICompatibleProvider(
+                provider="deepseek",
+                api_key=settings.deepseek_api_key,
+                model=_resolve_provider_model("deepseek"),
+                base_url=settings.deepseek_base_url or DEEPSEEK_DEFAULT_BASE_URL,
+            ),
+            None,
+        )
+
     if provider_name == "openai":
         if not settings.openai_api_key:
-            raise ValueError("OPENAI_API_KEY is required when AI_PROVIDER=openai")
-        return OpenAIProvider(
-            api_key=settings.openai_api_key,
-            model=settings.ai_model,
-            base_url=settings.openai_base_url,
+            return None, "OPENAI_API_KEY is not configured"
+        return (
+            OpenAICompatibleProvider(
+                provider="openai",
+                api_key=settings.openai_api_key,
+                model=_resolve_provider_model("openai"),
+                base_url=settings.openai_base_url,
+            ),
+            None,
         )
-    raise ValueError(f"Unsupported ai_provider: {settings.ai_provider}")
+
+    if provider_name == "groq":
+        if not settings.groq_api_key:
+            return None, "GROQ_API_KEY is not configured"
+        return (
+            OpenAICompatibleProvider(
+                provider="groq",
+                api_key=settings.groq_api_key,
+                model=_resolve_provider_model("groq"),
+                base_url=settings.groq_base_url or GROQ_DEFAULT_BASE_URL,
+            ),
+            None,
+        )
+
+    raise ValueError(f"Unsupported ai_provider: {provider_name}")
