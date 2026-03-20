@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Moon, Sun, SunMoon } from "lucide-react";
+import { AlertTriangle, Moon, Sun, SunMoon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
@@ -59,7 +59,11 @@ export function SettingsPage() {
   const { showToast } = useToast();
   const { theme, resolvedTheme, setTheme } = useTheme();
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
   const [inviteTokenInput, setInviteTokenInput] = useState("");
+  const [deleteAccountPassword, setDeleteAccountPassword] = useState("");
+  const [deleteAccountConfirmation, setDeleteAccountConfirmation] =
+    useState("");
 
   const profileForm = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
@@ -157,6 +161,21 @@ export function SettingsPage() {
     onSettled: () => {
       clearAuth();
       navigate("/login", { replace: true });
+    },
+  });
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: authService.deleteAccount,
+    onSuccess: () => {
+      clearAuth();
+      navigate("/login", { replace: true });
+    },
+    onError: (error) => {
+      showToast({
+        title: "Could not delete account",
+        description: getApiErrorMessage(error),
+        variant: "error",
+      });
     },
   });
 
@@ -498,6 +517,32 @@ export function SettingsPage() {
         </Button>
       </Card>
 
+      <Card className="animate-fade-up [animation-delay:170ms] border border-red-200/80 dark:border-red-500/30">
+        <div className="flex items-start gap-3">
+          <div className="rounded-full bg-red-100 p-2 text-red-600 dark:bg-red-500/15 dark:text-red-300">
+            <AlertTriangle className="h-4 w-4" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-heading text-lg font-bold text-red-700 dark:text-red-300">
+              Delete Account
+            </h3>
+            <p className="mt-2 text-sm text-surface-600 dark:text-surface-300">
+              This disables your login, revokes active sessions, and removes your
+              access from current workspaces. This action is intentionally guarded
+              and cannot be completed with one click.
+            </p>
+            <Button
+              type="button"
+              variant="danger"
+              className="mt-4"
+              onClick={() => setConfirmDeleteAccount(true)}
+            >
+              Delete My Account
+            </Button>
+          </div>
+        </div>
+      </Card>
+
       <Modal
         open={confirmLogout}
         title="Confirm Logout"
@@ -522,6 +567,64 @@ export function SettingsPage() {
           >
             Logout
           </Button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={confirmDeleteAccount}
+        title="Delete Account"
+        onClose={() => {
+          setConfirmDeleteAccount(false);
+          setDeleteAccountPassword("");
+          setDeleteAccountConfirmation("");
+        }}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-surface-600 dark:text-surface-300">
+            Type <span className="font-semibold">DELETE</span> and enter your
+            current password to continue.
+          </p>
+          <Input
+            label="Type DELETE"
+            value={deleteAccountConfirmation}
+            onChange={(event) => setDeleteAccountConfirmation(event.target.value)}
+          />
+          <Input
+            label="Current Password"
+            type="password"
+            value={deleteAccountPassword}
+            onChange={(event) => setDeleteAccountPassword(event.target.value)}
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setConfirmDeleteAccount(false);
+                setDeleteAccountPassword("");
+                setDeleteAccountConfirmation("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              loading={deleteAccountMutation.isPending}
+              disabled={
+                deleteAccountConfirmation.trim().toUpperCase() !== "DELETE" ||
+                !deleteAccountPassword.trim()
+              }
+              onClick={() =>
+                deleteAccountMutation.mutate({
+                  current_password: deleteAccountPassword,
+                  confirmation_text: deleteAccountConfirmation.trim(),
+                })
+              }
+            >
+              Permanently Disable Account
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>

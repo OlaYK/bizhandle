@@ -7,7 +7,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import delete, func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.api_docs import error_responses
@@ -24,7 +24,12 @@ from app.models.product import ProductVariant
 from app.models.sales import Sale, SaleItem
 from app.models.user import User
 from app.schemas.analytics import (
+    AnalyticsExpenseCategoryOut,
     AnalyticsMartRefreshOut,
+    AnalyticsInventoryMovementOut,
+    AnalyticsOverviewOut,
+    AnalyticsOverviewPointOut,
+    AnalyticsOverviewSummaryOut,
     ChannelProfitabilityItemOut,
     ChannelProfitabilityOut,
     CohortRetentionItemOut,
@@ -279,6 +284,32 @@ def _refresh_daily_metrics(
     return rows_refreshed
 
 
+def _ensure_daily_metrics(
+    db: Session,
+    *,
+    business_id: str,
+    start_date: date,
+    end_date: date,
+) -> None:
+    existing_count = int(
+        db.execute(
+            select(func.count(AnalyticsDailyMetric.id)).where(
+                AnalyticsDailyMetric.business_id == business_id,
+                AnalyticsDailyMetric.metric_date >= start_date,
+                AnalyticsDailyMetric.metric_date <= end_date,
+            )
+        ).scalar_one()
+    )
+    if existing_count == 0:
+        _refresh_daily_metrics(
+            db,
+            business_id=business_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        db.flush()
+
+
 @router.post(
     "/mart/refresh",
     response_model=AnalyticsMartRefreshOut,
@@ -321,6 +352,226 @@ def refresh_analytics_mart(
 
 
 @router.get(
+    "/overview",
+    response_model=AnalyticsOverviewOut,
+    summary="Analytics overview with chart-ready revenue, expense, profit, orders, and inventory movements",
+    responses=error_responses(400, 401, 403, 422, 500),
+)
+def analytics_overview(
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+    access: BusinessAccess = Depends(require_permission("analytics.view")),
+):
+    resolved_start, resolved_end = _validate_date_range(start_date, end_date)
+    order_rows = db.execute(
+        select(func.date(Order.created_at), func.count(Order.id))
+        .where(
+            Order.business_id == access.business.id,
+            Order.status.in_(list(TRACKED_ORDER_STATUSES)),
+            func.date(Order.created_at) >= resolved_start,
+            func.date(Order.created_at) <= resolved_end,
+        )
+        .group_by(func.date(Order.created_at))
+    ).all()
+    orders_count_by_day = {
+        _coerce_day(created_day): int(count or 0) for created_day, count in order_rows
+    }
+
+    sale_rows = db.execute(
+        select(
+            func.date(Sale.created_at),
+            func.coalesce(func.sum(Sale.total_amount), 0),
+            func.count(Sale.id),
+        )
+        .where(
+            Sale.business_id == access.business.id,
+            Sale.kind == "sale",
+            func.date(Sale.created_at) >= resolved_start,
+            func.date(Sale.created_at) <= resolved_end,
+        )
+        .group_by(func.date(Sale.created_at))
+    ).all()
+    sales_by_day = {
+        _coerce_day(created_day): {
+            "revenue": float(to_money(revenue or 0)),
+            "sales_count": int(count or 0),
+        }
+        for created_day, revenue, count in sale_rows
+    }
+
+    cogs_rows = db.execute(
+        select(
+            func.date(Sale.created_at),
+            func.coalesce(func.sum(func.coalesce(ProductVariant.cost_price, 0) * SaleItem.qty), 0),
+        )
+        .join(SaleItem, SaleItem.sale_id == Sale.id)
+        .join(ProductVariant, ProductVariant.id == SaleItem.variant_id)
+        .where(
+            Sale.business_id == access.business.id,
+            Sale.kind == "sale",
+            func.date(Sale.created_at) >= resolved_start,
+            func.date(Sale.created_at) <= resolved_end,
+        )
+        .group_by(func.date(Sale.created_at))
+    ).all()
+    cogs_by_day = {
+        _coerce_day(created_day): float(to_money(cogs or 0))
+        for created_day, cogs in cogs_rows
+    }
+
+    expense_rows = db.execute(
+        select(func.date(Expense.created_at), func.coalesce(func.sum(Expense.amount), 0))
+        .where(
+            Expense.business_id == access.business.id,
+            func.date(Expense.created_at) >= resolved_start,
+            func.date(Expense.created_at) <= resolved_end,
+        )
+        .group_by(func.date(Expense.created_at))
+    ).all()
+    expenses_by_day = {
+        _coerce_day(created_day): float(to_money(amount or 0))
+        for created_day, amount in expense_rows
+    }
+
+    inventory_rows = db.execute(
+        select(
+            func.date(InventoryLedger.created_at),
+            func.coalesce(
+                func.sum(case((InventoryLedger.qty_delta > 0, InventoryLedger.qty_delta), else_=0)),
+                0,
+            ),
+            func.coalesce(
+                func.sum(case((InventoryLedger.qty_delta < 0, -InventoryLedger.qty_delta), else_=0)),
+                0,
+            ),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            InventoryLedger.qty_delta > 0,
+                            func.coalesce(InventoryLedger.unit_cost, 0) * InventoryLedger.qty_delta,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ),
+        )
+        .where(
+            InventoryLedger.business_id == access.business.id,
+            func.date(InventoryLedger.created_at) >= resolved_start,
+            func.date(InventoryLedger.created_at) <= resolved_end,
+        )
+        .group_by(func.date(InventoryLedger.created_at))
+    ).all()
+    inventory_by_day = {
+        _coerce_day(created_day): {
+            "stock_in_qty": int(stock_in_qty or 0),
+            "stock_out_qty": int(stock_out_qty or 0),
+            "stock_in_cost": float(to_money(stock_in_cost or 0)),
+        }
+        for created_day, stock_in_qty, stock_out_qty, stock_in_cost in inventory_rows
+    }
+
+    expense_category_rows = db.execute(
+        select(Expense.category, func.coalesce(func.sum(Expense.amount), 0))
+        .where(
+            Expense.business_id == access.business.id,
+            func.date(Expense.created_at) >= resolved_start,
+            func.date(Expense.created_at) <= resolved_end,
+        )
+        .group_by(Expense.category)
+        .order_by(func.sum(Expense.amount).desc())
+    ).all()
+    expense_total = float(
+        sum(float(to_money(amount or 0)) for _category, amount in expense_category_rows)
+    )
+    expense_categories = [
+        AnalyticsExpenseCategoryOut(
+            category=category,
+            total_amount=float(to_money(amount or 0)),
+            share_pct=(
+                float(to_money((to_money(amount or 0) / to_money(expense_total)) * 100))
+                if expense_total > 0
+                else 0.0
+            ),
+        )
+        for category, amount in expense_category_rows
+    ]
+
+    inventory_movement_rows = db.execute(
+        select(
+            InventoryLedger.reason,
+            func.coalesce(func.sum(InventoryLedger.qty_delta), 0),
+            func.coalesce(func.sum(func.coalesce(InventoryLedger.unit_cost, 0) * func.abs(InventoryLedger.qty_delta)), 0),
+        )
+        .where(
+            InventoryLedger.business_id == access.business.id,
+            func.date(InventoryLedger.created_at) >= resolved_start,
+            func.date(InventoryLedger.created_at) <= resolved_end,
+        )
+        .group_by(InventoryLedger.reason)
+        .order_by(func.sum(func.abs(InventoryLedger.qty_delta)).desc())
+    ).all()
+    inventory_movements = [
+        AnalyticsInventoryMovementOut(
+            reason=reason,
+            qty_total=int(qty_total or 0),
+            total_cost=float(to_money(total_cost or 0)),
+        )
+        for reason, qty_total, total_cost in inventory_movement_rows
+    ]
+
+    all_days = sorted(
+        set(orders_count_by_day.keys())
+        | set(sales_by_day.keys())
+        | set(expenses_by_day.keys())
+        | set(inventory_by_day.keys())
+    )
+    timeline = [
+        AnalyticsOverviewPointOut(
+            metric_date=metric_day,
+            revenue=sales_by_day.get(metric_day, {}).get("revenue", 0.0),
+            expenses=expenses_by_day.get(metric_day, 0.0),
+            net_profit=round(
+                sales_by_day.get(metric_day, {}).get("revenue", 0.0)
+                - expenses_by_day.get(metric_day, 0.0)
+                - cogs_by_day.get(metric_day, 0.0),
+                2,
+            ),
+            orders_count=orders_count_by_day.get(metric_day, 0),
+            sales_count=sales_by_day.get(metric_day, {}).get("sales_count", 0),
+            stock_in_qty=inventory_by_day.get(metric_day, {}).get("stock_in_qty", 0),
+            stock_out_qty=inventory_by_day.get(metric_day, {}).get("stock_out_qty", 0),
+            stock_in_cost=inventory_by_day.get(metric_day, {}).get("stock_in_cost", 0.0),
+        )
+        for metric_day in all_days
+    ]
+
+    summary = AnalyticsOverviewSummaryOut(
+        revenue_total=round(sum(point.revenue for point in timeline), 2),
+        expenses_total=round(sum(point.expenses for point in timeline), 2),
+        net_profit_total=round(sum(point.net_profit for point in timeline), 2),
+        orders_total=sum(point.orders_count for point in timeline),
+        sales_total=sum(point.sales_count for point in timeline),
+        stock_in_qty_total=sum(point.stock_in_qty for point in timeline),
+        stock_out_qty_total=sum(point.stock_out_qty for point in timeline),
+        stock_in_cost_total=round(sum(point.stock_in_cost for point in timeline), 2),
+    )
+
+    return AnalyticsOverviewOut(
+        start_date=resolved_start,
+        end_date=resolved_end,
+        base_currency=access.business.base_currency,
+        summary=summary,
+        timeline=timeline,
+        expense_categories=expense_categories,
+        inventory_movements=inventory_movements,
+    )
+
+
+@router.get(
     "/channel-profitability",
     response_model=ChannelProfitabilityOut,
     summary="Channel profitability and net margin view",
@@ -333,23 +584,12 @@ def channel_profitability(
     access: BusinessAccess = Depends(require_permission("analytics.view")),
 ):
     resolved_start, resolved_end = _validate_date_range(start_date, end_date)
-    existing_count = int(
-        db.execute(
-            select(func.count(AnalyticsDailyMetric.id)).where(
-                AnalyticsDailyMetric.business_id == access.business.id,
-                AnalyticsDailyMetric.metric_date >= resolved_start,
-                AnalyticsDailyMetric.metric_date <= resolved_end,
-            )
-        ).scalar_one()
+    _ensure_daily_metrics(
+        db,
+        business_id=access.business.id,
+        start_date=resolved_start,
+        end_date=resolved_end,
     )
-    if existing_count == 0:
-        _refresh_daily_metrics(
-            db,
-            business_id=access.business.id,
-            start_date=resolved_start,
-            end_date=resolved_end,
-        )
-        db.flush()
 
     rows = db.execute(
         select(

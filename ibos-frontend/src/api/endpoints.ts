@@ -9,6 +9,7 @@ export const endpoints = {
     logout: "/auth/logout",
     changePassword: "/auth/change-password",
     me: "/auth/me",
+    deleteAccount: "/auth/me/delete",
     currencies: "/auth/currencies",
   },
   dashboard: {

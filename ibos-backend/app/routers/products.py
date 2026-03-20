@@ -21,6 +21,8 @@ from app.schemas.product import (
     ProductListOut,
     VariantCreate,
     VariantCreateOut,
+    VariantUpdateIn,
+    VariantUpdateOut,
     VariantPublishIn,
     VariantPublishOut,
     VariantListOut,
@@ -111,6 +113,7 @@ def create_variant(
         size=payload.size,
         label=payload.label,
         sku=payload.sku,
+        image_url=payload.image_url,
         reorder_level=payload.reorder_level,
         cost_price=payload.cost_price,
         selling_price=payload.selling_price,
@@ -128,6 +131,7 @@ def create_variant(
             "size": v.size,
             "label": v.label,
             "sku": v.sku,
+            "image_url": v.image_url,
             "reorder_level": v.reorder_level,
         },
     )
@@ -235,6 +239,7 @@ def list_products(
                 else None
             ),
             "default_stock": default_variant_map.get(row["id"]).stock if row["id"] in default_variant_map else None,
+            "default_image_url": default_variant_map.get(row["id"]).image_url if row["id"] in default_variant_map else None,
         }
         for row in rows
     ]
@@ -338,6 +343,7 @@ def list_product_variants(
         ProductVariant.size.label("size"),
         ProductVariant.label.label("label"),
         ProductVariant.sku.label("sku"),
+        ProductVariant.image_url.label("image_url"),
         ProductVariant.cost_price.label("cost_price"),
         ProductVariant.selling_price.label("selling_price"),
         ProductVariant.created_at.label("created_at"),
@@ -409,6 +415,7 @@ def list_product_variants(
             size=row["size"],
             label=row["label"],
             sku=row["sku"],
+            image_url=row["image_url"],
             reorder_level=int(row.get("reorder_level") or 0),
             cost_price=float(row["cost_price"]) if row["cost_price"] is not None else None,
             selling_price=float(row["selling_price"]) if row["selling_price"] is not None else None,
@@ -429,6 +436,105 @@ def list_product_variants(
             count=count,
             has_next=(offset + count) < total,
         ),
+    )
+
+
+@router.patch(
+    "/{product_id}/variants/{variant_id}",
+    response_model=VariantUpdateOut,
+    summary="Update product variant details",
+    responses=error_responses(400, 401, 403, 404, 409, 422, 500),
+)
+def update_variant(
+    product_id: str,
+    variant_id: str,
+    payload: VariantUpdateIn,
+    db: Session = Depends(get_db),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin")),
+    actor: User = Depends(get_current_user),
+):
+    biz = access.business
+    product = db.execute(
+        select(Product).where(Product.id == product_id, Product.business_id == biz.id)
+    ).scalar_one_or_none()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    variant = db.execute(
+        select(ProductVariant).where(
+            ProductVariant.id == variant_id,
+            ProductVariant.product_id == product.id,
+            ProductVariant.business_id == biz.id,
+        )
+    ).scalar_one_or_none()
+    if not variant:
+        raise HTTPException(status_code=404, detail="Variant not found")
+
+    fields_set = payload.model_fields_set
+    if "sku" in fields_set and payload.sku:
+        sku_exists = db.execute(
+            select(ProductVariant.id).where(
+                ProductVariant.business_id == biz.id,
+                func.lower(ProductVariant.sku) == payload.sku.lower(),
+                ProductVariant.id != variant.id,
+            )
+        ).scalar_one_or_none()
+        if sku_exists:
+            raise HTTPException(status_code=400, detail="SKU already exists")
+
+    previous_state = {
+        "size": variant.size,
+        "label": variant.label,
+        "sku": variant.sku,
+        "image_url": variant.image_url,
+        "reorder_level": variant.reorder_level,
+        "cost_price": float(variant.cost_price) if variant.cost_price is not None else None,
+        "selling_price": float(variant.selling_price) if variant.selling_price is not None else None,
+    }
+
+    if "size" in fields_set:
+        variant.size = payload.size or variant.size
+    if "label" in fields_set:
+        variant.label = payload.label
+    if "sku" in fields_set:
+        variant.sku = payload.sku
+    if "image_url" in fields_set:
+        variant.image_url = payload.image_url
+    if "reorder_level" in fields_set and payload.reorder_level is not None:
+        variant.reorder_level = payload.reorder_level
+    if "cost_price" in fields_set:
+        variant.cost_price = payload.cost_price
+    if "selling_price" in fields_set:
+        variant.selling_price = payload.selling_price
+
+    log_audit_event(
+        db,
+        business_id=biz.id,
+        actor_user_id=actor.id,
+        action="product.variant.update",
+        target_type="product_variant",
+        target_id=variant.id,
+        metadata_json={
+            "product_id": product.id,
+            "previous": previous_state,
+            "next": {
+                "size": variant.size,
+                "label": variant.label,
+                "sku": variant.sku,
+                "image_url": variant.image_url,
+                "reorder_level": variant.reorder_level,
+                "cost_price": float(variant.cost_price) if variant.cost_price is not None else None,
+                "selling_price": float(variant.selling_price) if variant.selling_price is not None else None,
+            },
+        },
+    )
+    db.commit()
+    return VariantUpdateOut(
+        id=variant.id,
+        product_id=product.id,
+        image_url=variant.image_url,
+        sku=variant.sku,
+        selling_price=float(variant.selling_price) if variant.selling_price is not None else None,
     )
 
 

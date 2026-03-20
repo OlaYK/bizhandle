@@ -68,6 +68,16 @@ export interface ChangePasswordIn {
   new_password: string;
 }
 
+export interface DeleteAccountIn {
+  current_password: string;
+  confirmation_text: string;
+}
+
+export interface DeleteAccountOut {
+  ok: boolean;
+  deleted_at: string;
+}
+
 export interface UserProfileOut {
   id: string;
   email: string;

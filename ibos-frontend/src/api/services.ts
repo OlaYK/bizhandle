@@ -62,6 +62,8 @@ import type {
   CampaignTemplateOut,
   CampaignTemplateUpdateIn,
   ChangePasswordIn,
+  DeleteAccountIn,
+  DeleteAccountOut,
   CheckoutPaymentsSummaryOut,
   CheckoutSessionCreateIn,
   CheckoutSessionCreateOut,
@@ -315,6 +317,11 @@ export const authService = {
   changePassword(payload: ChangePasswordIn) {
     return apiClient
       .post<OkOut>(endpoints.auth.changePassword, payload)
+      .then((res) => res.data);
+  },
+  deleteAccount(payload: DeleteAccountIn) {
+    return apiClient
+      .post<DeleteAccountOut>(endpoints.auth.deleteAccount, payload)
       .then((res) => res.data);
   },
   me() {

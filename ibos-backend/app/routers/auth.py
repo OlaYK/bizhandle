@@ -30,6 +30,8 @@ from app.models.team_invitation import TeamInvitation
 from app.models.user import User
 from app.schemas.auth import (
     ChangePasswordIn,
+    DeleteAccountIn,
+    DeleteAccountOut,
     CurrencyOptionListOut,
     CurrencyOptionOut,
     GoogleAuthIn,
@@ -42,6 +44,7 @@ from app.schemas.auth import (
     UpdateProfileIn,
     UserProfileOut,
 )
+from app.services.audit_service import log_audit_event
 from app.services.team_invitation_service import hash_team_invitation_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -229,7 +232,7 @@ def _authenticate_user(db: Session, identifier: str, password: str) -> User:
         )
     ).scalar_one_or_none()
 
-    if not user or not verify_password(password, user.hashed_password):
+    if not user or user.is_deleted or not user.is_active or not verify_password(password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     return user
@@ -436,6 +439,8 @@ def google_auth(payload: GoogleAuthIn, request: Request, db: Session = Depends(g
 
     if user and user.google_sub and user.google_sub != identity.sub:
         raise HTTPException(status_code=401, detail="Google account mismatch")
+    if user and (user.is_deleted or not user.is_active):
+        raise HTTPException(status_code=403, detail="Account is inactive")
 
     if not user:
         username = _generate_unique_username(
@@ -664,3 +669,58 @@ def change_password(
     )
     db.commit()
     return {"ok": True}
+
+
+@router.post(
+    "/me/delete",
+    response_model=DeleteAccountOut,
+    summary="Delete current account",
+    description="Soft-deletes the authenticated account after password and confirmation checks.",
+    responses=error_responses(400, 401, 422, 500),
+)
+def delete_my_account(
+    payload: DeleteAccountIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    access: BusinessAccess = Depends(get_current_business_access),
+):
+    if not verify_password(payload.current_password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    if user.is_deleted:
+        raise HTTPException(status_code=400, detail="Account already deleted")
+
+    now = datetime.now(timezone.utc)
+    tombstone_email = f"deleted+{user.id}@monidesk.local"
+    tombstone_username = f"deleted_{user.id[:8]}"
+    log_audit_event(
+        db,
+        business_id=access.business.id,
+        actor_user_id=user.id,
+        action="auth.account.delete",
+        target_type="user",
+        target_id=user.id,
+        metadata_json={"username": user.username, "email": user.email},
+    )
+
+    db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
+    db.execute(
+        update(BusinessMembership)
+        .where(BusinessMembership.user_id == user.id, BusinessMembership.is_active.is_(True))
+        .values(is_active=False)
+    )
+
+    user.email = tombstone_email
+    user.username = tombstone_username
+    user.google_sub = None
+    user.full_name = "Deleted User"
+    user.hashed_password = hash_password(generate_short_token(32))
+    user.is_active = False
+    user.is_deleted = True
+    user.deleted_at = now
+
+    db.commit()
+    return DeleteAccountOut(deleted_at=now)

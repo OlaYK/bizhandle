@@ -22,6 +22,7 @@ class VariantDisplay:
     size: str
     label: str | None
     sku: str | None
+    image_url: str | None
     selling_price: Decimal | None
     reorder_level: int
 
@@ -30,6 +31,7 @@ class VariantDisplay:
 class ProductDefaultVariantDisplay:
     variant_id: str
     sku: str | None
+    image_url: str | None
     selling_price: Decimal | None
     stock: int
 
@@ -96,6 +98,7 @@ def get_variant_display_map(
             ProductVariant.size,
             ProductVariant.label,
             ProductVariant.sku,
+            ProductVariant.image_url,
             ProductVariant.selling_price,
             ProductVariant.reorder_level,
         )
@@ -113,10 +116,11 @@ def get_variant_display_map(
             size=size,
             label=label,
             sku=sku,
+            image_url=image_url,
             selling_price=to_money(selling_price) if selling_price is not None else None,
             reorder_level=int(reorder_level or 0),
         )
-        for variant_id, product_id, product_name, size, label, sku, selling_price, reorder_level in rows
+        for variant_id, product_id, product_name, size, label, sku, image_url, selling_price, reorder_level in rows
     }
 
 
@@ -135,6 +139,7 @@ def get_product_default_variant_map(
             ProductVariant.id,
             ProductVariant.product_id,
             ProductVariant.sku,
+            ProductVariant.image_url,
             ProductVariant.selling_price,
             ProductVariant.created_at,
         )
@@ -147,7 +152,7 @@ def get_product_default_variant_map(
     if not rows:
         return {}
 
-    variant_ids = [variant_id for variant_id, _product_id, _sku, _selling_price, _created_at in rows]
+    variant_ids = [variant_id for variant_id, _product_id, _sku, _image_url, _selling_price, _created_at in rows]
     stock_rows = db.execute(
         select(
             InventoryLedger.variant_id,
@@ -163,10 +168,11 @@ def get_product_default_variant_map(
 
     defaults: dict[str, ProductDefaultVariantDisplay] = {}
     fallback_defaults: dict[str, ProductDefaultVariantDisplay] = {}
-    for variant_id, product_id, sku, selling_price, _created_at in rows:
+    for variant_id, product_id, sku, image_url, selling_price, _created_at in rows:
         candidate = ProductDefaultVariantDisplay(
             variant_id=variant_id,
             sku=sku,
+            image_url=image_url,
             selling_price=to_money(selling_price) if selling_price is not None else None,
             stock=stock_by_variant.get(variant_id, 0),
         )

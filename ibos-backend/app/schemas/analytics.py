@@ -28,6 +28,51 @@ class ChannelProfitabilityOut(BaseModel):
     items: list[ChannelProfitabilityItemOut]
 
 
+class AnalyticsOverviewSummaryOut(BaseModel):
+    revenue_total: float
+    expenses_total: float
+    net_profit_total: float
+    orders_total: int
+    sales_total: int
+    stock_in_qty_total: int
+    stock_out_qty_total: int
+    stock_in_cost_total: float
+
+
+class AnalyticsOverviewPointOut(BaseModel):
+    metric_date: date
+    revenue: float
+    expenses: float
+    net_profit: float
+    orders_count: int
+    sales_count: int
+    stock_in_qty: int
+    stock_out_qty: int
+    stock_in_cost: float
+
+
+class AnalyticsExpenseCategoryOut(BaseModel):
+    category: str
+    total_amount: float
+    share_pct: float
+
+
+class AnalyticsInventoryMovementOut(BaseModel):
+    reason: str
+    qty_total: int
+    total_cost: float
+
+
+class AnalyticsOverviewOut(BaseModel):
+    start_date: date
+    end_date: date
+    base_currency: str
+    summary: AnalyticsOverviewSummaryOut
+    timeline: list[AnalyticsOverviewPointOut]
+    expense_categories: list[AnalyticsExpenseCategoryOut]
+    inventory_movements: list[AnalyticsInventoryMovementOut]
+
+
 class CohortRetentionItemOut(BaseModel):
     cohort_month: str
     total_customers: int

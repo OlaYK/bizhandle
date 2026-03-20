@@ -438,6 +438,7 @@ def list_public_storefront_products(
             Product.name,
             Product.category,
             func.min(ProductVariant.selling_price).label("starting_price"),
+            func.min(ProductVariant.image_url).label("preview_image_url"),
             func.count(ProductVariant.id).label("variant_count"),
         )
         .join(
@@ -475,9 +476,10 @@ def list_public_storefront_products(
             name=name,
             category=product_category,
             starting_price=float(starting_price) if starting_price is not None else None,
+            preview_image_url=preview_image_url,
             published_variant_count=int(variant_count),
         )
-        for product_id, name, product_category, starting_price, variant_count in rows
+        for product_id, name, product_category, starting_price, preview_image_url, variant_count in rows
     ]
     count = len(items)
     return PublicStorefrontProductListOut(
@@ -550,6 +552,7 @@ def get_public_storefront_product_detail(
                 size=variant.size,
                 label=variant.label,
                 sku=variant.sku,
+                image_url=variant.image_url,
                 selling_price=float(variant.selling_price) if variant.selling_price is not None else None,
             )
             for variant in variants

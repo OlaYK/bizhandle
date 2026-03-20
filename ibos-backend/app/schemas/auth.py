@@ -219,6 +219,39 @@ class ChangePasswordIn(BaseModel):
     )
 
 
+class DeleteAccountIn(BaseModel):
+    current_password: str
+    confirmation_text: str
+
+    @field_validator("current_password", "confirmation_text")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("value is required")
+        return cleaned
+
+    @model_validator(mode="after")
+    def validate_confirmation(self) -> "DeleteAccountIn":
+        if self.confirmation_text.strip().upper() != "DELETE":
+            raise ValueError("confirmation_text must be DELETE")
+        return self
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "current_password": "password123",
+                "confirmation_text": "DELETE",
+            }
+        }
+    )
+
+
+class DeleteAccountOut(BaseModel):
+    ok: bool = True
+    deleted_at: datetime
+
+
 class UserProfileOut(BaseModel):
     id: str
     email: EmailStr

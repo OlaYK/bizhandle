@@ -181,6 +181,7 @@ class PublicStorefrontProductOut(BaseModel):
     name: str
     category: str | None = None
     starting_price: float | None = None
+    preview_image_url: str | None = None
     published_variant_count: int
 
 
@@ -196,6 +197,7 @@ class PublicStorefrontVariantOut(BaseModel):
     size: str
     label: str | None = None
     sku: str | None = None
+    image_url: str | None = None
     selling_price: float | None = None
 
 
