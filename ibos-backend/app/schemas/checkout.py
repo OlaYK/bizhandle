@@ -121,6 +121,7 @@ class CheckoutSessionOut(BaseModel):
     status: str
     currency: str
     customer_id: str | None = None
+    customer_name: str | None = None
     payment_method: PaymentMethod
     channel: SalesChannel
     total_amount: float
@@ -128,6 +129,7 @@ class CheckoutSessionOut(BaseModel):
     payment_reference: str | None = None
     payment_checkout_url: str | None = None
     order_id: str | None = None
+    order_reference: str | None = None
     order_status: str | None = None
     sale_id: str | None = None
     has_sale: bool = False
@@ -150,6 +152,7 @@ class CheckoutSessionPublicOut(BaseModel):
     status: str
     currency: str
     customer_id: str | None = None
+    customer_name: str | None = None
     payment_method: PaymentMethod
     channel: SalesChannel
     note: str | None = None
@@ -188,8 +191,10 @@ class CheckoutSessionPlaceOrderOut(BaseModel):
     checkout_session_token: str
     checkout_status: str
     order_id: str
+    order_reference: str | None = None
     order_status: str
     customer_id: str | None = None
+    customer_name: str | None = None
     total_amount: float
 
 
@@ -233,6 +238,7 @@ class CheckoutWebhookOut(BaseModel):
     checkout_session_id: str | None = None
     checkout_session_status: str | None = None
     order_id: str | None = None
+    order_reference: str | None = None
     order_status: str | None = None
     duplicate: bool = False
 

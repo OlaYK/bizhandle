@@ -957,6 +957,16 @@ def test_inventory_adjustment_and_low_stock_listing(test_context):
     assert stock_after.status_code == 200, stock_after.text
     assert stock_after.json()["stock"] == 3
 
+    ledger_res = client.get("/inventory/ledger", headers=_auth_headers(token))
+    assert ledger_res.status_code == 200, ledger_res.text
+    ledger_item = next((item for item in ledger_res.json()["items"] if item["variant_id"] == variant_id), None)
+    assert ledger_item is not None
+    assert ledger_item["product_id"] == product_id
+    assert ledger_item["product_name"] == "Ankara Fabric"
+    assert ledger_item["size"] == "6x6"
+    assert ledger_item["label"] == "Plain"
+    assert ledger_item["sku"]
+
     low_stock_res = client.get("/inventory/low-stock", headers=_auth_headers(token))
     assert low_stock_res.status_code == 200, low_stock_res.text
     low_stock_items = low_stock_res.json()["items"]
@@ -2664,12 +2674,19 @@ def test_checkout_session_create_public_view_and_place_order(test_context):
 
     placed = client.post(
         f"/checkout/{session_token}/place-order",
-        json={"payment_method": "transfer", "note": "Placed from public checkout"},
+        json={
+            "payment_method": "transfer",
+            "note": "Placed from public checkout",
+            "customer_name": "Checkout Buyer",
+            "customer_email": "checkout.buyer@example.com",
+        },
     )
     assert placed.status_code == 200, placed.text
     placed_payload = placed.json()
     assert placed_payload["checkout_status"] == "pending_payment"
     assert placed_payload["order_status"] == "pending"
+    assert placed_payload["order_reference"].startswith("ORD-")
+    assert placed_payload["customer_name"] == "Checkout Buyer"
     assert placed_payload["total_amount"] == pytest.approx(250.0)
 
     orders = client.get("/orders?status=pending", headers=_auth_headers(token))
@@ -2781,6 +2798,7 @@ def test_checkout_webhook_marks_order_paid_and_is_idempotent(test_context):
     assert webhook_json["checkout_session_id"] == checkout_session_id
     assert webhook_json["checkout_session_status"] == "paid"
     assert webhook_json["order_id"] == order_id
+    assert webhook_json["order_reference"].startswith("ORD-")
     assert webhook_json["order_status"] == "paid"
 
     duplicate_res = client.post("/payment-webhooks/stub", content=body, headers=headers)
@@ -3028,7 +3046,11 @@ def test_shipping_quote_selection_and_shipment_tracking_flow(test_context):
 
     placed = client.post(
         f"/checkout/{session_token}/place-order",
-        json={"payment_method": "transfer"},
+        json={
+            "payment_method": "transfer",
+            "customer_name": "Shipping Buyer",
+            "customer_email": "shipping.buyer@example.com",
+        },
     )
     assert placed.status_code == 200, placed.text
     order_id = placed.json()["order_id"]
@@ -3068,6 +3090,8 @@ def test_shipping_quote_selection_and_shipment_tracking_flow(test_context):
     shipment_payload = shipment.json()
     shipment_id = shipment_payload["id"]
     assert shipment_payload["status"] == "label_purchased"
+    assert shipment_payload["order_reference"].startswith("ORD-")
+    assert shipment_payload["customer_name"] == "Shipping Buyer"
     assert shipment_payload["tracking_number"]
 
     sync_first = client.post(
@@ -3076,6 +3100,8 @@ def test_shipping_quote_selection_and_shipment_tracking_flow(test_context):
     )
     assert sync_first.status_code == 200, sync_first.text
     assert sync_first.json()["shipment_status"] == "in_transit"
+    assert sync_first.json()["order_reference"].startswith("ORD-")
+    assert sync_first.json()["customer_name"] == "Shipping Buyer"
     assert sync_first.json()["order_status"] == "processing"
 
     sync_second = client.post(
@@ -3432,6 +3458,7 @@ def test_campaigns_segments_consent_dispatch_metrics_and_retention_trigger_flow(
     assert template.status_code == 200, template.text
     template_id = template.json()["id"]
     assert template.json()["status"] == "draft"
+    assert template.json()["created_by_name"] == "Owner"
 
     blocked_send = client.post(
         "/campaigns",
@@ -3455,6 +3482,7 @@ def test_campaigns_segments_consent_dispatch_metrics_and_retention_trigger_flow(
     )
     assert approve_template.status_code == 200, approve_template.text
     assert approve_template.json()["status"] == "approved"
+    assert approve_template.json()["approved_by_name"] == "Owner"
 
     connect_whatsapp = client.post(
         "/integrations/apps/install",
@@ -3479,6 +3507,7 @@ def test_campaigns_segments_consent_dispatch_metrics_and_retention_trigger_flow(
     )
     assert unsubscribe.status_code == 200, unsubscribe.text
     assert unsubscribe.json()["status"] == "unsubscribed"
+    assert unsubscribe.json()["customer_name"] == "Campaign Customer Two"
 
     campaign = client.post(
         "/campaigns",
@@ -3495,12 +3524,19 @@ def test_campaigns_segments_consent_dispatch_metrics_and_retention_trigger_flow(
     assert campaign.status_code == 200, campaign.text
     campaign_payload = campaign.json()
     campaign_id = campaign_payload["id"]
+    assert campaign_payload["segment_name"] == "Customers With Phone"
+    assert campaign_payload["template_name"] == "Winback WhatsApp Template"
+    assert campaign_payload["created_by_name"] == "Owner"
     assert campaign_payload["total_recipients"] == 2
     assert campaign_payload["suppressed_count"] >= 1
     assert campaign_payload["sent_count"] + campaign_payload["failed_count"] >= 1
 
     recipients = client.get(f"/campaigns/{campaign_id}/recipients", headers=_auth_headers(token))
     assert recipients.status_code == 200, recipients.text
+    assert {item["customer_name"] for item in recipients.json()["items"]} == {
+        "Campaign Customer One",
+        "Campaign Customer Two",
+    }
     recipient_statuses = {item["status"] for item in recipients.json()["items"]}
     assert "suppressed" in recipient_statuses
     assert "sent" in recipient_statuses or "delivered" in recipient_statuses or "failed" in recipient_statuses
@@ -3536,6 +3572,9 @@ def test_campaigns_segments_consent_dispatch_metrics_and_retention_trigger_flow(
     )
     assert trigger.status_code == 200, trigger.text
     trigger_id = trigger.json()["id"]
+    assert trigger.json()["segment_name"] == "Customers With Phone"
+    assert trigger.json()["template_name"] == "Winback WhatsApp Template"
+    assert trigger.json()["created_by_name"] == "Owner"
 
     trigger_run = client.post(
         f"/campaigns/retention-triggers/{trigger_id}/run",
@@ -3551,7 +3590,10 @@ def test_campaigns_segments_consent_dispatch_metrics_and_retention_trigger_flow(
 
     campaigns_list = client.get("/campaigns?limit=20&offset=0", headers=_auth_headers(token))
     assert campaigns_list.status_code == 200, campaigns_list.text
-    assert any(item["id"] == campaign_id for item in campaigns_list.json()["items"])
+    listed_campaign = next((item for item in campaigns_list.json()["items"] if item["id"] == campaign_id), None)
+    assert listed_campaign is not None
+    assert listed_campaign["segment_name"] == "Customers With Phone"
+    assert listed_campaign["template_name"] == "Winback WhatsApp Template"
 
 
 def test_invoices_advanced_receivables_templates_partials_aging_and_statements(test_context):
@@ -3750,8 +3792,9 @@ def test_invoices_advanced_receivables_templates_partials_aging_and_statements(t
         headers=_auth_headers(token),
     )
     assert export.status_code == 200, export.text
-    assert export.json()["row_count"] >= 1
-    assert "customer_id" in export.json()["csv_content"]
+    assert export.headers["content-type"].startswith("text/csv")
+    assert "attachment; filename=" in export.headers["content-disposition"]
+    assert "customer_id,customer_name,invoices_count" in export.text
 
 
 def test_analytics_pos_offline_and_privacy_hardening_flow(test_context):
@@ -3884,7 +3927,9 @@ def test_analytics_pos_offline_and_privacy_hardening_flow(test_context):
         headers=_auth_headers(token),
     )
     assert export_report.status_code == 200, export_report.text
-    assert "channel" in export_report.json()["csv_content"]
+    assert export_report.headers["content-type"].startswith("text/csv")
+    assert "attachment; filename=" in export_report.headers["content-disposition"]
+    assert "channel,revenue,cogs,expenses,gross_profit,net_profit" in export_report.text
 
     customer = client.post(
         "/customers",
@@ -3932,6 +3977,8 @@ def test_analytics_pos_offline_and_privacy_hardening_flow(test_context):
     )
     assert pii_export.status_code == 200, pii_export.text
     assert pii_export.json()["customer"]["email"] == "privacy.customer@example.com"
+    assert pii_export.json()["orders"][0]["reference"].startswith("ORD-")
+    assert pii_export.json()["invoices"][0]["reference"].startswith("INV-")
     pii_export_pdf = client.get(
         f"/privacy/customers/{customer_id}/export/download",
         headers=_auth_headers(token),

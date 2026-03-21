@@ -45,6 +45,17 @@ class OrderAllocationDisplay:
     allocated_at: datetime
 
 
+def build_display_reference(prefix: str, value: str | None) -> str | None:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        return None
+    token = cleaned.replace("-", "")[:8].upper()
+    if not token:
+        return None
+    normalized_prefix = prefix.strip().upper() or "REF"
+    return f"{normalized_prefix}-{token}"
+
+
 def get_customer_name_map(
     db: Session,
     *,

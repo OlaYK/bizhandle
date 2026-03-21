@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
@@ -45,7 +45,6 @@ from app.schemas.invoice import (
     InvoiceReminderPolicyOut,
     InvoiceReminderRunOut,
     InvoiceSendIn,
-    InvoiceStatementExportOut,
     InvoiceStatementItemOut,
     InvoiceStatementListOut,
     InvoiceTemplateListOut,
@@ -1007,8 +1006,7 @@ def list_statements(
 
 @router.get(
     "/statements/export",
-    response_model=InvoiceStatementExportOut,
-    summary="Export monthly statements as CSV payload",
+    summary="Export monthly statements as CSV download",
     responses=error_responses(400, 401, 403, 422, 500),
 )
 def export_statements(
@@ -1050,11 +1048,11 @@ def export_statements(
                 "by_currency": json.dumps(item.by_currency, separators=(",", ":")),
             }
         )
-    return InvoiceStatementExportOut(
-        filename=f"invoice_statements_{start_date.isoformat()}_{end_date.isoformat()}.csv",
-        content_type="text/csv",
-        row_count=len(items),
-        csv_content=writer_buffer.getvalue(),
+    filename = f"invoice_statements_{start_date.isoformat()}_{end_date.isoformat()}.csv"
+    return Response(
+        content=writer_buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

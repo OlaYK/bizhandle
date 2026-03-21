@@ -6,7 +6,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import case, delete, func, select
 from sqlalchemy.orm import Session
 
@@ -38,7 +38,6 @@ from app.schemas.analytics import (
     InventoryAgingOut,
     MarketingAttributionEventIn,
     MarketingAttributionEventOut,
-    ReportExportOut,
     ReportScheduleCreateIn,
     ReportScheduleListOut,
     ReportScheduleOut,
@@ -915,7 +914,6 @@ def _export_inventory_aging_csv(
 
 @router.get(
     "/reports/export",
-    response_model=ReportExportOut,
     summary="Export analytics report",
     responses=error_responses(400, 401, 403, 422, 500),
 )
@@ -956,12 +954,12 @@ def export_report(
             as_of_date=resolved_end,
         )
 
+    _ = row_count
     filename = f"{normalized_report_type}_{date.today().isoformat()}.csv"
-    return ReportExportOut(
-        filename=filename,
-        content_type="text/csv",
-        row_count=row_count,
-        csv_content=content,
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

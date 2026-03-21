@@ -32,6 +32,7 @@ from app.schemas.privacy import (
     RolePermissionOut,
 )
 from app.services.audit_service import log_audit_event
+from app.services.display_service import build_display_reference
 from app.services.pdf_export_service import build_text_pdf
 
 router = APIRouter(prefix="/privacy", tags=["privacy"])
@@ -78,6 +79,7 @@ def _build_customer_pii_export(
         orders=[
             CustomerPiiOrderOut(
                 id=row.id,
+                reference=build_display_reference("ORD", row.id),
                 status=row.status,
                 channel=row.channel,
                 total_amount=float(to_money(row.total_amount)),
@@ -88,6 +90,7 @@ def _build_customer_pii_export(
         invoices=[
             CustomerPiiInvoiceOut(
                 id=row.id,
+                reference=build_display_reference("INV", row.id),
                 status=row.status,
                 currency=row.currency,
                 total_amount=float(to_money(row.total_amount)),
@@ -165,7 +168,9 @@ def _customer_document_out(
         customer_id=document.customer_id,
         customer_name=customer_name,
         order_id=document.order_id,
+        order_reference=build_display_reference("ORD", document.order_id),
         invoice_id=document.invoice_id,
+        invoice_reference=build_display_reference("INV", document.invoice_id),
         document_type=document.document_type,
         title=document.title,
         status=document.status,
@@ -307,14 +312,14 @@ def download_customer_pii_export_pdf(
 
     for order in payload.orders[:10]:
         lines.append(
-            f"- {order.id[:8]}... | {order.status} | {order.channel} | {order.total_amount:.2f}"
+            f"- {order.reference or order.id} | {order.status} | {order.channel} | {order.total_amount:.2f}"
         )
 
     lines.append("")
     lines.append("Recent Invoices:")
     for invoice in payload.invoices[:10]:
         lines.append(
-            f"- {invoice.id[:8]}... | {invoice.status} | {invoice.currency} | "
+            f"- {invoice.reference or invoice.id} | {invoice.status} | {invoice.currency} | "
             f"{invoice.total_amount:.2f} (paid {invoice.amount_paid:.2f})"
         )
 

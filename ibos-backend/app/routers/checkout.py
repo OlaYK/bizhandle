@@ -43,7 +43,11 @@ from app.schemas.checkout import (
 )
 from app.schemas.common import PaginationMeta
 from app.services.audit_service import log_audit_event
-from app.services.display_service import get_variant_display_map
+from app.services.display_service import (
+    build_display_reference,
+    get_customer_name_map,
+    get_variant_display_map,
+)
 from app.services.payment_provider import PaymentInitRequest, get_payment_provider
 
 router = APIRouter(prefix="/checkout", tags=["checkout"])
@@ -216,13 +220,37 @@ def _init_provider_checkout(
     checkout.payment_checkout_url = payment_result.checkout_url
 
 
-def _checkout_out(db: Session, checkout: CheckoutSession) -> CheckoutSessionOut:
-    order = None
-    if checkout.order_id:
+def _checkout_out(
+    db: Session,
+    checkout: CheckoutSession,
+    *,
+    order_lookup: dict[str, dict[str, object]] | None = None,
+    customer_name_map: dict[str, str] | None = None,
+) -> CheckoutSessionOut:
+    order_payload: dict[str, object] | None = None
+    if order_lookup is not None:
+        order_payload = order_lookup.get(checkout.order_id or "")
+    elif checkout.order_id:
         order = db.execute(
             select(Order).where(
                 Order.id == checkout.order_id,
                 Order.business_id == checkout.business_id,
+            )
+        ).scalar_one_or_none()
+        if order:
+            order_payload = {
+                "status": order.status,
+                "sale_id": order.sale_id,
+            }
+
+    customer_name = None
+    if customer_name_map is not None:
+        customer_name = customer_name_map.get(checkout.customer_id or "")
+    elif checkout.customer_id:
+        customer_name = db.execute(
+            select(Customer.name).where(
+                Customer.id == checkout.customer_id,
+                Customer.business_id == checkout.business_id,
             )
         ).scalar_one_or_none()
 
@@ -232,6 +260,7 @@ def _checkout_out(db: Session, checkout: CheckoutSession) -> CheckoutSessionOut:
         status=checkout.status,
         currency=checkout.currency,
         customer_id=checkout.customer_id,
+        customer_name=customer_name,
         payment_method=checkout.payment_method,
         channel=checkout.channel,
         total_amount=float(to_money(checkout.total_amount)),
@@ -239,9 +268,10 @@ def _checkout_out(db: Session, checkout: CheckoutSession) -> CheckoutSessionOut:
         payment_reference=checkout.payment_reference,
         payment_checkout_url=checkout.payment_checkout_url,
         order_id=checkout.order_id,
-        order_status=order.status if order else None,
-        sale_id=order.sale_id if order else None,
-        has_sale=bool(order and order.sale_id),
+        order_reference=build_display_reference("ORD", checkout.order_id),
+        order_status=str(order_payload["status"]) if order_payload else None,
+        sale_id=str(order_payload["sale_id"]) if order_payload and order_payload.get("sale_id") else None,
+        has_sale=bool(order_payload and order_payload.get("sale_id")),
         created_at=checkout.created_at,
         updated_at=checkout.updated_at,
         expires_at=checkout.expires_at,
@@ -716,7 +746,35 @@ def list_checkout_sessions(
         for session in sessions:
             db.refresh(session)
 
-    items = [_checkout_out(db, session) for session in sessions]
+    order_ids = [session.order_id for session in sessions if session.order_id]
+    order_rows = (
+        db.execute(
+            select(Order.id, Order.status, Order.sale_id).where(
+                Order.business_id == access.business.id,
+                Order.id.in_(order_ids),
+            )
+        ).all()
+        if order_ids
+        else []
+    )
+    order_lookup = {
+        order_id: {"status": order_status, "sale_id": sale_id}
+        for order_id, order_status, sale_id in order_rows
+    }
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=access.business.id,
+        customer_ids=[session.customer_id for session in sessions],
+    )
+    items = [
+        _checkout_out(
+            db,
+            session,
+            order_lookup=order_lookup,
+            customer_name_map=customer_name_map,
+        )
+        for session in sessions
+    ]
     count = len(items)
     return CheckoutSessionListOut(
         items=items,
@@ -877,11 +935,17 @@ def get_checkout_session(
         db.commit()
         db.refresh(checkout)
 
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=checkout.business_id,
+        customer_ids=[checkout.customer_id],
+    )
     return CheckoutSessionPublicOut(
         session_token=checkout.session_token,
         status=checkout.status,
         currency=checkout.currency,
         customer_id=checkout.customer_id,
+        customer_name=customer_name_map.get(checkout.customer_id or ""),
         payment_method=checkout.payment_method,
         channel=checkout.channel,
         note=checkout.note,
@@ -971,13 +1035,20 @@ def place_order_from_checkout_session(
         },
     )
     db.commit()
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=checkout.business_id,
+        customer_ids=[resolved_customer_id],
+    )
     return CheckoutSessionPlaceOrderOut(
         checkout_session_id=checkout.id,
         checkout_session_token=checkout.session_token,
         checkout_status=checkout.status,
         order_id=order_id,
+        order_reference=build_display_reference("ORD", order_id),
         order_status="pending",
         customer_id=resolved_customer_id,
+        customer_name=customer_name_map.get(resolved_customer_id or ""),
         total_amount=float(to_money(order.total_amount)),
     )
 
@@ -1015,6 +1086,7 @@ async def process_payment_webhook(
             checkout_session_id=checkout.id if checkout else None,
             checkout_session_status=checkout.status if checkout else None,
             order_id=checkout.order_id if checkout else None,
+            order_reference=build_display_reference("ORD", checkout.order_id if checkout else None),
             duplicate=True,
         )
 
@@ -1081,6 +1153,7 @@ async def process_payment_webhook(
         checkout_session_id=checkout.id,
         checkout_session_status=checkout.status,
         order_id=order_id or checkout.order_id,
+        order_reference=build_display_reference("ORD", order_id or checkout.order_id),
         order_status=order_status,
         duplicate=False,
     )

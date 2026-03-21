@@ -152,6 +152,10 @@ class ShipmentTrackingEventOut(BaseModel):
 class ShipmentOut(BaseModel):
     id: str
     order_id: str
+    order_reference: str | None = None
+    order_status: str | None = None
+    customer_id: str | None = None
+    customer_name: str | None = None
     checkout_session_id: str | None = None
     provider: str
     service_code: str
@@ -187,6 +191,9 @@ class ShipmentTrackingSyncOut(BaseModel):
     shipment_id: str
     shipment_status: str
     order_id: str
+    order_reference: str | None = None
+    customer_id: str | None = None
+    customer_name: str | None = None
     order_status: str
     tracking_events_added: int
 

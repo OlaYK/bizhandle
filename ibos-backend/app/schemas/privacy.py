@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 
 class CustomerPiiOrderOut(BaseModel):
     id: str
+    reference: str | None = None
     status: str
     channel: str
     total_amount: float
@@ -14,6 +15,7 @@ class CustomerPiiOrderOut(BaseModel):
 
 class CustomerPiiInvoiceOut(BaseModel):
     id: str
+    reference: str | None = None
     status: str
     currency: str
     total_amount: float
@@ -120,7 +122,9 @@ class CustomerDocumentOut(BaseModel):
     customer_id: str
     customer_name: str | None = None
     order_id: str | None = None
+    order_reference: str | None = None
     invoice_id: str | None = None
+    invoice_reference: str | None = None
     document_type: str
     title: str
     status: str
