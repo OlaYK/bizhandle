@@ -30,6 +30,7 @@ from app.schemas.product import (
 )
 from app.services.audit_service import log_audit_event
 from app.services.display_service import get_product_default_variant_map
+from app.services.inventory_service import add_ledger_entry
 
 router = APIRouter(prefix="/products", tags=["products"])
 MAX_PRODUCT_PAGE_SIZE = 500
@@ -119,6 +120,17 @@ def create_variant(
         selling_price=payload.selling_price,
     )
     db.add(v)
+    if payload.qty > 0:
+        add_ledger_entry(
+            db,
+            ledger_id=str(uuid.uuid4()),
+            business_id=biz.id,
+            variant_id=v.id,
+            qty_delta=payload.qty,
+            reason="stock_in",
+            note="Initial stock added during variant creation",
+            unit_cost=payload.cost_price,
+        )
     log_audit_event(
         db,
         business_id=biz.id,
@@ -133,6 +145,7 @@ def create_variant(
             "sku": v.sku,
             "image_url": v.image_url,
             "reorder_level": v.reorder_level,
+            "qty": payload.qty,
         },
     )
     db.commit()

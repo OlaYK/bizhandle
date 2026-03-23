@@ -977,6 +977,50 @@ def test_inventory_adjustment_and_low_stock_listing(test_context):
     assert variants_res.json()["items"][0]["reorder_level"] == 4
 
 
+def test_variant_create_can_seed_opening_stock(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="variant-opening-stock-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    create_product_res = client.post(
+        "/products",
+        json={"name": "Bedsheet", "category": "bedding"},
+        headers=_auth_headers(token),
+    )
+    assert create_product_res.status_code == 200, create_product_res.text
+    product_id = create_product_res.json()["id"]
+
+    create_variant_res = client.post(
+        f"/products/{product_id}/variants",
+        json={
+            "size": "King",
+            "label": "Blue",
+            "sku": f"BED-{uuid.uuid4().hex[:6]}",
+            "reorder_level": 3,
+            "qty": 8,
+            "cost_price": 25.0,
+            "selling_price": 45.0,
+        },
+        headers=_auth_headers(token),
+    )
+    assert create_variant_res.status_code == 200, create_variant_res.text
+    variant_id = create_variant_res.json()["id"]
+
+    variants_res = client.get(f"/products/{product_id}/variants", headers=_auth_headers(token))
+    assert variants_res.status_code == 200, variants_res.text
+    variant_row = next((item for item in variants_res.json()["items"] if item["id"] == variant_id), None)
+    assert variant_row is not None
+    assert variant_row["stock"] == 8
+
+    ledger_res = client.get(f"/inventory/ledger?variant_id={variant_id}", headers=_auth_headers(token))
+    assert ledger_res.status_code == 200, ledger_res.text
+    ledger_item = ledger_res.json()["items"][0]
+    assert ledger_item["qty_delta"] == 8
+    assert ledger_item["reason"] == "stock_in"
+
+
 def test_products_variants_list_accepts_limit_300_for_frontend_prefetch(test_context):
     client, _ = test_context
 

@@ -41,6 +41,7 @@ class VariantCreate(BaseModel):
     sku: Optional[str] = None
     image_url: Optional[str] = None
     reorder_level: int = Field(default=0, ge=0)
+    qty: int = Field(default=0, ge=0)
     cost_price: Optional[Decimal] = Field(default=None, gt=0)
     selling_price: Optional[Decimal] = Field(default=None, gt=0)
 
@@ -68,6 +69,7 @@ class VariantCreate(BaseModel):
                 "sku": "ANK-6X6-PLN",
                 "image_url": "https://res.cloudinary.com/demo/image/upload/ankara.jpg",
                 "reorder_level": 5,
+                "qty": 12,
                 "cost_price": 50.0,
                 "selling_price": 100.0,
             }
