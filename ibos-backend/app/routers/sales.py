@@ -19,6 +19,9 @@ from app.schemas.sales import (
     SaleCreate,
     SaleCreateOut,
     SaleListOut,
+    SaleQuote,
+    SaleQuoteLineOut,
+    SaleQuoteOut,
     SaleOut,
     SaleRefundOptionsOut,
     SaleRefundOptionOut,
@@ -36,6 +39,96 @@ def _variant_business_map(db: Session, variant_ids: list[str]) -> dict[str, str]
         )
     ).all()
     return {variant_id: business_id for variant_id, business_id in rows}
+
+
+def _build_sale_quote(
+    db: Session,
+    *,
+    business_id: str,
+    currency: str,
+    items: list,
+) -> SaleQuoteOut:
+    quantity_by_variant: dict[str, int] = {}
+    total = ZERO_MONEY
+    line_items: list[tuple[str, int, Decimal, Decimal]] = []
+
+    for item in items:
+        unit_price = to_money(item.unit_price)
+        line_total = to_money(unit_price * item.qty)
+        quantity_by_variant[item.variant_id] = quantity_by_variant.get(item.variant_id, 0) + item.qty
+        total += line_total
+        line_items.append((item.variant_id, item.qty, unit_price, line_total))
+
+    variant_ids = list(quantity_by_variant.keys())
+    business_by_variant = _variant_business_map(db, variant_ids)
+
+    errors_by_variant: dict[str, list[str]] = {}
+    stock_by_variant: dict[str, int] = {}
+
+    for variant_id in variant_ids:
+        variant_business = business_by_variant.get(variant_id)
+        if not variant_business:
+            errors_by_variant[variant_id] = [f"Variant not found: {variant_id}"]
+            continue
+        if variant_business != business_id:
+            errors_by_variant[variant_id] = ["Contains item not in your business"]
+            continue
+
+        stock = get_variant_stock(db, business_id, variant_id)
+        stock_by_variant[variant_id] = stock
+        requested_qty = quantity_by_variant[variant_id]
+        if stock < requested_qty:
+            errors_by_variant[variant_id] = [
+                f"Insufficient stock for variant {variant_id}: requested {requested_qty}, available {stock}"
+            ]
+
+    lines = [
+        SaleQuoteLineOut(
+            variant_id=variant_id,
+            qty=qty,
+            unit_price=float(unit_price),
+            line_total=float(line_total),
+            available_stock=stock_by_variant.get(variant_id),
+            errors=errors_by_variant.get(variant_id, []),
+            is_valid=variant_id not in errors_by_variant,
+        )
+        for variant_id, qty, unit_price, line_total in line_items
+    ]
+
+    aggregated_errors: list[str] = []
+    for variant_id in variant_ids:
+        aggregated_errors.extend(errors_by_variant.get(variant_id, []))
+
+    return SaleQuoteOut(
+        total=float(to_money(total)),
+        currency=currency,
+        items=lines,
+        errors=aggregated_errors,
+        is_valid=not aggregated_errors,
+    )
+
+
+@router.post(
+    "/quote",
+    response_model=SaleQuoteOut,
+    summary="Preview sale totals",
+    description="Calculates draft sale line totals and grand total without creating a sale.",
+    responses=error_responses(400, 401, 422, 500),
+)
+def quote_sale(
+    payload: SaleQuote,
+    db: Session = Depends(get_db),
+    biz=Depends(get_current_business),
+):
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="No items")
+
+    return _build_sale_quote(
+        db,
+        business_id=biz.id,
+        currency=biz.base_currency,
+        items=payload.items,
+    )
 
 
 @router.post(

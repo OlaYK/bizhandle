@@ -743,6 +743,94 @@ def test_sales_prevent_duplicate_variant_oversell(test_context):
     assert "Insufficient stock" in oversell_res.text
 
 
+def test_sales_quote_returns_line_totals_and_currency(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="sales-quote-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    product_id, variant_id_1 = _create_product_with_variant(client, token)
+    create_variant_res = client.post(
+        f"/products/{product_id}/variants",
+        json={"size": "Medium", "reorder_level": 1, "selling_price": 80},
+        headers=_auth_headers(token),
+    )
+    assert create_variant_res.status_code == 200, create_variant_res.text
+    variant_id_2 = create_variant_res.json()["id"]
+
+    stock_res = client.post(
+        "/inventory/stock-in",
+        json={"variant_id": variant_id_1, "qty": 5},
+        headers=_auth_headers(token),
+    )
+    assert stock_res.status_code == 200, stock_res.text
+
+    stock_res = client.post(
+        "/inventory/stock-in",
+        json={"variant_id": variant_id_2, "qty": 3},
+        headers=_auth_headers(token),
+    )
+    assert stock_res.status_code == 200, stock_res.text
+
+    quote_res = client.post(
+        "/sales/quote",
+        json={
+            "items": [
+                {"variant_id": variant_id_1, "qty": 2, "unit_price": 100},
+                {"variant_id": variant_id_2, "qty": 1, "unit_price": 80},
+            ]
+        },
+        headers=_auth_headers(token),
+    )
+    assert quote_res.status_code == 200, quote_res.text
+
+    payload = quote_res.json()
+    assert payload["is_valid"] is True
+    assert payload["errors"] == []
+    assert payload["currency"] == "USD"
+    assert payload["total"] == pytest.approx(280.0)
+    assert payload["items"][0]["line_total"] == pytest.approx(200.0)
+    assert payload["items"][0]["available_stock"] == 5
+    assert payload["items"][1]["line_total"] == pytest.approx(80.0)
+    assert payload["items"][1]["available_stock"] == 3
+
+
+def test_sales_quote_returns_stock_validation_errors_without_creating_sale(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="sales-quote-error-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    _, variant_id = _create_product_with_variant(client, token)
+
+    stock_res = client.post(
+        "/inventory/stock-in",
+        json={"variant_id": variant_id, "qty": 2},
+        headers=_auth_headers(token),
+    )
+    assert stock_res.status_code == 200, stock_res.text
+
+    quote_res = client.post(
+        "/sales/quote",
+        json={"items": [{"variant_id": variant_id, "qty": 3, "unit_price": 100}]},
+        headers=_auth_headers(token),
+    )
+    assert quote_res.status_code == 200, quote_res.text
+
+    payload = quote_res.json()
+    assert payload["is_valid"] is False
+    assert payload["total"] == pytest.approx(300.0)
+    assert "Insufficient stock" in payload["errors"][0]
+    assert payload["items"][0]["is_valid"] is False
+    assert payload["items"][0]["available_stock"] == 2
+
+    sales_list = client.get("/sales?limit=10&offset=0", headers=_auth_headers(token))
+    assert sales_list.status_code == 200, sales_list.text
+    assert sales_list.json()["pagination"]["total"] == 0
+
+
 def test_inventory_stock_endpoint_is_tenant_isolated(test_context):
     client, _ = test_context
 
@@ -975,6 +1063,50 @@ def test_inventory_adjustment_and_low_stock_listing(test_context):
     variants_res = client.get(f"/products/{product_id}/variants", headers=_auth_headers(token))
     assert variants_res.status_code == 200, variants_res.text
     assert variants_res.json()["items"][0]["reorder_level"] == 4
+
+
+def test_variant_create_can_seed_opening_stock(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="variant-opening-stock-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    create_product_res = client.post(
+        "/products",
+        json={"name": "Bedsheet", "category": "bedding"},
+        headers=_auth_headers(token),
+    )
+    assert create_product_res.status_code == 200, create_product_res.text
+    product_id = create_product_res.json()["id"]
+
+    create_variant_res = client.post(
+        f"/products/{product_id}/variants",
+        json={
+            "size": "King",
+            "label": "Blue",
+            "sku": f"BED-{uuid.uuid4().hex[:6]}",
+            "reorder_level": 3,
+            "qty": 8,
+            "cost_price": 25.0,
+            "selling_price": 45.0,
+        },
+        headers=_auth_headers(token),
+    )
+    assert create_variant_res.status_code == 200, create_variant_res.text
+    variant_id = create_variant_res.json()["id"]
+
+    variants_res = client.get(f"/products/{product_id}/variants", headers=_auth_headers(token))
+    assert variants_res.status_code == 200, variants_res.text
+    variant_row = next((item for item in variants_res.json()["items"] if item["id"] == variant_id), None)
+    assert variant_row is not None
+    assert variant_row["stock"] == 8
+
+    ledger_res = client.get(f"/inventory/ledger?variant_id={variant_id}", headers=_auth_headers(token))
+    assert ledger_res.status_code == 200, ledger_res.text
+    ledger_item = ledger_res.json()["items"][0]
+    assert ledger_item["qty_delta"] == 8
+    assert ledger_item["reason"] == "stock_in"
 
 
 def test_products_variants_list_accepts_limit_300_for_frontend_prefetch(test_context):
