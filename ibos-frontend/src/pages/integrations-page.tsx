@@ -40,7 +40,7 @@ export function IntegrationsPage() {
   const [eventType, setEventType] = useState("storefront.page_view");
   const [eventTargetApp, setEventTargetApp] = useState("meta_pixel");
   const [eventPayloadJson, setEventPayloadJson] = useState(
-    JSON.stringify({ path: "/store/sample", slug: "sample" }, null, 2)
+    JSON.stringify({ path: "/store/sample", slug: "sample" }, null, 2),
   );
 
   const [messageProvider, setMessageProvider] = useState("whatsapp_stub");
@@ -63,12 +63,12 @@ export function IntegrationsPage() {
 
   const secretsQuery = useQuery({
     queryKey: ["integrations", "secrets"],
-    queryFn: integrationService.listSecrets
+    queryFn: integrationService.listSecrets,
   });
 
   const appsQuery = useQuery({
     queryKey: ["integrations", "apps"],
-    queryFn: integrationService.listApps
+    queryFn: integrationService.listApps,
   });
 
   const outboxQuery = useQuery({
@@ -78,15 +78,15 @@ export function IntegrationsPage() {
       outboxStatusFilter,
       outboxAppFilter,
       outboxPage,
-      outboxPageSize
+      outboxPageSize,
     ],
     queryFn: () =>
       integrationService.listOutboxEvents({
         status: outboxStatusFilter || undefined,
         target_app_key: outboxAppFilter || undefined,
         limit: outboxPageSize,
-        offset: outboxOffset
-      })
+        offset: outboxOffset,
+      }),
   });
 
   const messagesQuery = useQuery({
@@ -94,8 +94,8 @@ export function IntegrationsPage() {
     queryFn: () =>
       integrationService.listMessages({
         limit: messagesPageSize,
-        offset: messagesOffset
-      })
+        offset: messagesOffset,
+      }),
   });
 
   const upsertSecretMutation = useMutation({
@@ -103,7 +103,7 @@ export function IntegrationsPage() {
       integrationService.upsertSecret({
         provider: secretProvider.trim(),
         key_name: secretKeyName.trim(),
-        secret_value: secretValue
+        secret_value: secretValue,
       }),
     onSuccess: () => {
       showToast({ title: "Secret saved", variant: "success" });
@@ -115,9 +115,9 @@ export function IntegrationsPage() {
       showToast({
         title: "Could not save secret",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const installAppMutation = useMutation({
@@ -129,7 +129,7 @@ export function IntegrationsPage() {
           .split(",")
           .map((value) => value.trim())
           .filter(Boolean),
-        config_json: safeJsonParse(appConfigJson)
+        config_json: safeJsonParse(appConfigJson),
       }),
     onSuccess: () => {
       showToast({ title: "App connected", variant: "success" });
@@ -140,13 +140,14 @@ export function IntegrationsPage() {
       showToast({
         title: "Could not connect app",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const disconnectAppMutation = useMutation({
-    mutationFn: (installationId: string) => integrationService.disconnectApp(installationId),
+    mutationFn: (installationId: string) =>
+      integrationService.disconnectApp(installationId),
     onSuccess: () => {
       showToast({ title: "App disconnected", variant: "success" });
       queryClient.invalidateQueries({ queryKey: ["integrations", "apps"] });
@@ -156,9 +157,9 @@ export function IntegrationsPage() {
       showToast({
         title: "Could not disconnect app",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const emitEventMutation = useMutation({
@@ -166,13 +167,13 @@ export function IntegrationsPage() {
       integrationService.emitOutboxEvent({
         event_type: eventType.trim(),
         target_app_key: eventTargetApp.trim(),
-        payload_json: safeJsonParse(eventPayloadJson)
+        payload_json: safeJsonParse(eventPayloadJson),
       }),
     onSuccess: () => {
       showToast({
         title: "Event emitted",
         description: "Event added to outbox queue.",
-        variant: "success"
+        variant: "success",
       });
       queryClient.invalidateQueries({ queryKey: ["integrations", "outbox"] });
     },
@@ -180,9 +181,9 @@ export function IntegrationsPage() {
       showToast({
         title: "Could not emit event",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const dispatchOutboxMutation = useMutation({
@@ -191,7 +192,7 @@ export function IntegrationsPage() {
       showToast({
         title: "Outbox dispatch complete",
         description: `Processed ${result.processed}, delivered ${result.delivered}, failed ${result.failed}.`,
-        variant: "success"
+        variant: "success",
       });
       queryClient.invalidateQueries({ queryKey: ["integrations", "outbox"] });
     },
@@ -199,9 +200,9 @@ export function IntegrationsPage() {
       showToast({
         title: "Dispatch failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const sendMessageMutation = useMutation({
@@ -209,7 +210,7 @@ export function IntegrationsPage() {
       integrationService.sendMessage({
         provider: messageProvider.trim(),
         recipient: messageRecipient.trim(),
-        content: messageContent.trim()
+        content: messageContent.trim(),
       }),
     onSuccess: () => {
       showToast({ title: "Message sent", variant: "success" });
@@ -222,9 +223,9 @@ export function IntegrationsPage() {
       showToast({
         title: "Message send failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   if (
@@ -260,19 +261,30 @@ export function IntegrationsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="relative space-y-6 after:absolute after:inset-0 after:rounded-2xl after:bg-surface-50 after:cursor-not-allowed after:content-['Coming_Soon'] after:flex after:items-start after:pt-36 after:justify-center after:text-2xl after:font-black after:text-white ">
       <Card className="animate-fade-up bg-[linear-gradient(135deg,#123044_0%,#1f4c64_55%,#2a5b73_100%)] text-white">
         <h3 className="font-heading text-xl font-black">Integrations Center</h3>
         <p className="mt-1 text-sm text-white/80">
-          Manage app installations, secrets, event delivery, and messaging connectors.
+          Manage app installations, secrets, event delivery, and messaging
+          connectors.
         </p>
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">Credential Vault</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Credential Vault
+        </h3>
         <div className="mt-3 grid gap-3 md:grid-cols-4">
-          <Input label="Provider" value={secretProvider} onChange={(e) => setSecretProvider(e.target.value)} />
-          <Input label="Key Name" value={secretKeyName} onChange={(e) => setSecretKeyName(e.target.value)} />
+          <Input
+            label="Provider"
+            value={secretProvider}
+            onChange={(e) => setSecretProvider(e.target.value)}
+          />
+          <Input
+            label="Key Name"
+            value={secretKeyName}
+            onChange={(e) => setSecretKeyName(e.target.value)}
+          />
           <Input
             label="Secret Value"
             type="password"
@@ -284,7 +296,11 @@ export function IntegrationsPage() {
               type="button"
               loading={upsertSecretMutation.isPending}
               onClick={() => upsertSecretMutation.mutate()}
-              disabled={!secretProvider.trim() || !secretKeyName.trim() || !secretValue.trim()}
+              disabled={
+                !secretProvider.trim() ||
+                !secretKeyName.trim() ||
+                !secretValue.trim()
+              }
             >
               Save Secret
             </Button>
@@ -293,20 +309,30 @@ export function IntegrationsPage() {
 
         {!secretsQuery.data.items.length ? (
           <div className="mt-4">
-            <EmptyState title="No secrets yet" description="Secrets metadata appears here after first save." />
+            <EmptyState
+              title="No secrets yet"
+              description="Secrets metadata appears here after first save."
+            />
           </div>
         ) : (
           <div className="mt-4 space-y-2">
             {secretsQuery.data.items.map((secret) => (
-              <article key={secret.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+              <article
+                key={secret.id}
+                className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="font-semibold text-surface-700">
                     {secret.provider} / {secret.key_name}
                   </p>
                   <Badge variant="info">v{secret.version}</Badge>
                 </div>
-                <p className="mt-1 text-xs text-surface-500">Status: {secret.status}</p>
-                <p className="mt-1 text-xs text-surface-500">Updated: {formatDateTime(secret.updated_at)}</p>
+                <p className="mt-1 text-xs text-surface-500">
+                  Status: {secret.status}
+                </p>
+                <p className="mt-1 text-xs text-surface-500">
+                  Updated: {formatDateTime(secret.updated_at)}
+                </p>
               </article>
             ))}
           </div>
@@ -314,10 +340,20 @@ export function IntegrationsPage() {
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">App Installations</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          App Installations
+        </h3>
         <div className="mt-3 grid gap-3 md:grid-cols-4">
-          <Input label="App Key" value={appKey} onChange={(e) => setAppKey(e.target.value)} />
-          <Input label="Display Name" value={appDisplayName} onChange={(e) => setAppDisplayName(e.target.value)} />
+          <Input
+            label="App Key"
+            value={appKey}
+            onChange={(e) => setAppKey(e.target.value)}
+          />
+          <Input
+            label="Display Name"
+            value={appDisplayName}
+            onChange={(e) => setAppDisplayName(e.target.value)}
+          />
           <Input
             label="Permissions (comma separated)"
             value={appPermissions}
@@ -334,7 +370,7 @@ export function IntegrationsPage() {
                   showToast({
                     title: "Invalid app config JSON",
                     description: getApiErrorMessage(error),
-                    variant: "error"
+                    variant: "error",
                   });
                   return;
                 }
@@ -392,23 +428,38 @@ export function IntegrationsPage() {
 
         {!appsQuery.data.items.length ? (
           <div className="mt-4">
-            <EmptyState title="No apps connected" description="Connect apps to start receiving storefront events." />
+            <EmptyState
+              title="No apps connected"
+              description="Connect apps to start receiving storefront events."
+            />
           </div>
         ) : (
           <div className="mt-4 space-y-2">
             {appsQuery.data.items.map((installation) => (
-              <article key={installation.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+              <article
+                key={installation.id}
+                className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold text-surface-700">
                       {installation.display_name} ({installation.app_key})
                     </p>
                     <p className="text-xs text-surface-500">
-                      Permissions: {installation.permissions.length ? installation.permissions.join(", ") : "none"}
+                      Permissions:{" "}
+                      {installation.permissions.length
+                        ? installation.permissions.join(", ")
+                        : "none"}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant={installation.status === "connected" ? "positive" : "negative"}>
+                    <Badge
+                      variant={
+                        installation.status === "connected"
+                          ? "positive"
+                          : "negative"
+                      }
+                    >
                       {installation.status}
                     </Badge>
                     {installation.status === "connected" ? (
@@ -420,14 +471,18 @@ export function IntegrationsPage() {
                           disconnectAppMutation.isPending &&
                           disconnectAppMutation.variables === installation.id
                         }
-                        onClick={() => disconnectAppMutation.mutate(installation.id)}
+                        onClick={() =>
+                          disconnectAppMutation.mutate(installation.id)
+                        }
                       >
                         Disconnect
                       </Button>
                     ) : null}
                   </div>
                 </div>
-                <p className="mt-1 text-xs text-surface-500">Updated: {formatDateTime(installation.updated_at)}</p>
+                <p className="mt-1 text-xs text-surface-500">
+                  Updated: {formatDateTime(installation.updated_at)}
+                </p>
               </article>
             ))}
           </div>
@@ -435,10 +490,20 @@ export function IntegrationsPage() {
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">Outbox Events</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Outbox Events
+        </h3>
         <div className="mt-3 grid gap-3 md:grid-cols-4">
-          <Input label="Event Type" value={eventType} onChange={(e) => setEventType(e.target.value)} />
-          <Input label="Target App Key" value={eventTargetApp} onChange={(e) => setEventTargetApp(e.target.value)} />
+          <Input
+            label="Event Type"
+            value={eventType}
+            onChange={(e) => setEventType(e.target.value)}
+          />
+          <Input
+            label="Target App Key"
+            value={eventTargetApp}
+            onChange={(e) => setEventTargetApp(e.target.value)}
+          />
           <div className="md:pt-7">
             <Button
               type="button"
@@ -450,7 +515,7 @@ export function IntegrationsPage() {
                   showToast({
                     title: "Invalid event payload JSON",
                     description: getApiErrorMessage(error),
-                    variant: "error"
+                    variant: "error",
                   });
                   return;
                 }
@@ -493,18 +558,26 @@ export function IntegrationsPage() {
             onChange={(event) => setOutboxAppFilter(event.target.value)}
           />
           <div className="mt-7">
-            <Badge variant="info">{outboxQuery.data.pagination.total} events</Badge>
+            <Badge variant="info">
+              {outboxQuery.data.pagination.total} events
+            </Badge>
           </div>
         </div>
 
         {!outboxQuery.data.items.length ? (
           <div className="mt-3">
-            <EmptyState title="No outbox events" description="Emit events to test delivery and retry flow." />
+            <EmptyState
+              title="No outbox events"
+              description="Emit events to test delivery and retry flow."
+            />
           </div>
         ) : (
           <div className="mt-3 space-y-2">
             {outboxQuery.data.items.map((event) => (
-              <article key={event.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+              <article
+                key={event.id}
+                className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold text-surface-700">
@@ -526,9 +599,13 @@ export function IntegrationsPage() {
                     {event.status}
                   </Badge>
                 </div>
-                <p className="mt-1 text-xs text-surface-500">Updated: {formatDateTime(event.updated_at)}</p>
+                <p className="mt-1 text-xs text-surface-500">
+                  Updated: {formatDateTime(event.updated_at)}
+                </p>
                 {event.last_error ? (
-                  <p className="mt-1 text-xs text-red-600">Last error: {event.last_error}</p>
+                  <p className="mt-1 text-xs text-red-600">
+                    Last error: {event.last_error}
+                  </p>
                 ) : null}
               </article>
             ))}
@@ -551,7 +628,9 @@ export function IntegrationsPage() {
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">Messaging Connector</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Messaging Connector
+        </h3>
         <div className="mt-3 grid gap-3 md:grid-cols-4">
           <Input
             label="Provider"
@@ -583,24 +662,41 @@ export function IntegrationsPage() {
 
         {!messagesQuery.data.items.length ? (
           <div className="mt-4">
-            <EmptyState title="No outbound messages" description="Send messages through a connected provider." />
+            <EmptyState
+              title="No outbound messages"
+              description="Send messages through a connected provider."
+            />
           </div>
         ) : (
           <div className="mt-4 space-y-2">
             {messagesQuery.data.items.map((message) => (
-              <article key={message.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+              <article
+                key={message.id}
+                className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="font-semibold text-surface-700">{message.recipient}</p>
-                    <p className="text-xs text-surface-500">{message.content}</p>
+                    <p className="font-semibold text-surface-700">
+                      {message.recipient}
+                    </p>
+                    <p className="text-xs text-surface-500">
+                      {message.content}
+                    </p>
                   </div>
-                  <Badge variant={message.status === "sent" ? "positive" : "info"}>{message.status}</Badge>
+                  <Badge
+                    variant={message.status === "sent" ? "positive" : "info"}
+                  >
+                    {message.status}
+                  </Badge>
                 </div>
                 <p className="mt-1 text-xs text-surface-500">
-                  Provider: {message.provider} | Created: {formatDateTime(message.created_at)}
+                  Provider: {message.provider} | Created:{" "}
+                  {formatDateTime(message.created_at)}
                 </p>
                 {message.error_message ? (
-                  <p className="mt-1 text-xs text-red-600">Error: {message.error_message}</p>
+                  <p className="mt-1 text-xs text-red-600">
+                    Error: {message.error_message}
+                  </p>
                 ) : null}
               </article>
             ))}

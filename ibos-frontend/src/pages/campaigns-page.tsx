@@ -6,7 +6,7 @@ import type {
   CampaignOut,
   CampaignRecipientStatus,
   CampaignStatus,
-  CampaignTemplateStatus
+  CampaignTemplateStatus,
 } from "../api/types";
 import { EmptyState } from "../components/state/empty-state";
 import { ErrorState } from "../components/state/error-state";
@@ -33,29 +33,41 @@ export function CampaignsPage() {
   const [segmentName, setSegmentName] = useState("");
   const [segmentDescription, setSegmentDescription] = useState("");
   const [segmentHasPhone, setSegmentHasPhone] = useState<YesNoAny>("any");
-  const [previewBySegment, setPreviewBySegment] = useState<Record<string, number>>({});
+  const [previewBySegment, setPreviewBySegment] = useState<
+    Record<string, number>
+  >({});
 
   const [templateName, setTemplateName] = useState("");
-  const [templateChannel, setTemplateChannel] = useState<CampaignChannel>("whatsapp");
-  const [templateStatus, setTemplateStatus] = useState<CampaignTemplateStatus>("draft");
+  const [templateChannel, setTemplateChannel] =
+    useState<CampaignChannel>("whatsapp");
+  const [templateStatus, setTemplateStatus] =
+    useState<CampaignTemplateStatus>("draft");
   const [templateContent, setTemplateContent] = useState("");
 
   const [campaignName, setCampaignName] = useState("");
   const [campaignSegmentId, setCampaignSegmentId] = useState("");
   const [campaignTemplateId, setCampaignTemplateId] = useState("");
-  const [campaignChannel, setCampaignChannel] = useState<CampaignChannel>("whatsapp");
+  const [campaignChannel, setCampaignChannel] =
+    useState<CampaignChannel>("whatsapp");
   const [campaignSendNow, setCampaignSendNow] = useState(true);
 
-  const [campaignStatusFilter, setCampaignStatusFilter] = useState<"" | CampaignStatus>("");
+  const [campaignStatusFilter, setCampaignStatusFilter] = useState<
+    "" | CampaignStatus
+  >("");
   const [campaignPage, setCampaignPage] = useState(1);
   const [campaignPageSize, setCampaignPageSize] = useState(20);
 
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
-  const [recipientStatusFilter, setRecipientStatusFilter] = useState<"" | CampaignRecipientStatus>("");
+  const [recipientStatusFilter, setRecipientStatusFilter] = useState<
+    "" | CampaignRecipientStatus
+  >("");
 
   const [consentCustomerId, setConsentCustomerId] = useState("");
-  const [consentChannel, setConsentChannel] = useState<CampaignChannel>("whatsapp");
-  const [consentStatus, setConsentStatus] = useState<"subscribed" | "unsubscribed">("unsubscribed");
+  const [consentChannel, setConsentChannel] =
+    useState<CampaignChannel>("whatsapp");
+  const [consentStatus, setConsentStatus] = useState<
+    "subscribed" | "unsubscribed"
+  >("unsubscribed");
   const [consentSource, setConsentSource] = useState("manual");
   const [consentPage, setConsentPage] = useState(1);
   const [consentPageSize, setConsentPageSize] = useState(10);
@@ -63,7 +75,8 @@ export function CampaignsPage() {
   const [triggerName, setTriggerName] = useState("");
   const [triggerSegmentId, setTriggerSegmentId] = useState("");
   const [triggerTemplateId, setTriggerTemplateId] = useState("");
-  const [triggerChannel, setTriggerChannel] = useState<CampaignChannel>("whatsapp");
+  const [triggerChannel, setTriggerChannel] =
+    useState<CampaignChannel>("whatsapp");
   const [triggerAutoDispatch, setTriggerAutoDispatch] = useState(true);
 
   const campaignOffset = (campaignPage - 1) * campaignPageSize;
@@ -75,27 +88,33 @@ export function CampaignsPage() {
 
   const segmentsQuery = useQuery({
     queryKey: ["campaigns", "segments"],
-    queryFn: () => campaignService.listSegments({ limit: 100, offset: 0 })
+    queryFn: () => campaignService.listSegments({ limit: 100, offset: 0 }),
   });
 
   const templatesQuery = useQuery({
     queryKey: ["campaigns", "templates"],
-    queryFn: () => campaignService.listTemplates({ limit: 100, offset: 0 })
+    queryFn: () => campaignService.listTemplates({ limit: 100, offset: 0 }),
   });
 
   const campaignsQuery = useQuery({
-    queryKey: ["campaigns", "list", campaignStatusFilter, campaignPage, campaignPageSize],
+    queryKey: [
+      "campaigns",
+      "list",
+      campaignStatusFilter,
+      campaignPage,
+      campaignPageSize,
+    ],
     queryFn: () =>
       campaignService.listCampaigns({
         status: campaignStatusFilter || undefined,
         limit: campaignPageSize,
-        offset: campaignOffset
-      })
+        offset: campaignOffset,
+      }),
   });
 
   const metricsQuery = useQuery({
     queryKey: ["campaigns", "metrics"],
-    queryFn: () => campaignService.metrics()
+    queryFn: () => campaignService.metrics(),
   });
 
   const consentsQuery = useQuery({
@@ -103,29 +122,38 @@ export function CampaignsPage() {
     queryFn: () =>
       campaignService.listConsents({
         limit: consentPageSize,
-        offset: consentOffset
-      })
+        offset: consentOffset,
+      }),
   });
 
   const triggersQuery = useQuery({
     queryKey: ["campaigns", "triggers"],
-    queryFn: () => campaignService.listRetentionTriggers({ limit: 50, offset: 0 })
+    queryFn: () =>
+      campaignService.listRetentionTriggers({ limit: 50, offset: 0 }),
   });
 
   const recipientsQuery = useQuery({
-    queryKey: ["campaigns", "recipients", selectedCampaignId, recipientStatusFilter],
+    queryKey: [
+      "campaigns",
+      "recipients",
+      selectedCampaignId,
+      recipientStatusFilter,
+    ],
     queryFn: () =>
       campaignService.listRecipients(selectedCampaignId, {
         status: recipientStatusFilter || undefined,
         limit: 50,
-        offset: 0
+        offset: 0,
       }),
-    enabled: Boolean(selectedCampaignId)
+    enabled: Boolean(selectedCampaignId),
   });
 
   const selectedTemplate = useMemo(
-    () => templatesQuery.data?.items.find((template) => template.id === campaignTemplateId),
-    [campaignTemplateId, templatesQuery.data?.items]
+    () =>
+      templatesQuery.data?.items.find(
+        (template) => template.id === campaignTemplateId,
+      ),
+    [campaignTemplateId, templatesQuery.data?.items],
   );
 
   useEffect(() => {
@@ -143,8 +171,8 @@ export function CampaignsPage() {
           segmentHasPhone === "any"
             ? {}
             : {
-                has_phone: segmentHasPhone === "yes"
-              }
+                has_phone: segmentHasPhone === "yes",
+              },
       }),
     onSuccess: () => {
       showToast({ title: "Segment created", variant: "success" });
@@ -158,23 +186,27 @@ export function CampaignsPage() {
       showToast({
         title: "Could not create segment",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const previewSegmentMutation = useMutation({
-    mutationFn: (segmentId: string) => campaignService.previewSegment(segmentId),
+    mutationFn: (segmentId: string) =>
+      campaignService.previewSegment(segmentId),
     onSuccess: (result) => {
-      setPreviewBySegment((state) => ({ ...state, [result.segment_id]: result.total_customers }));
+      setPreviewBySegment((state) => ({
+        ...state,
+        [result.segment_id]: result.total_customers,
+      }));
     },
     onError: (error) => {
       showToast({
         title: "Could not preview segment",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const createTemplateMutation = useMutation({
@@ -183,7 +215,7 @@ export function CampaignsPage() {
         name: templateName.trim(),
         channel: templateChannel,
         content: templateContent.trim(),
-        status: templateStatus
+        status: templateStatus,
       }),
     onSuccess: () => {
       showToast({ title: "Template created", variant: "success" });
@@ -197,15 +229,15 @@ export function CampaignsPage() {
       showToast({
         title: "Could not create template",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const approveTemplateMutation = useMutation({
     mutationFn: (templateId: string) =>
       campaignService.updateTemplate(templateId, {
-        status: "approved"
+        status: "approved",
       }),
     onSuccess: () => {
       showToast({ title: "Template approved", variant: "success" });
@@ -216,9 +248,9 @@ export function CampaignsPage() {
       showToast({
         title: "Template update failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const createCampaignMutation = useMutation({
@@ -229,13 +261,13 @@ export function CampaignsPage() {
         template_id: campaignTemplateId || undefined,
         channel: campaignChannel,
         provider: "whatsapp_stub",
-        send_now: campaignSendNow
+        send_now: campaignSendNow,
       }),
     onSuccess: (result) => {
       showToast({
         title: "Campaign created",
         description: `${result.total_recipients} recipients prepared.`,
-        variant: "success"
+        variant: "success",
       });
       setCampaignName("");
       setSelectedCampaignId(result.id);
@@ -248,18 +280,19 @@ export function CampaignsPage() {
       showToast({
         title: "Could not create campaign",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const dispatchCampaignMutation = useMutation({
-    mutationFn: (campaignId: string) => campaignService.dispatchCampaign(campaignId),
+    mutationFn: (campaignId: string) =>
+      campaignService.dispatchCampaign(campaignId),
     onSuccess: (result) => {
       showToast({
         title: "Dispatch completed",
         description: `Sent ${result.sent}, failed ${result.failed}, skipped ${result.skipped}.`,
-        variant: "success"
+        variant: "success",
       });
       queryClient.invalidateQueries({ queryKey: ["campaigns", "list"] });
       queryClient.invalidateQueries({ queryKey: ["campaigns", "metrics"] });
@@ -270,9 +303,9 @@ export function CampaignsPage() {
       showToast({
         title: "Dispatch failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const upsertConsentMutation = useMutation({
@@ -281,7 +314,7 @@ export function CampaignsPage() {
         customer_id: consentCustomerId.trim(),
         channel: consentChannel,
         status: consentStatus,
-        source: consentSource.trim() || undefined
+        source: consentSource.trim() || undefined,
       }),
     onSuccess: () => {
       showToast({ title: "Consent updated", variant: "success" });
@@ -293,9 +326,9 @@ export function CampaignsPage() {
       showToast({
         title: "Consent update failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const createTriggerMutation = useMutation({
@@ -308,7 +341,7 @@ export function CampaignsPage() {
         template_id: triggerTemplateId || undefined,
         channel: triggerChannel,
         provider: "whatsapp_stub",
-        config_json: { source: "campaigns_page" }
+        config_json: { source: "campaigns_page" },
       }),
     onSuccess: () => {
       showToast({ title: "Retention trigger created", variant: "success" });
@@ -320,21 +353,21 @@ export function CampaignsPage() {
       showToast({
         title: "Could not create retention trigger",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const runTriggerMutation = useMutation({
     mutationFn: (triggerId: string) =>
       campaignService.runRetentionTrigger(triggerId, {
-        auto_dispatch: triggerAutoDispatch
+        auto_dispatch: triggerAutoDispatch,
       }),
     onSuccess: (result) => {
       showToast({
         title: "Retention trigger executed",
         description: `Processed ${result.processed_count} recipients.`,
-        variant: "success"
+        variant: "success",
       });
       queryClient.invalidateQueries({ queryKey: ["campaigns", "list"] });
       queryClient.invalidateQueries({ queryKey: ["campaigns", "metrics"] });
@@ -345,14 +378,15 @@ export function CampaignsPage() {
       showToast({
         title: "Retention run failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const selectedCampaign = useMemo(
-    () => campaignsQuery.data?.items.find((item) => item.id === selectedCampaignId),
-    [campaignsQuery.data?.items, selectedCampaignId]
+    () =>
+      campaignsQuery.data?.items.find((item) => item.id === selectedCampaignId),
+    [campaignsQuery.data?.items, selectedCampaignId],
   );
 
   if (
@@ -403,14 +437,19 @@ export function CampaignsPage() {
   const triggers = triggersQuery.data.items;
 
   const canCreateCampaign =
-    campaignName.trim().length > 1 && (campaignTemplateId.trim().length > 0 || campaignSegmentId.trim().length > 0);
+    campaignName.trim().length > 1 &&
+    (campaignTemplateId.trim().length > 0 ||
+      campaignSegmentId.trim().length > 0);
 
   return (
-    <div className="space-y-6">
+    <div className="relative space-y-6 after:absolute after:inset-0 after:rounded-2xl after:bg-surface-50 after:cursor-not-allowed after:content-['Coming_Soon'] after:flex after:items-start after:pt-36 after:justify-center after:text-2xl after:font-black after:text-white ">
       <Card className="animate-fade-up bg-[linear-gradient(135deg,#0f2742_0%,#244f72_55%,#32728a_100%)] text-white">
-        <h3 className="font-heading text-xl font-black">Campaigns and Retention</h3>
+        <h3 className="font-heading text-xl font-black">
+          Campaigns and Retention
+        </h3>
         <p className="mt-1 text-sm text-white/80">
-          Build reusable segments, enforce opt-out controls, and execute campaigns with measurable outcomes.
+          Build reusable segments, enforce opt-out controls, and execute
+          campaigns with measurable outcomes.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Badge variant="info">{metrics.campaigns_total} campaigns</Badge>
@@ -424,7 +463,9 @@ export function CampaignsPage() {
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
-          <h3 className="font-heading text-lg font-bold text-surface-800">Dynamic Segments</h3>
+          <h3 className="font-heading text-lg font-bold text-surface-800">
+            Dynamic Segments
+          </h3>
           <div className="mt-4 grid gap-3">
             <Input
               label="Segment Name"
@@ -441,7 +482,9 @@ export function CampaignsPage() {
             <Select
               label="Filter: Has Phone"
               value={segmentHasPhone}
-              onChange={(event) => setSegmentHasPhone(event.target.value as YesNoAny)}
+              onChange={(event) =>
+                setSegmentHasPhone(event.target.value as YesNoAny)
+              }
             >
               <option value="any">Any</option>
               <option value="yes">Yes</option>
@@ -465,16 +508,25 @@ export function CampaignsPage() {
               />
             ) : (
               segments.map((segment) => (
-                <article key={segment.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+                <article
+                  key={segment.id}
+                  className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="font-semibold text-surface-700">{segment.name}</p>
+                    <p className="font-semibold text-surface-700">
+                      {segment.name}
+                    </p>
                     <Badge variant={segment.is_active ? "positive" : "neutral"}>
                       {segment.is_active ? "active" : "inactive"}
                     </Badge>
                   </div>
-                  <p className="mt-1 text-xs text-surface-500">{segment.description || "No description"}</p>
+                  <p className="mt-1 text-xs text-surface-500">
+                    {segment.description || "No description"}
+                  </p>
                   <div className="mt-2 flex items-center justify-between gap-2">
-                    <p className="text-xs text-surface-500">Updated: {formatDateTime(segment.updated_at)}</p>
+                    <p className="text-xs text-surface-500">
+                      Updated: {formatDateTime(segment.updated_at)}
+                    </p>
                     <Button
                       type="button"
                       size="sm"
@@ -500,7 +552,9 @@ export function CampaignsPage() {
         </Card>
 
         <Card>
-          <h3 className="font-heading text-lg font-bold text-surface-800">Template Library</h3>
+          <h3 className="font-heading text-lg font-bold text-surface-800">
+            Template Library
+          </h3>
           <div className="mt-4 grid gap-3">
             <Input
               label="Template Name"
@@ -512,7 +566,9 @@ export function CampaignsPage() {
               <Select
                 label="Channel"
                 value={templateChannel}
-                onChange={(event) => setTemplateChannel(event.target.value as CampaignChannel)}
+                onChange={(event) =>
+                  setTemplateChannel(event.target.value as CampaignChannel)
+                }
               >
                 {CHANNEL_OPTIONS.map((channel) => (
                   <option key={channel} value={channel}>
@@ -523,7 +579,11 @@ export function CampaignsPage() {
               <Select
                 label="Initial Status"
                 value={templateStatus}
-                onChange={(event) => setTemplateStatus(event.target.value as CampaignTemplateStatus)}
+                onChange={(event) =>
+                  setTemplateStatus(
+                    event.target.value as CampaignTemplateStatus,
+                  )
+                }
               >
                 <option value="draft">draft</option>
                 <option value="approved">approved</option>
@@ -540,7 +600,10 @@ export function CampaignsPage() {
             <Button
               type="button"
               loading={createTemplateMutation.isPending}
-              disabled={templateName.trim().length < 2 || templateContent.trim().length < 1}
+              disabled={
+                templateName.trim().length < 2 ||
+                templateContent.trim().length < 1
+              }
               onClick={() => createTemplateMutation.mutate()}
             >
               Save Template
@@ -549,12 +612,20 @@ export function CampaignsPage() {
 
           <div className="mt-4 space-y-2">
             {!templates.length ? (
-              <EmptyState title="No templates yet" description="Create approved templates before send_now campaigns." />
+              <EmptyState
+                title="No templates yet"
+                description="Create approved templates before send_now campaigns."
+              />
             ) : (
               templates.map((template) => (
-                <article key={template.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+                <article
+                  key={template.id}
+                  className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="font-semibold text-surface-700">{template.name}</p>
+                    <p className="font-semibold text-surface-700">
+                      {template.name}
+                    </p>
                     <div className="flex items-center gap-2">
                       <Badge variant="info">{template.channel}</Badge>
                       <Badge
@@ -570,9 +641,13 @@ export function CampaignsPage() {
                       </Badge>
                     </div>
                   </div>
-                  <p className="mt-1 text-xs text-surface-500">{template.content}</p>
+                  <p className="mt-1 text-xs text-surface-500">
+                    {template.content}
+                  </p>
                   <div className="mt-2 flex items-center justify-between gap-2">
-                    <p className="text-xs text-surface-500">Updated: {formatDateTime(template.updated_at)}</p>
+                    <p className="text-xs text-surface-500">
+                      Updated: {formatDateTime(template.updated_at)}
+                    </p>
                     {template.status === "draft" ? (
                       <Button
                         type="button"
@@ -582,7 +657,9 @@ export function CampaignsPage() {
                           approveTemplateMutation.isPending &&
                           approveTemplateMutation.variables === template.id
                         }
-                        onClick={() => approveTemplateMutation.mutate(template.id)}
+                        onClick={() =>
+                          approveTemplateMutation.mutate(template.id)
+                        }
                       >
                         Approve
                       </Button>
@@ -596,7 +673,9 @@ export function CampaignsPage() {
       </div>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">Campaign Composer</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Campaign Composer
+        </h3>
         <div className="mt-4 grid gap-3 lg:grid-cols-5">
           <Input
             label="Campaign Name"
@@ -631,7 +710,9 @@ export function CampaignsPage() {
           <Select
             label="Channel"
             value={campaignChannel}
-            onChange={(event) => setCampaignChannel(event.target.value as CampaignChannel)}
+            onChange={(event) =>
+              setCampaignChannel(event.target.value as CampaignChannel)
+            }
           >
             {CHANNEL_OPTIONS.map((channel) => (
               <option key={channel} value={channel}>
@@ -642,7 +723,9 @@ export function CampaignsPage() {
           <Select
             label="Send Mode"
             value={campaignSendNow ? "send_now" : "queue_only"}
-            onChange={(event) => setCampaignSendNow(event.target.value === "send_now")}
+            onChange={(event) =>
+              setCampaignSendNow(event.target.value === "send_now")
+            }
           >
             <option value="send_now">Send now</option>
             <option value="queue_only">Queue only</option>
@@ -663,7 +746,9 @@ export function CampaignsPage() {
           <Select
             label="Status Filter"
             value={campaignStatusFilter}
-            onChange={(event) => setCampaignStatusFilter(event.target.value as "" | CampaignStatus)}
+            onChange={(event) =>
+              setCampaignStatusFilter(event.target.value as "" | CampaignStatus)
+            }
           >
             <option value="">All statuses</option>
             <option value="draft">draft</option>
@@ -674,13 +759,18 @@ export function CampaignsPage() {
             <option value="cancelled">cancelled</option>
           </Select>
           <div className="mt-7">
-            <Badge variant="info">{campaignsQuery.data.pagination.total} campaigns</Badge>
+            <Badge variant="info">
+              {campaignsQuery.data.pagination.total} campaigns
+            </Badge>
           </div>
         </div>
 
         {!campaigns.length ? (
           <div className="mt-3">
-            <EmptyState title="No campaigns yet" description="Create and dispatch your first campaign." />
+            <EmptyState
+              title="No campaigns yet"
+              description="Create and dispatch your first campaign."
+            />
           </div>
         ) : (
           <div className="mt-3 space-y-2">
@@ -695,15 +785,23 @@ export function CampaignsPage() {
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="font-semibold text-surface-700">{campaign.name}</p>
+                    <p className="font-semibold text-surface-700">
+                      {campaign.name}
+                    </p>
                     <p className="text-xs text-surface-500">
-                      {campaign.channel} | recipients: {campaign.total_recipients} | sent: {campaign.sent_count} |
-                      suppressed: {campaign.suppressed_count}
+                      {campaign.channel} | recipients:{" "}
+                      {campaign.total_recipients} | sent: {campaign.sent_count}{" "}
+                      | suppressed: {campaign.suppressed_count}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="info">{campaign.status}</Badge>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => setSelectedCampaignId(campaign.id)}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setSelectedCampaignId(campaign.id)}
+                    >
                       Recipients
                     </Button>
                     <Button
@@ -714,13 +812,17 @@ export function CampaignsPage() {
                         dispatchCampaignMutation.isPending &&
                         dispatchCampaignMutation.variables === campaign.id
                       }
-                      onClick={() => dispatchCampaignMutation.mutate(campaign.id)}
+                      onClick={() =>
+                        dispatchCampaignMutation.mutate(campaign.id)
+                      }
                     >
                       Dispatch
                     </Button>
                   </div>
                 </div>
-                <p className="mt-1 text-xs text-surface-500">Updated: {formatDateTime(campaign.updated_at)}</p>
+                <p className="mt-1 text-xs text-surface-500">
+                  Updated: {formatDateTime(campaign.updated_at)}
+                </p>
               </article>
             ))}
 
@@ -749,12 +851,16 @@ export function CampaignsPage() {
               <h3 className="font-heading text-lg font-bold text-surface-800">
                 Recipients: {selectedCampaign.name}
               </h3>
-              <p className="text-xs text-surface-500">Campaign ID: {selectedCampaign.id}</p>
+              <p className="text-xs text-surface-500">
+                Campaign ID: {selectedCampaign.id}
+              </p>
             </div>
             <Select
               value={recipientStatusFilter}
               onChange={(event) =>
-                setRecipientStatusFilter(event.target.value as "" | CampaignRecipientStatus)
+                setRecipientStatusFilter(
+                  event.target.value as "" | CampaignRecipientStatus,
+                )
               }
               className="w-56"
             >
@@ -770,20 +876,35 @@ export function CampaignsPage() {
             {recipientsQuery.isLoading ? (
               <LoadingState label="Loading recipients..." />
             ) : recipientsQuery.isError || !recipientsQuery.data ? (
-              <ErrorState message="Could not load campaign recipients." onRetry={() => recipientsQuery.refetch()} />
+              <ErrorState
+                message="Could not load campaign recipients."
+                onRetry={() => recipientsQuery.refetch()}
+              />
             ) : !recipientsQuery.data.items.length ? (
-              <EmptyState title="No recipients" description="This campaign currently has no recipients." />
+              <EmptyState
+                title="No recipients"
+                description="This campaign currently has no recipients."
+              />
             ) : (
               <div className="space-y-2">
                 {recipientsQuery.data.items.map((recipient) => (
-                  <article key={recipient.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+                  <article
+                    key={recipient.id}
+                    className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+                  >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="font-semibold text-surface-700">{recipient.recipient}</p>
+                      <p className="font-semibold text-surface-700">
+                        {recipient.recipient}
+                      </p>
                       <Badge variant="info">{recipient.status}</Badge>
                     </div>
-                    <p className="mt-1 text-xs text-surface-500">Customer ID: {recipient.customer_id}</p>
+                    <p className="mt-1 text-xs text-surface-500">
+                      Customer ID: {recipient.customer_id}
+                    </p>
                     {recipient.error_message ? (
-                      <p className="mt-1 text-xs text-red-600">Error: {recipient.error_message}</p>
+                      <p className="mt-1 text-xs text-red-600">
+                        Error: {recipient.error_message}
+                      </p>
                     ) : null}
                   </article>
                 ))}
@@ -795,7 +916,9 @@ export function CampaignsPage() {
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
-          <h3 className="font-heading text-lg font-bold text-surface-800">Consent and Opt-out</h3>
+          <h3 className="font-heading text-lg font-bold text-surface-800">
+            Consent and Opt-out
+          </h3>
           <div className="mt-4 grid gap-3">
             <Input
               label="Customer ID"
@@ -807,7 +930,9 @@ export function CampaignsPage() {
               <Select
                 label="Channel"
                 value={consentChannel}
-                onChange={(event) => setConsentChannel(event.target.value as CampaignChannel)}
+                onChange={(event) =>
+                  setConsentChannel(event.target.value as CampaignChannel)
+                }
               >
                 {CHANNEL_OPTIONS.map((channel) => (
                   <option key={channel} value={channel}>
@@ -818,7 +943,11 @@ export function CampaignsPage() {
               <Select
                 label="Status"
                 value={consentStatus}
-                onChange={(event) => setConsentStatus(event.target.value as "subscribed" | "unsubscribed")}
+                onChange={(event) =>
+                  setConsentStatus(
+                    event.target.value as "subscribed" | "unsubscribed",
+                  )
+                }
               >
                 <option value="subscribed">subscribed</option>
                 <option value="unsubscribed">unsubscribed</option>
@@ -841,18 +970,33 @@ export function CampaignsPage() {
 
           <div className="mt-4 space-y-2">
             {!consents.length ? (
-              <EmptyState title="No consent records" description="Updates will appear here after first save." />
+              <EmptyState
+                title="No consent records"
+                description="Updates will appear here after first save."
+              />
             ) : (
               consents.map((consent) => (
-                <article key={consent.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+                <article
+                  key={consent.id}
+                  className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="font-semibold text-surface-700">{consent.customer_id}</p>
-                    <Badge variant={consent.status === "subscribed" ? "positive" : "negative"}>
+                    <p className="font-semibold text-surface-700">
+                      {consent.customer_id}
+                    </p>
+                    <Badge
+                      variant={
+                        consent.status === "subscribed"
+                          ? "positive"
+                          : "negative"
+                      }
+                    >
                       {consent.status}
                     </Badge>
                   </div>
                   <p className="mt-1 text-xs text-surface-500">
-                    {consent.channel} | updated {formatDateTime(consent.updated_at)}
+                    {consent.channel} | updated{" "}
+                    {formatDateTime(consent.updated_at)}
                   </p>
                 </article>
               ))
@@ -876,7 +1020,9 @@ export function CampaignsPage() {
         </Card>
 
         <Card>
-          <h3 className="font-heading text-lg font-bold text-surface-800">Retention Triggers</h3>
+          <h3 className="font-heading text-lg font-bold text-surface-800">
+            Retention Triggers
+          </h3>
           <div className="mt-4 grid gap-3">
             <Input
               label="Trigger Name"
@@ -914,7 +1060,9 @@ export function CampaignsPage() {
               <Select
                 label="Channel"
                 value={triggerChannel}
-                onChange={(event) => setTriggerChannel(event.target.value as CampaignChannel)}
+                onChange={(event) =>
+                  setTriggerChannel(event.target.value as CampaignChannel)
+                }
               >
                 {CHANNEL_OPTIONS.map((channel) => (
                   <option key={channel} value={channel}>
@@ -925,7 +1073,9 @@ export function CampaignsPage() {
               <Select
                 label="Run Mode"
                 value={triggerAutoDispatch ? "auto_dispatch" : "queue_only"}
-                onChange={(event) => setTriggerAutoDispatch(event.target.value === "auto_dispatch")}
+                onChange={(event) =>
+                  setTriggerAutoDispatch(event.target.value === "auto_dispatch")
+                }
               >
                 <option value="auto_dispatch">Auto dispatch on run</option>
                 <option value="queue_only">Queue only on run</option>
@@ -943,26 +1093,41 @@ export function CampaignsPage() {
 
           <div className="mt-4 space-y-2">
             {!triggers.length ? (
-              <EmptyState title="No triggers yet" description="Create retention triggers to automate repeat outreach." />
+              <EmptyState
+                title="No triggers yet"
+                description="Create retention triggers to automate repeat outreach."
+              />
             ) : (
               triggers.map((trigger) => (
-                <article key={trigger.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+                <article
+                  key={trigger.id}
+                  className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <p className="font-semibold text-surface-700">{trigger.name}</p>
+                      <p className="font-semibold text-surface-700">
+                        {trigger.name}
+                      </p>
                       <p className="text-xs text-surface-500">
                         {trigger.trigger_type} | {trigger.channel}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant={trigger.status === "active" ? "positive" : "neutral"}>
+                      <Badge
+                        variant={
+                          trigger.status === "active" ? "positive" : "neutral"
+                        }
+                      >
                         {trigger.status}
                       </Badge>
                       <Button
                         type="button"
                         size="sm"
                         variant="secondary"
-                        loading={runTriggerMutation.isPending && runTriggerMutation.variables === trigger.id}
+                        loading={
+                          runTriggerMutation.isPending &&
+                          runTriggerMutation.variables === trigger.id
+                        }
                         onClick={() => runTriggerMutation.mutate(trigger.id)}
                       >
                         Run now
@@ -970,7 +1135,10 @@ export function CampaignsPage() {
                     </div>
                   </div>
                   <p className="mt-1 text-xs text-surface-500">
-                    Last run: {trigger.last_run_at ? formatDateTime(trigger.last_run_at) : "Never"}
+                    Last run:{" "}
+                    {trigger.last_run_at
+                      ? formatDateTime(trigger.last_run_at)
+                      : "Never"}
                   </p>
                 </article>
               ))

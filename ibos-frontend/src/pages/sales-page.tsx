@@ -2,7 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useFieldArray, useForm } from "react-hook-form";
+import { useFieldArray, useForm, type UseFormReturn } from "react-hook-form";
 import { z } from "zod";
 import { authService, productService, salesService } from "../api/services";
 import { EmptyState } from "../components/state/empty-state";
@@ -19,6 +19,7 @@ import { Textarea } from "../components/ui/textarea";
 import { useToast } from "../hooks/use-toast";
 import { getApiErrorMessage } from "../lib/api-error";
 import { formatCurrency, formatDateTime } from "../lib/format";
+import type { ProductOut } from "../api/types";
 
 const saleItemSchema = z.object({
   variant_id: z.string().min(1, "Variant is required"),
@@ -63,6 +64,134 @@ function defaultUnitPrice(price: number | null | undefined) {
   return price;
 }
 
+/* ── Per-row line item with its own product + variant selection ── */
+function SaleLineItem({
+  index,
+  saleForm,
+  products,
+  defaultProductId,
+  canRemove,
+  onRemove,
+}: {
+  index: number;
+  saleForm: UseFormReturn<SaleFormData>;
+  products: ProductOut[];
+  defaultProductId: string;
+  canRemove: boolean;
+  onRemove: () => void;
+}) {
+  const [productId, setProductId] = useState(defaultProductId);
+
+  const variantsQuery = useQuery({
+    queryKey: ["sales", "variants", productId],
+    queryFn: () =>
+      productService.listVariants(productId, { limit: 100, offset: 0 }),
+    enabled: Boolean(productId),
+  });
+
+  /* When the product changes, reset the variant & price for this row */
+  useEffect(() => {
+    const firstVariant = variantsQuery.data?.items[0];
+    if (firstVariant) {
+      saleForm.setValue(`items.${index}.variant_id`, firstVariant.id, {
+        shouldValidate: true,
+      });
+      saleForm.setValue(
+        `items.${index}.unit_price`,
+        defaultUnitPrice(firstVariant.selling_price),
+        { shouldValidate: true },
+      );
+    } else {
+      saleForm.setValue(`items.${index}.variant_id`, "");
+    }
+    // only run when product variants change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variantsQuery.data]);
+
+  const variantField = saleForm.register(`items.${index}.variant_id`);
+
+  return (
+    <div className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12">
+      <div className="md:col-span-3">
+        <Select
+          label="Product"
+          value={productId}
+          onChange={(e) => setProductId(e.target.value)}
+        >
+          {products.map((product) => (
+            <option key={product.id} value={product.id}>
+              {product.name}
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      <div className="md:col-span-3">
+        <Select
+          label="Variant"
+          {...variantField}
+          onChange={(event) => {
+            variantField.onChange(event);
+            const selectedVariant = variantsQuery.data?.items.find(
+              (variant) => variant.id === event.target.value,
+            );
+            if (!selectedVariant) return;
+            saleForm.setValue(
+              `items.${index}.unit_price`,
+              defaultUnitPrice(selectedVariant.selling_price),
+              { shouldDirty: true, shouldValidate: true },
+            );
+          }}
+          error={
+            saleForm.formState.errors.items?.[index]?.variant_id?.message
+          }
+        >
+          <option value="">Select variant</option>
+          {(variantsQuery.data?.items ?? []).map((variant) => (
+            <option key={variant.id} value={variant.id}>
+              {variant.size}{" "}
+              {variant.label ? `- ${variant.label}` : ""} (
+              {variant.stock} in stock)
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      <div className="md:col-span-2">
+        <Input
+          label="Qty"
+          type="number"
+          {...saleForm.register(`items.${index}.qty`)}
+          error={saleForm.formState.errors.items?.[index]?.qty?.message}
+        />
+      </div>
+      <div className="md:col-span-2">
+        <Input
+          label="Unit Price"
+          type="number"
+          step="0.01"
+          {...saleForm.register(`items.${index}.unit_price`)}
+          error={
+            saleForm.formState.errors.items?.[index]?.unit_price?.message
+          }
+        />
+      </div>
+      <div className="md:col-span-1 md:self-end">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="w-full"
+          onClick={onRemove}
+          disabled={!canRemove}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function SalesPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -75,7 +204,6 @@ export function SalesPage() {
   const [includeRefunds, setIncludeRefunds] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [selectedProductId, setSelectedProductId] = useState("");
   const [refundSaleId, setRefundSaleId] = useState<string | null>(null);
 
   const offset = (page - 1) * pageSize;
@@ -89,19 +217,7 @@ export function SalesPage() {
     queryFn: () => productService.list({ limit: 100, offset: 0 }),
   });
 
-  useEffect(() => {
-    if (!productsQuery.data?.items.length) return;
-    if (!selectedProductId) {
-      setSelectedProductId(productsQuery.data.items[0].id);
-    }
-  }, [productsQuery.data, selectedProductId]);
-
-  const variantsQuery = useQuery({
-    queryKey: ["sales", "variants", selectedProductId],
-    queryFn: () =>
-      productService.listVariants(selectedProductId, { limit: 100, offset: 0 }),
-    enabled: Boolean(selectedProductId),
-  });
+  const firstProductId = productsQuery.data?.items[0]?.id ?? "";
 
   const saleForm = useForm<SaleFormData>({
     resolver: zodResolver(saleSchema),
@@ -112,17 +228,6 @@ export function SalesPage() {
       items: [{ variant_id: "", qty: 1, unit_price: 1 }],
     },
   });
-
-  useEffect(() => {
-    const firstVariant = variantsQuery.data?.items[0];
-    if (firstVariant && saleForm.getValues("items.0.variant_id") === "") {
-      saleForm.setValue("items.0.variant_id", firstVariant.id);
-      saleForm.setValue(
-        "items.0.unit_price",
-        defaultUnitPrice(firstVariant.selling_price),
-      );
-    }
-  }, [variantsQuery.data, saleForm]);
 
   const { fields, append, remove } = useFieldArray({
     control: saleForm.control,
@@ -157,15 +262,7 @@ export function SalesPage() {
         payment_method: "cash",
         channel: "walk-in",
         note: "",
-        items: [
-          {
-            variant_id: variantsQuery.data?.items[0]?.id ?? "",
-            qty: 1,
-            unit_price: defaultUnitPrice(
-              variantsQuery.data?.items[0]?.selling_price,
-            ),
-          },
-        ],
+        items: [{ variant_id: "", qty: 1, unit_price: 1 }],
       });
       queryClient.invalidateQueries({ queryKey: ["sales"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -298,18 +395,19 @@ export function SalesPage() {
     return <LoadingState label="Loading sales workspace..." />;
   }
 
-  if (productsQuery.isError || listQuery.isError || variantsQuery.isError) {
+  if (productsQuery.isError || listQuery.isError) {
     return (
       <ErrorState
         message="Failed to load sales data."
         onRetry={() => {
           productsQuery.refetch();
-          variantsQuery.refetch();
           listQuery.refetch();
         }}
       />
     );
   }
+
+  const products = productsQuery.data?.items ?? [];
 
   return (
     <div className="space-y-6">
@@ -327,17 +425,6 @@ export function SalesPage() {
           )}
         >
           <div className="grid gap-3 md:grid-cols-3">
-            <Select
-              label="Product"
-              value={selectedProductId}
-              onChange={(e) => setSelectedProductId(e.target.value)}
-            >
-              {(productsQuery.data?.items ?? []).map((product) => (
-                <option key={product.id} value={product.id}>
-                  {product.name}
-                </option>
-              ))}
-            </Select>
             <Select
               label="Payment Method"
               {...saleForm.register("payment_method")}
@@ -368,101 +455,24 @@ export function SalesPage() {
                 size="sm"
                 variant="ghost"
                 onClick={() =>
-                  append({
-                    variant_id: variantsQuery.data?.items[0]?.id ?? "",
-                    qty: 1,
-                    unit_price: defaultUnitPrice(
-                      variantsQuery.data?.items[0]?.selling_price,
-                    ),
-                  })
+                  append({ variant_id: "", qty: 1, unit_price: 1 })
                 }
               >
                 <Plus className="h-4 w-4" /> Add Item
               </Button>
             </div>
 
-            {fields.map((field, index) => {
-              const variantField = saleForm.register(
-                `items.${index}.variant_id`,
-              );
-              return (
-                <div
-                  key={field.id}
-                  className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12"
-                >
-                  <div className="md:col-span-5">
-                    <Select
-                      label="Variant"
-                      {...variantField}
-                      onChange={(event) => {
-                        variantField.onChange(event);
-                        const selectedVariant = variantsQuery.data?.items.find(
-                          (variant) => variant.id === event.target.value,
-                        );
-                        if (!selectedVariant) {
-                          return;
-                        }
-                        saleForm.setValue(
-                          `items.${index}.unit_price`,
-                          defaultUnitPrice(selectedVariant.selling_price),
-                          {
-                            shouldDirty: true,
-                            shouldValidate: true,
-                          },
-                        );
-                      }}
-                      error={
-                        saleForm.formState.errors.items?.[index]?.variant_id
-                          ?.message
-                      }
-                    >
-                      <option value="">Select variant</option>
-                      {(variantsQuery.data?.items ?? []).map((variant) => (
-                        <option key={variant.id} value={variant.id}>
-                          {variant.size}{" "}
-                          {variant.label ? `- ${variant.label}` : ""} (
-                          {variant.stock} in stock)
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="md:col-span-3">
-                    <Input
-                      label="Qty"
-                      type="number"
-                      {...saleForm.register(`items.${index}.qty`)}
-                      error={
-                        saleForm.formState.errors.items?.[index]?.qty?.message
-                      }
-                    />
-                  </div>
-                  <div className="md:col-span-3">
-                    <Input
-                      label="Unit Price"
-                      type="number"
-                      step="0.01"
-                      {...saleForm.register(`items.${index}.unit_price`)}
-                      error={
-                        saleForm.formState.errors.items?.[index]?.unit_price
-                          ?.message
-                      }
-                    />
-                  </div>
-                  <div className="md:col-span-1 md:self-end">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="w-full"
-                      onClick={() => remove(index)}
-                      disabled={fields.length <= 1}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
+            {fields.map((field, index) => (
+              <SaleLineItem
+                key={field.id}
+                index={index}
+                saleForm={saleForm}
+                products={products}
+                defaultProductId={firstProductId}
+                canRemove={fields.length > 1}
+                onRemove={() => remove(index)}
+              />
+            ))}
           </div>
 
           <Textarea label="Note" rows={3} {...saleForm.register("note")} />

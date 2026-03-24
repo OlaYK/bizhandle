@@ -272,8 +272,11 @@ export function TeamPage() {
   return (
     <div className="space-y-6">
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">
-          Add Team Member
+        <h3 className="font-heading text-lg font-bold text-surface-800 flex flex-col ">
+          Add Team Member{" "}
+          <span className="text-sm font-extralight text-gray-400">
+            (Member already has a monidesk account)
+          </span>
         </h3>
         <form
           className="mt-4 grid gap-3 md:grid-cols-3"

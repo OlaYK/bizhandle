@@ -4,7 +4,12 @@ import { BellRing, FileDown, Send, Wallet } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { authService, invoiceService, orderService } from "../api/services";
+import {
+  authService,
+  invoiceService,
+  orderService,
+  customerService,
+} from "../api/services";
 import type { InvoiceOut, InvoiceStatus } from "../api/types";
 import { EmptyState } from "../components/state/empty-state";
 import { ErrorState } from "../components/state/error-state";
@@ -128,12 +133,17 @@ export function InvoicesPage() {
     queryFn: () => orderService.list({ limit: 200, offset: 0 }),
   });
 
+  const customersQuery = useQuery({
+    queryKey: ["orders", "customers"],
+    queryFn: () => customerService.list({ limit: 200, offset: 0 }),
+  });
+
   const createForm = useForm<CreateInvoiceFormData>({
     resolver: zodResolver(createInvoiceSchema),
     defaultValues: {
       customer_id: "",
       order_id: "",
-      currency: "USD",
+      currency: profileQuery.data?.base_currency ?? "NGN",
       total_amount: undefined,
       issue_date: "",
       due_date: "",
@@ -395,6 +405,8 @@ export function InvoicesPage() {
     );
   }
 
+  const customers = customersQuery.data?.items ?? [];
+
   return (
     <div className="space-y-6">
       <Card>
@@ -415,10 +427,18 @@ export function InvoicesPage() {
           )}
         >
           <div className="grid gap-3 md:grid-cols-4">
-            <Input
-              label="Customer ID (optional)"
+            <Select
+              label="Customer (optional)"
               {...createForm.register("customer_id")}
-            />
+              error={createForm.formState.errors.customer_id?.message}
+            >
+              <option value="">Select customer</option>
+              {(customers ?? []).map((customer) => (
+                <option key={customer.id} value={customer.id}>
+                  {customer.name}
+                </option>
+              ))}
+            </Select>
             <Select
               label="Order (optional)"
               {...createForm.register("order_id")}

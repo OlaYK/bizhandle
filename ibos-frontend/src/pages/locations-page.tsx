@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { locationService } from "../api/services";
+import { locationService, productService } from "../api/services";
 import { EmptyState } from "../components/state/empty-state";
 import { ErrorState } from "../components/state/error-state";
 import { LoadingState } from "../components/state/loading-state";
@@ -36,7 +36,7 @@ export function LocationsPage() {
   const [stockResult, setStockResult] = useState<number | null>(null);
   const [overviewVariantId, setOverviewVariantId] = useState("");
   const [overviewRows, setOverviewRows] = useState<
-    Array<{ location_id: string; stock: number }>
+    Array<{ location_id: string; stock: number; location_name: string }>
   >([]);
   const [transferFromLocationId, setTransferFromLocationId] = useState("");
   const [transferToLocationId, setTransferToLocationId] = useState("");
@@ -51,6 +51,7 @@ export function LocationsPage() {
   const [transferPageSize, setTransferPageSize] = useState(20);
   const [lowStockPage, setLowStockPage] = useState(1);
   const [lowStockPageSize, setLowStockPageSize] = useState(20);
+  const [_, setProductId] = useState("");
 
   const transferOffset = (transferPage - 1) * transferPageSize;
   const lowStockOffset = (lowStockPage - 1) * lowStockPageSize;
@@ -68,6 +69,24 @@ export function LocationsPage() {
     queryFn: () =>
       locationService.list({
         include_inactive: includeInactive,
+        limit: 200,
+        offset: 0,
+      }),
+  });
+
+  const productsQuery = useQuery({
+    queryKey: ["products", "list"],
+    queryFn: () =>
+      productService.list({
+        limit: 200,
+        offset: 0,
+      }),
+  });
+
+  const variantsQuery = useQuery({
+    queryKey: ["variants", "list"],
+    queryFn: () =>
+      productService.listVariants(productsQuery.data?.items[0].id || "", {
         limit: 200,
         offset: 0,
       }),
@@ -221,6 +240,7 @@ export function LocationsPage() {
         result.by_location.map((row) => ({
           location_id: row.location_id,
           stock: row.stock,
+          location_name: row.location_name,
         })),
       );
     },
@@ -323,6 +343,9 @@ export function LocationsPage() {
   }
 
   const locations = locationsQuery.data.items;
+  const products = productsQuery.data?.items || [];
+  const variants = variantsQuery.data?.items || [];
+  console.log("lowStockQuery.data.items", lowStockQuery.data.items);
 
   return (
     <div className="space-y-6">
@@ -452,12 +475,32 @@ export function LocationsPage() {
               </option>
             ))}
           </Select>
-          <Input
-            label="Variant ID"
+
+          <Select
+            label="Product"
+            value={productsQuery.data?.items[0].id}
+            onChange={(event) => setProductId(event.target.value)}
+          >
+            <option value="">Select product</option>
+            {products.map((product) => (
+              <option key={product.id} value={product.id}>
+                {product.name}
+              </option>
+            ))}
+          </Select>
+
+          <Select
+            label="Variant"
             value={stockVariantId}
             onChange={(event) => setStockVariantId(event.target.value)}
-            placeholder="variant-id"
-          />
+          >
+            <option value="">Select variant</option>
+            {variants.map((variant) => (
+              <option key={variant.id} value={variant.id}>
+                {variant.sku}
+              </option>
+            ))}
+          </Select>
           <Input
             label="Stock In Qty"
             type="number"
@@ -566,7 +609,7 @@ export function LocationsPage() {
                 className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm"
               >
                 <p className="font-semibold text-surface-700">
-                  Location: {row.location_id}
+                  Location: {row.location_name}
                 </p>
                 <p className="text-surface-500">Stock: {row.stock}</p>
               </div>
@@ -785,7 +828,8 @@ export function LocationsPage() {
                 className="rounded-xl border border-surface-100 bg-surface-50 p-3"
               >
                 <p className="font-semibold text-surface-700">
-                  Location {item.location_id} | Variant {item.variant_id}
+                  Location- {item.location_name} | Product- {item.product_name}{" "}
+                  {item.sku}
                 </p>
                 <p className="text-sm text-surface-500">
                   Stock: {item.stock} | Reorder Level: {item.reorder_level}

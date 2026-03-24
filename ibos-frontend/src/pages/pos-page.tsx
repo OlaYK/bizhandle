@@ -228,7 +228,7 @@ export function PosPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="relative space-y-6 after:absolute after:inset-0 after:rounded-2xl after:bg-surface-50 after:cursor-not-allowed after:content-['Coming_Soon'] after:flex after:items-start after:pt-36 after:justify-center after:text-2xl after:font-black after:text-white ">
       <Card>
         <div className="flex items-center justify-between">
           <h3 className="font-heading text-lg font-bold">Mobile POS Console</h3>

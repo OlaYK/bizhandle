@@ -4,7 +4,7 @@ import { automationService } from "../api/services";
 import type {
   AutomationActionType,
   AutomationConditionOperator,
-  AutomationRunStatus
+  AutomationRunStatus,
 } from "../api/types";
 import { EmptyState } from "../components/state/empty-state";
 import { ErrorState } from "../components/state/error-state";
@@ -58,7 +58,9 @@ function nextActionDraft(type: AutomationActionType): ActionDraft {
     provider: "whatsapp_stub",
     recipientFrom: "payload.phone",
     messageContent:
-      type === "send_message" ? "Hello {{payload.customer_name}}, this is your workflow reminder." : "",
+      type === "send_message"
+        ? "Hello {{payload.customer_name}}, this is your workflow reminder."
+        : "",
     customerIdFrom: "payload.customer_id",
     tagName: "Automated Tag",
     tagColor: "#16a34a",
@@ -70,11 +72,14 @@ function nextActionDraft(type: AutomationActionType): ActionDraft {
     discountValue: "10",
     maxRedemptions: "1",
     discountCustomerIdFrom: "payload.customer_id",
-    discountExpiresInDays: "3"
+    discountExpiresInDays: "3",
   };
 }
 
-function parseConditionValue(raw: string, valueType: ConditionValueType): unknown {
+function parseConditionValue(
+  raw: string,
+  valueType: ConditionValueType,
+): unknown {
   const cleaned = raw.trim();
   if (!cleaned) return null;
   if (valueType === "number") {
@@ -94,14 +99,14 @@ function actionConfigFromDraft(draft: ActionDraft): Record<string, unknown> {
     return {
       provider: draft.provider.trim() || "whatsapp_stub",
       recipient_from: draft.recipientFrom.trim() || "payload.phone",
-      content: draft.messageContent.trim()
+      content: draft.messageContent.trim(),
     };
   }
   if (draft.type === "tag_customer") {
     return {
       customer_id_from: draft.customerIdFrom.trim() || "payload.customer_id",
       tag_name: draft.tagName.trim() || "Automated Tag",
-      tag_color: draft.tagColor.trim() || "#16a34a"
+      tag_color: draft.tagColor.trim() || "#16a34a",
     };
   }
   if (draft.type === "create_task") {
@@ -109,7 +114,7 @@ function actionConfigFromDraft(draft: ActionDraft): Record<string, unknown> {
     return {
       title: draft.taskTitle.trim(),
       description: draft.taskDescription.trim() || undefined,
-      due_in_hours: Number.isFinite(dueHours) ? dueHours : 0
+      due_in_hours: Number.isFinite(dueHours) ? dueHours : 0,
     };
   }
   const discountValue = Number(draft.discountValue || 0);
@@ -119,9 +124,16 @@ function actionConfigFromDraft(draft: ActionDraft): Record<string, unknown> {
     code_prefix: draft.discountCodePrefix.trim() || "AUTO",
     kind: draft.discountKind,
     value: Number.isFinite(discountValue) ? discountValue : 0,
-    max_redemptions: Number.isFinite(maxRedemptions) && maxRedemptions > 0 ? maxRedemptions : undefined,
-    target_customer_id_from: draft.discountCustomerIdFrom.trim() || "payload.customer_id",
-    expires_in_days: Number.isFinite(expiresInDays) && expiresInDays > 0 ? expiresInDays : undefined
+    max_redemptions:
+      Number.isFinite(maxRedemptions) && maxRedemptions > 0
+        ? maxRedemptions
+        : undefined,
+    target_customer_id_from:
+      draft.discountCustomerIdFrom.trim() || "payload.customer_id",
+    expires_in_days:
+      Number.isFinite(expiresInDays) && expiresInDays > 0
+        ? expiresInDays
+        : undefined,
   };
 }
 
@@ -137,15 +149,21 @@ export function AutomationPage() {
   const [rollbackOnFailure, setRollbackOnFailure] = useState(true);
 
   const [conditionField, setConditionField] = useState("payload.amount_due");
-  const [conditionOperator, setConditionOperator] = useState<AutomationConditionOperator>("gte");
-  const [conditionValueType, setConditionValueType] = useState<ConditionValueType>("number");
+  const [conditionOperator, setConditionOperator] =
+    useState<AutomationConditionOperator>("gte");
+  const [conditionValueType, setConditionValueType] =
+    useState<ConditionValueType>("number");
   const [conditionValue, setConditionValue] = useState("50");
   const [conditionEnabled, setConditionEnabled] = useState(true);
 
-  const [actions, setActions] = useState<ActionDraft[]>([nextActionDraft("send_message")]);
+  const [actions, setActions] = useState<ActionDraft[]>([
+    nextActionDraft("send_message"),
+  ]);
 
   const [selectedRuleId, setSelectedRuleId] = useState("");
-  const [runStatusFilter, setRunStatusFilter] = useState<"" | AutomationRunStatus>("");
+  const [runStatusFilter, setRunStatusFilter] = useState<
+    "" | AutomationRunStatus
+  >("");
   const [runRuleFilter, setRunRuleFilter] = useState("");
 
   const [testEventType, setTestEventType] = useState("invoice.overdue");
@@ -156,22 +174,24 @@ export function AutomationPage() {
         amount_due: 120,
         customer_id: "customer-id",
         customer_name: "Automation Customer",
-        phone: "+2348011118888"
+        phone: "+2348011118888",
       },
       null,
-      2
-    )
+      2,
+    ),
   );
-  const [testResultSummary, setTestResultSummary] = useState<string | null>(null);
+  const [testResultSummary, setTestResultSummary] = useState<string | null>(
+    null,
+  );
 
   const templatesQuery = useQuery({
     queryKey: ["automation", "templates"],
-    queryFn: automationService.listTemplates
+    queryFn: automationService.listTemplates,
   });
 
   const rulesQuery = useQuery({
     queryKey: ["automation", "rules"],
-    queryFn: () => automationService.listRules({ limit: 100, offset: 0 })
+    queryFn: () => automationService.listRules({ limit: 100, offset: 0 }),
   });
 
   const runsQuery = useQuery({
@@ -181,8 +201,8 @@ export function AutomationPage() {
         rule_id: runRuleFilter || undefined,
         status: runStatusFilter || undefined,
         limit: 25,
-        offset: 0
-      })
+        offset: 0,
+      }),
   });
 
   useEffect(() => {
@@ -194,13 +214,18 @@ export function AutomationPage() {
   }, [rulesQuery.data, selectedRuleId]);
 
   const installTemplateMutation = useMutation({
-    mutationFn: (templateKey: "abandoned_cart" | "overdue_invoice" | "low_stock") =>
-      automationService.installTemplate({ template_key: templateKey, activate: true }),
+    mutationFn: (
+      templateKey: "abandoned_cart" | "overdue_invoice" | "low_stock",
+    ) =>
+      automationService.installTemplate({
+        template_key: templateKey,
+        activate: true,
+      }),
     onSuccess: (result) => {
       showToast({
         title: "Template installed",
         description: `${result.template.name} is now available as a rule.`,
-        variant: "success"
+        variant: "success",
       });
       queryClient.invalidateQueries({ queryKey: ["automation", "rules"] });
       queryClient.invalidateQueries({ queryKey: ["audit-logs"] });
@@ -209,9 +234,9 @@ export function AutomationPage() {
       showToast({
         title: "Template install failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const createRuleMutation = useMutation({
@@ -228,24 +253,28 @@ export function AutomationPage() {
               {
                 field: conditionField.trim(),
                 operator: conditionOperator,
-                value: parseConditionValue(conditionValue, conditionValueType)
-              }
+                value: parseConditionValue(conditionValue, conditionValueType),
+              },
             ]
           : [],
         actions: actions.map((action) => ({
           type: action.type,
-          config_json: actionConfigFromDraft(action)
+          config_json: actionConfigFromDraft(action),
         })),
-        run_limit_per_hour: Number.isFinite(parsedRunLimit) ? parsedRunLimit : 120,
-        reentry_cooldown_seconds: Number.isFinite(parsedCooldown) ? parsedCooldown : 300,
-        rollback_on_failure: rollbackOnFailure
+        run_limit_per_hour: Number.isFinite(parsedRunLimit)
+          ? parsedRunLimit
+          : 120,
+        reentry_cooldown_seconds: Number.isFinite(parsedCooldown)
+          ? parsedCooldown
+          : 300,
+        rollback_on_failure: rollbackOnFailure,
       });
     },
     onSuccess: (result) => {
       showToast({
         title: "Rule created",
         description: `${result.name} is active and ready to run.`,
-        variant: "success"
+        variant: "success",
       });
       setRuleName("");
       setRuleDescription("");
@@ -258,9 +287,9 @@ export function AutomationPage() {
       showToast({
         title: "Rule creation failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const toggleRuleMutation = useMutation({
@@ -275,9 +304,9 @@ export function AutomationPage() {
       showToast({
         title: "Rule update failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const testRuleMutation = useMutation({
@@ -288,12 +317,12 @@ export function AutomationPage() {
       return automationService.testRule(selectedRuleId, {
         event_type: testEventType.trim() || undefined,
         target_app_key: "automation",
-        payload_json: parseJsonObject(testPayloadJson)
+        payload_json: parseJsonObject(testPayloadJson),
       });
     },
     onSuccess: (result) => {
       setTestResultSummary(
-        `Dry run status: ${result.status}. Steps: ${result.steps_total}, failures: ${result.steps_failed}.`
+        `Dry run status: ${result.status}. Steps: ${result.steps_total}, failures: ${result.steps_failed}.`,
       );
       queryClient.invalidateQueries({ queryKey: ["automation", "runs"] });
     },
@@ -301,9 +330,9 @@ export function AutomationPage() {
       showToast({
         title: "Dry run failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const runOutboxMutation = useMutation({
@@ -312,7 +341,7 @@ export function AutomationPage() {
       showToast({
         title: "Outbox execution complete",
         description: `Runs: ${result.triggered_runs}, success: ${result.successful_runs}, blocked: ${result.blocked_runs}.`,
-        variant: "success"
+        variant: "success",
       });
       queryClient.invalidateQueries({ queryKey: ["automation", "runs"] });
       queryClient.invalidateQueries({ queryKey: ["audit-logs"] });
@@ -321,14 +350,14 @@ export function AutomationPage() {
       showToast({
         title: "Outbox execution failed",
         description: getApiErrorMessage(error),
-        variant: "error"
+        variant: "error",
       });
-    }
+    },
   });
 
   const selectedRule = useMemo(
     () => rulesQuery.data?.items.find((item) => item.id === selectedRuleId),
-    [rulesQuery.data?.items, selectedRuleId]
+    [rulesQuery.data?.items, selectedRuleId],
   );
 
   if (templatesQuery.isLoading || rulesQuery.isLoading || runsQuery.isLoading) {
@@ -360,33 +389,50 @@ export function AutomationPage() {
     triggerEventType.trim().length >= 2 &&
     actions.length > 0 &&
     actions.every((action) => {
-      if (action.type === "send_message") return action.messageContent.trim().length > 0;
-      if (action.type === "tag_customer") return action.tagName.trim().length > 0;
-      if (action.type === "create_task") return action.taskTitle.trim().length > 0;
+      if (action.type === "send_message")
+        return action.messageContent.trim().length > 0;
+      if (action.type === "tag_customer")
+        return action.tagName.trim().length > 0;
+      if (action.type === "create_task")
+        return action.taskTitle.trim().length > 0;
       return Number(action.discountValue || 0) > 0;
     });
 
   return (
-    <div className="space-y-6">
+    <div className="relative space-y-6 after:absolute after:inset-0 after:rounded-2xl after:bg-surface-50 after:cursor-not-allowed after:content-['Coming_Soon'] after:flex after:items-start after:pt-36 after:justify-center after:text-2xl after:font-black after:text-white ">
       <Card className="animate-fade-up bg-[linear-gradient(135deg,#14303f_0%,#1e4d5f_55%,#2d6472_100%)] text-white">
-        <h3 className="font-heading text-xl font-black">Automation Workflow Engine</h3>
+        <h3 className="font-heading text-xl font-black">
+          Automation Workflow Engine
+        </h3>
         <p className="mt-1 text-sm text-white/80">
-          Build event-driven rules with guardrails, run dry tests, and inspect step-by-step execution logs.
+          Build event-driven rules with guardrails, run dry tests, and inspect
+          step-by-step execution logs.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Badge variant="info">{rulesQuery.data.pagination.total} rules</Badge>
-          <Badge variant="info">{runsQuery.data.pagination.total} run logs</Badge>
+          <Badge variant="info">
+            {runsQuery.data.pagination.total} run logs
+          </Badge>
         </div>
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">Template Library</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          Template Library
+        </h3>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           {templatesQuery.data.items.map((template) => (
-            <article key={template.template_key} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+            <article
+              key={template.template_key}
+              className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+            >
               <p className="font-semibold text-surface-700">{template.name}</p>
-              <p className="mt-1 text-xs text-surface-500">{template.description}</p>
-              <p className="mt-2 text-xs text-surface-500">Trigger: {template.trigger_event_type}</p>
+              <p className="mt-1 text-xs text-surface-500">
+                {template.description}
+              </p>
+              <p className="mt-2 text-xs text-surface-500">
+                Trigger: {template.trigger_event_type}
+              </p>
               <Button
                 type="button"
                 size="sm"
@@ -395,7 +441,9 @@ export function AutomationPage() {
                   installTemplateMutation.isPending &&
                   installTemplateMutation.variables === template.template_key
                 }
-                onClick={() => installTemplateMutation.mutate(template.template_key)}
+                onClick={() =>
+                  installTemplateMutation.mutate(template.template_key)
+                }
               >
                 Install Template
               </Button>
@@ -405,9 +453,15 @@ export function AutomationPage() {
       </Card>
 
       <Card>
-        <h3 className="font-heading text-lg font-bold text-surface-800">No-code Rule Builder</h3>
+        <h3 className="font-heading text-lg font-bold text-surface-800">
+          No-code Rule Builder
+        </h3>
         <div className="mt-4 grid gap-3 lg:grid-cols-3">
-          <Input label="Rule Name" value={ruleName} onChange={(event) => setRuleName(event.target.value)} />
+          <Input
+            label="Rule Name"
+            value={ruleName}
+            onChange={(event) => setRuleName(event.target.value)}
+          />
           <Input
             label="Trigger Event Type"
             value={triggerEventType}
@@ -424,7 +478,9 @@ export function AutomationPage() {
           <Select
             label="Condition Enabled"
             value={conditionEnabled ? "yes" : "no"}
-            onChange={(event) => setConditionEnabled(event.target.value === "yes")}
+            onChange={(event) =>
+              setConditionEnabled(event.target.value === "yes")
+            }
           >
             <option value="yes">yes</option>
             <option value="no">no</option>
@@ -438,7 +494,11 @@ export function AutomationPage() {
           <Select
             label="Condition Operator"
             value={conditionOperator}
-            onChange={(event) => setConditionOperator(event.target.value as AutomationConditionOperator)}
+            onChange={(event) =>
+              setConditionOperator(
+                event.target.value as AutomationConditionOperator,
+              )
+            }
             disabled={!conditionEnabled}
           >
             <option value="eq">eq</option>
@@ -464,7 +524,9 @@ export function AutomationPage() {
           <Select
             label="Condition Value Type"
             value={conditionValueType}
-            onChange={(event) => setConditionValueType(event.target.value as ConditionValueType)}
+            onChange={(event) =>
+              setConditionValueType(event.target.value as ConditionValueType)
+            }
           >
             <option value="string">string</option>
             <option value="number">number</option>
@@ -484,7 +546,9 @@ export function AutomationPage() {
           <Select
             label="Rollback on Failure"
             value={rollbackOnFailure ? "yes" : "no"}
-            onChange={(event) => setRollbackOnFailure(event.target.value === "yes")}
+            onChange={(event) =>
+              setRollbackOnFailure(event.target.value === "yes")
+            }
           >
             <option value="yes">yes</option>
             <option value="no">no</option>
@@ -497,13 +561,18 @@ export function AutomationPage() {
             <Button
               type="button"
               variant="ghost"
-              onClick={() => setActions((prev) => [...prev, nextActionDraft("create_task")])}
+              onClick={() =>
+                setActions((prev) => [...prev, nextActionDraft("create_task")])
+              }
             >
               Add Action
             </Button>
           </div>
           {actions.map((action, index) => (
-            <article key={action.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+            <article
+              key={action.id}
+              className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+            >
               <div className="grid gap-3 lg:grid-cols-4">
                 <Select
                   label={`Action ${index + 1} Type`}
@@ -512,9 +581,14 @@ export function AutomationPage() {
                     setActions((prev) =>
                       prev.map((item) =>
                         item.id === action.id
-                          ? { ...nextActionDraft(event.target.value as AutomationActionType), id: item.id }
-                          : item
-                      )
+                          ? {
+                              ...nextActionDraft(
+                                event.target.value as AutomationActionType,
+                              ),
+                              id: item.id,
+                            }
+                          : item,
+                      ),
                     )
                   }
                 >
@@ -531,8 +605,10 @@ export function AutomationPage() {
                       onChange={(event) =>
                         setActions((prev) =>
                           prev.map((item) =>
-                            item.id === action.id ? { ...item, provider: event.target.value } : item
-                          )
+                            item.id === action.id
+                              ? { ...item, provider: event.target.value }
+                              : item,
+                          ),
                         )
                       }
                     />
@@ -542,8 +618,10 @@ export function AutomationPage() {
                       onChange={(event) =>
                         setActions((prev) =>
                           prev.map((item) =>
-                            item.id === action.id ? { ...item, recipientFrom: event.target.value } : item
-                          )
+                            item.id === action.id
+                              ? { ...item, recipientFrom: event.target.value }
+                              : item,
+                          ),
                         )
                       }
                     />
@@ -553,8 +631,10 @@ export function AutomationPage() {
                       onChange={(event) =>
                         setActions((prev) =>
                           prev.map((item) =>
-                            item.id === action.id ? { ...item, messageContent: event.target.value } : item
-                          )
+                            item.id === action.id
+                              ? { ...item, messageContent: event.target.value }
+                              : item,
+                          ),
                         )
                       }
                     />
@@ -568,8 +648,10 @@ export function AutomationPage() {
                       onChange={(event) =>
                         setActions((prev) =>
                           prev.map((item) =>
-                            item.id === action.id ? { ...item, customerIdFrom: event.target.value } : item
-                          )
+                            item.id === action.id
+                              ? { ...item, customerIdFrom: event.target.value }
+                              : item,
+                          ),
                         )
                       }
                     />
@@ -578,7 +660,11 @@ export function AutomationPage() {
                       value={action.tagName}
                       onChange={(event) =>
                         setActions((prev) =>
-                          prev.map((item) => (item.id === action.id ? { ...item, tagName: event.target.value } : item))
+                          prev.map((item) =>
+                            item.id === action.id
+                              ? { ...item, tagName: event.target.value }
+                              : item,
+                          ),
                         )
                       }
                     />
@@ -587,7 +673,11 @@ export function AutomationPage() {
                       value={action.tagColor}
                       onChange={(event) =>
                         setActions((prev) =>
-                          prev.map((item) => (item.id === action.id ? { ...item, tagColor: event.target.value } : item))
+                          prev.map((item) =>
+                            item.id === action.id
+                              ? { ...item, tagColor: event.target.value }
+                              : item,
+                          ),
                         )
                       }
                     />
@@ -601,8 +691,10 @@ export function AutomationPage() {
                       onChange={(event) =>
                         setActions((prev) =>
                           prev.map((item) =>
-                            item.id === action.id ? { ...item, taskTitle: event.target.value } : item
-                          )
+                            item.id === action.id
+                              ? { ...item, taskTitle: event.target.value }
+                              : item,
+                          ),
                         )
                       }
                     />
@@ -612,8 +704,10 @@ export function AutomationPage() {
                       onChange={(event) =>
                         setActions((prev) =>
                           prev.map((item) =>
-                            item.id === action.id ? { ...item, taskDescription: event.target.value } : item
-                          )
+                            item.id === action.id
+                              ? { ...item, taskDescription: event.target.value }
+                              : item,
+                          ),
                         )
                       }
                     />
@@ -623,8 +717,10 @@ export function AutomationPage() {
                       onChange={(event) =>
                         setActions((prev) =>
                           prev.map((item) =>
-                            item.id === action.id ? { ...item, dueInHours: event.target.value } : item
-                          )
+                            item.id === action.id
+                              ? { ...item, dueInHours: event.target.value }
+                              : item,
+                          ),
                         )
                       }
                     />
@@ -638,8 +734,13 @@ export function AutomationPage() {
                       onChange={(event) =>
                         setActions((prev) =>
                           prev.map((item) =>
-                            item.id === action.id ? { ...item, discountCodePrefix: event.target.value } : item
-                          )
+                            item.id === action.id
+                              ? {
+                                  ...item,
+                                  discountCodePrefix: event.target.value,
+                                }
+                              : item,
+                          ),
                         )
                       }
                     />
@@ -650,9 +751,14 @@ export function AutomationPage() {
                         setActions((prev) =>
                           prev.map((item) =>
                             item.id === action.id
-                              ? { ...item, discountKind: event.target.value as "percentage" | "fixed" }
-                              : item
-                          )
+                              ? {
+                                  ...item,
+                                  discountKind: event.target.value as
+                                    | "percentage"
+                                    | "fixed",
+                                }
+                              : item,
+                          ),
                         )
                       }
                     >
@@ -665,8 +771,10 @@ export function AutomationPage() {
                       onChange={(event) =>
                         setActions((prev) =>
                           prev.map((item) =>
-                            item.id === action.id ? { ...item, discountValue: event.target.value } : item
-                          )
+                            item.id === action.id
+                              ? { ...item, discountValue: event.target.value }
+                              : item,
+                          ),
                         )
                       }
                     />
@@ -676,8 +784,10 @@ export function AutomationPage() {
                       onChange={(event) =>
                         setActions((prev) =>
                           prev.map((item) =>
-                            item.id === action.id ? { ...item, maxRedemptions: event.target.value } : item
-                          )
+                            item.id === action.id
+                              ? { ...item, maxRedemptions: event.target.value }
+                              : item,
+                          ),
                         )
                       }
                     />
@@ -690,7 +800,11 @@ export function AutomationPage() {
                   variant="danger"
                   size="sm"
                   disabled={actions.length === 1}
-                  onClick={() => setActions((prev) => prev.filter((item) => item.id !== action.id))}
+                  onClick={() =>
+                    setActions((prev) =>
+                      prev.filter((item) => item.id !== action.id),
+                    )
+                  }
                 >
                   Remove
                 </Button>
@@ -721,24 +835,41 @@ export function AutomationPage() {
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
-          <h3 className="font-heading text-lg font-bold text-surface-800">Rules</h3>
+          <h3 className="font-heading text-lg font-bold text-surface-800">
+            Rules
+          </h3>
           {!rulesQuery.data.items.length ? (
             <div className="mt-3">
-              <EmptyState title="No rules yet" description="Create your first workflow rule." />
+              <EmptyState
+                title="No rules yet"
+                description="Create your first workflow rule."
+              />
             </div>
           ) : (
             <div className="mt-3 space-y-2">
               {rulesQuery.data.items.map((rule) => (
-                <article key={rule.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+                <article
+                  key={rule.id}
+                  className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <p className="font-semibold text-surface-700">{rule.name}</p>
+                      <p className="font-semibold text-surface-700">
+                        {rule.name}
+                      </p>
                       <p className="text-xs text-surface-500">
-                        Trigger: {rule.trigger_event_type} | version {rule.version}
+                        Trigger: {rule.trigger_event_type} | version{" "}
+                        {rule.version}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant={rule.status === "active" ? "positive" : "neutral"}>{rule.status}</Badge>
+                      <Badge
+                        variant={
+                          rule.status === "active" ? "positive" : "neutral"
+                        }
+                      >
+                        {rule.status}
+                      </Badge>
                       <Button
                         type="button"
                         size="sm"
@@ -762,7 +893,8 @@ export function AutomationPage() {
                         onClick={() =>
                           toggleRuleMutation.mutate({
                             ruleId: rule.id,
-                            status: rule.status === "active" ? "inactive" : "active"
+                            status:
+                              rule.status === "active" ? "inactive" : "active",
                           })
                         }
                       >
@@ -771,7 +903,8 @@ export function AutomationPage() {
                     </div>
                   </div>
                   <p className="mt-1 text-xs text-surface-500">
-                    Actions: {rule.actions.length} | Updated: {formatDateTime(rule.updated_at)}
+                    Actions: {rule.actions.length} | Updated:{" "}
+                    {formatDateTime(rule.updated_at)}
                   </p>
                 </article>
               ))}
@@ -779,9 +912,15 @@ export function AutomationPage() {
           )}
         </Card>
         <Card>
-          <h3 className="font-heading text-lg font-bold text-surface-800">Dry Run Tester</h3>
+          <h3 className="font-heading text-lg font-bold text-surface-800">
+            Dry Run Tester
+          </h3>
           <div className="mt-3 grid gap-3">
-            <Select value={selectedRuleId} onChange={(event) => setSelectedRuleId(event.target.value)} label="Rule">
+            <Select
+              value={selectedRuleId}
+              onChange={(event) => setSelectedRuleId(event.target.value)}
+              label="Rule"
+            >
               <option value="">Select rule</option>
               {rulesQuery.data.items.map((rule) => (
                 <option key={rule.id} value={rule.id}>
@@ -809,11 +948,14 @@ export function AutomationPage() {
               Run Dry Test
             </Button>
             {testResultSummary ? (
-              <p className="text-sm font-semibold text-surface-700">{testResultSummary}</p>
+              <p className="text-sm font-semibold text-surface-700">
+                {testResultSummary}
+              </p>
             ) : null}
             {selectedRule ? (
               <p className="text-xs text-surface-500">
-                Selected trigger pattern: <strong>{selectedRule.trigger_event_type}</strong>
+                Selected trigger pattern:{" "}
+                <strong>{selectedRule.trigger_event_type}</strong>
               </p>
             ) : null}
           </div>
@@ -838,7 +980,9 @@ export function AutomationPage() {
           <Select
             label="Status Filter"
             value={runStatusFilter}
-            onChange={(event) => setRunStatusFilter(event.target.value as "" | AutomationRunStatus)}
+            onChange={(event) =>
+              setRunStatusFilter(event.target.value as "" | AutomationRunStatus)
+            }
             className="max-w-xs"
           >
             <option value="">All statuses</option>
@@ -848,24 +992,37 @@ export function AutomationPage() {
             <option value="skipped">skipped</option>
             <option value="dry_run">dry_run</option>
           </Select>
-          <Button type="button" variant="secondary" onClick={() => runsQuery.refetch()}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => runsQuery.refetch()}
+          >
             Refresh Logs
           </Button>
         </div>
 
         {!runsQuery.data.items.length ? (
           <div className="mt-4">
-            <EmptyState title="No workflow runs yet" description="Execute outbox run or dry test to populate logs." />
+            <EmptyState
+              title="No workflow runs yet"
+              description="Execute outbox run or dry test to populate logs."
+            />
           </div>
         ) : (
           <div className="mt-4 space-y-3">
             {runsQuery.data.items.map((run) => (
-              <article key={run.id} className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+              <article
+                key={run.id}
+                className="rounded-xl border border-surface-100 bg-surface-50 p-3"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="font-semibold text-surface-700">{run.trigger_event_type}</p>
+                    <p className="font-semibold text-surface-700">
+                      {run.trigger_event_type}
+                    </p>
                     <p className="text-xs text-surface-500">
-                      Run ID: {run.id} | Rule: {run.rule_id} | Created: {formatDateTime(run.created_at)}
+                      Run ID: {run.id} | Rule: {run.rule_id} | Created:{" "}
+                      {formatDateTime(run.created_at)}
                     </p>
                   </div>
                   <Badge
@@ -881,10 +1038,14 @@ export function AutomationPage() {
                   </Badge>
                 </div>
                 {run.blocked_reason ? (
-                  <p className="mt-1 text-xs text-amber-700">Blocked: {run.blocked_reason}</p>
+                  <p className="mt-1 text-xs text-amber-700">
+                    Blocked: {run.blocked_reason}
+                  </p>
                 ) : null}
                 {run.error_message ? (
-                  <p className="mt-1 text-xs text-red-600">Error: {run.error_message}</p>
+                  <p className="mt-1 text-xs text-red-600">
+                    Error: {run.error_message}
+                  </p>
                 ) : null}
                 <div className="mt-2 grid gap-2">
                   {run.steps.map((step) => (
@@ -896,10 +1057,18 @@ export function AutomationPage() {
                         <p className="text-sm font-semibold text-surface-700">
                           {step.step_index}. {step.action_type}
                         </p>
-                        <Badge variant={step.status === "failed" ? "negative" : "info"}>{step.status}</Badge>
+                        <Badge
+                          variant={
+                            step.status === "failed" ? "negative" : "info"
+                          }
+                        >
+                          {step.status}
+                        </Badge>
                       </div>
                       {step.error_message ? (
-                        <p className="mt-1 text-xs text-red-600">{step.error_message}</p>
+                        <p className="mt-1 text-xs text-red-600">
+                          {step.error_message}
+                        </p>
                       ) : null}
                     </div>
                   ))}

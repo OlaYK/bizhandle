@@ -349,6 +349,7 @@ export interface VariantCreateIn {
   reorder_level?: number;
   cost_price?: number | null;
   selling_price?: number | null;
+  qty?: number;
 }
 
 export interface VariantCreateOut {
@@ -889,6 +890,7 @@ export interface LocationStockAdjustIn {
 
 export interface LocationVariantStockOut {
   location_id: string;
+  location_name: string;
   variant_id: string;
   stock: number;
 }
@@ -931,10 +933,16 @@ export interface StockTransferListOut {
 }
 
 export interface LocationLowStockItemOut {
+  label: string;
   location_id: string;
-  variant_id: string;
+  location_name: string;
+  product_id: string;
+  product_name: string;
   reorder_level: number;
+  size: string;
+  sku: string;
   stock: number;
+  variant_id: string;
 }
 
 export interface LocationLowStockListOut {
@@ -1653,6 +1661,7 @@ export interface OrderCreateOut {
 export interface OrderOut {
   id: string;
   customer_id?: string | null;
+  customer_name?: string | null;
   payment_method: PaymentMethod;
   channel: SalesChannel;
   status: OrderStatus;
@@ -2258,6 +2267,7 @@ export interface AutomationRunFilter extends PaginationFilter {
 export interface AuditLogOut {
   id: string;
   actor_user_id: string;
+  actor_username: string;
   action: string;
   target_type: string;
   target_id?: string | null;
@@ -2311,6 +2321,9 @@ export interface InventoryAgingItemOut {
   stock: number;
   estimated_value: number;
   days_since_last_movement?: number | null;
+  product_name: string;
+  sku: string;
+  label: string;
 }
 
 export interface InventoryAgingOut {
