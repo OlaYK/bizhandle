@@ -900,6 +900,53 @@ def test_sales_and_expenses_list_endpoints(test_context):
     assert expenses_payload["items"][0]["category"] == "logistics"
 
 
+def test_sales_summary_returns_gross_paid_sales_only(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="sales-summary-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    _, variant_id = _create_product_with_variant(client, token, qty=10)
+
+    first_sale = client.post(
+        "/sales",
+        json={
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 2, "unit_price": 100}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert first_sale.status_code == 200, first_sale.text
+    first_sale_id = first_sale.json()["id"]
+
+    second_sale = client.post(
+        "/sales",
+        json={
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 150}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert second_sale.status_code == 200, second_sale.text
+
+    refund = client.post(
+        f"/sales/{first_sale_id}/refund",
+        json={"items": [{"variant_id": variant_id, "qty": 1}]},
+        headers=_auth_headers(token),
+    )
+    assert refund.status_code == 200, refund.text
+
+    summary = client.get("/sales/summary", headers=_auth_headers(token))
+    assert summary.status_code == 200, summary.text
+    payload = summary.json()
+    assert payload["base_currency"] == "USD"
+    assert payload["sales_count"] == 2
+    assert payload["total_amount"] == 350.0
+
+
 def test_refund_restocks_inventory_and_reduces_net_sales(test_context):
     client, _ = test_context
 

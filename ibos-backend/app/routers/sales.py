@@ -19,6 +19,7 @@ from app.schemas.sales import (
     SaleCreate,
     SaleCreateOut,
     SaleListOut,
+    SaleSummaryOut,
     SaleQuote,
     SaleQuoteLineOut,
     SaleQuoteOut,
@@ -30,6 +31,11 @@ from app.services.audit_service import log_audit_event
 from app.services.inventory_service import add_ledger_entry, get_variant_stock
 
 router = APIRouter(prefix="/sales", tags=["sales"])
+
+
+def _validate_sales_date_range(start_date: date | None, end_date: date | None) -> None:
+    if start_date and end_date and end_date < start_date:
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
 
 
 def _variant_business_map(db: Session, variant_ids: list[str]) -> dict[str, str]:
@@ -128,6 +134,49 @@ def quote_sale(
         business_id=biz.id,
         currency=biz.base_currency,
         items=payload.items,
+    )
+
+
+@router.get(
+    "/summary",
+    response_model=SaleSummaryOut,
+    summary="Get total paid sales summary",
+    description="Returns the aggregate amount and count of completed sales rows, excluding refunds.",
+    responses=error_responses(400, 401, 422, 500),
+)
+def get_sales_summary(
+    start_date: date | None = Query(default=None, description="Filter from date (YYYY-MM-DD)"),
+    end_date: date | None = Query(default=None, description="Filter to date (YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    biz=Depends(get_current_business),
+):
+    _validate_sales_date_range(start_date, end_date)
+
+    count_stmt = select(func.count(Sale.id)).where(
+        Sale.business_id == biz.id,
+        Sale.kind == "sale",
+    )
+    total_stmt = select(func.coalesce(func.sum(Sale.total_amount), 0)).where(
+        Sale.business_id == biz.id,
+        Sale.kind == "sale",
+    )
+
+    if start_date:
+        count_stmt = count_stmt.where(func.date(Sale.created_at) >= start_date)
+        total_stmt = total_stmt.where(func.date(Sale.created_at) >= start_date)
+    if end_date:
+        count_stmt = count_stmt.where(func.date(Sale.created_at) <= end_date)
+        total_stmt = total_stmt.where(func.date(Sale.created_at) <= end_date)
+
+    sales_count = int(db.execute(count_stmt).scalar_one())
+    total_amount = to_money(db.execute(total_stmt).scalar_one())
+
+    return SaleSummaryOut(
+        base_currency=biz.base_currency,
+        start_date=start_date,
+        end_date=end_date,
+        sales_count=sales_count,
+        total_amount=float(total_amount),
     )
 
 
@@ -558,8 +607,7 @@ def list_sales(
     db: Session = Depends(get_db),
     biz=Depends(get_current_business),
 ):
-    if start_date and end_date and end_date < start_date:
-        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
+    _validate_sales_date_range(start_date, end_date)
 
     count_stmt = select(func.count(Sale.id)).where(Sale.business_id == biz.id)
     data_stmt = select(Sale).where(Sale.business_id == biz.id)

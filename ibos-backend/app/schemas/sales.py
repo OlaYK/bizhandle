@@ -102,6 +102,14 @@ class SaleListOut(BaseModel):
     items: list[SaleOut]
 
 
+class SaleSummaryOut(BaseModel):
+    base_currency: str
+    start_date: date | None = None
+    end_date: date | None = None
+    sales_count: int
+    total_amount: float
+
+
 class RefundItemIn(BaseModel):
     variant_id: str
     qty: int = Field(gt=0)
