@@ -19,6 +19,7 @@ from app.models.invoice import Invoice, InvoiceEvent, InvoiceInstallment, Invoic
 from app.models.order import Order, OrderItem
 from app.models.product import Product, ProductVariant
 from app.models.user import User
+from app.routers.orders import _convert_order_to_sale, _normalize_order_status
 from app.schemas.common import PaginationMeta
 from app.schemas.invoice import (
     ALLOWED_INVOICE_STATUSES,
@@ -57,6 +58,7 @@ from app.services.display_service import get_customer_name_map
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
 FX_RATE_QUANT = Decimal("0.000001")
+INVOICE_INELIGIBLE_ORDER_STATUSES = {"paid", "processing", "fulfilled", "cancelled", "refunded"}
 
 _USD_PER_CURRENCY = {
     "USD": Decimal("1"),
@@ -157,6 +159,50 @@ def _customer_for_invoice(
     return db.execute(
         select(Customer).where(Customer.id == customer_id, Customer.business_id == business_id)
     ).scalar_one_or_none()
+
+
+def _active_invoice_for_order(
+    db: Session,
+    *,
+    business_id: str,
+    order_id: str,
+    exclude_invoice_id: str | None = None,
+) -> Invoice | None:
+    stmt = select(Invoice).where(
+        Invoice.business_id == business_id,
+        Invoice.order_id == order_id,
+        Invoice.status != "cancelled",
+    )
+    if exclude_invoice_id:
+        stmt = stmt.where(Invoice.id != exclude_invoice_id)
+    return db.execute(stmt.order_by(Invoice.created_at.desc())).scalars().first()
+
+
+def _ensure_order_can_be_invoiced(
+    db: Session,
+    *,
+    business_id: str,
+    order: Order,
+    exclude_invoice_id: str | None = None,
+) -> None:
+    normalized_status = _normalize_order_status(order.status)
+    if normalized_status in INVOICE_INELIGIBLE_ORDER_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Orders with status '{normalized_status}' cannot be assigned to a new invoice",
+        )
+
+    existing_invoice = _active_invoice_for_order(
+        db,
+        business_id=business_id,
+        order_id=order.id,
+        exclude_invoice_id=exclude_invoice_id,
+    )
+    if existing_invoice is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Order already has an active invoice",
+        )
 
 
 def _resolve_invoice_customer(
@@ -757,6 +803,76 @@ def _apply_payment(
     return payment
 
 
+def _sync_linked_order_paid_from_invoice(
+    db: Session,
+    *,
+    invoice: Invoice,
+    actor_user_id: str,
+    source_event: str,
+) -> tuple[str | None, str | None]:
+    if not invoice.order_id:
+        return None, None
+
+    order = db.execute(
+        select(Order).where(
+            Order.id == invoice.order_id,
+            Order.business_id == invoice.business_id,
+        )
+    ).scalar_one_or_none()
+    if not order:
+        return None, None
+
+    current_status = _normalize_order_status(order.status)
+    if current_status in {"cancelled", "refunded"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Linked order cannot be marked paid from status '{current_status}'",
+        )
+
+    if current_status == "pending":
+        order.status = "paid"
+
+    converted_sale_id: str | None = None
+    if order.sale_id is None:
+        order_items = db.execute(select(OrderItem).where(OrderItem.order_id == order.id)).scalars().all()
+        converted_sale_id = _convert_order_to_sale(
+            db,
+            order=order,
+            order_items=order_items,
+            actor_user_id=actor_user_id,
+        )
+
+    log_audit_event(
+        db,
+        business_id=invoice.business_id,
+        actor_user_id=actor_user_id,
+        action="invoice.order.sync_paid",
+        target_type="order",
+        target_id=order.id,
+        metadata_json={
+            "invoice_id": invoice.id,
+            "source_event": source_event,
+            "order_status": order.status,
+            "sale_id": order.sale_id,
+            "converted_sale_id": converted_sale_id,
+        },
+    )
+    return order.id, order.status
+
+
+def _ensure_invoice_can_be_reversed(invoice: Invoice) -> None:
+    if to_money(invoice.amount_paid) > ZERO_MONEY:
+        raise HTTPException(
+            status_code=400,
+            detail="Invoices with recorded payments cannot be cancelled or deleted",
+        )
+    if invoice.status == "paid":
+        raise HTTPException(
+            status_code=400,
+            detail="Paid invoices cannot be cancelled or deleted",
+        )
+
+
 def _validate_date_range(start_date: date | None, end_date: date | None) -> None:
     if start_date and end_date and end_date < start_date:
         raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
@@ -1254,6 +1370,11 @@ def create_invoice(
     ).scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    _ensure_order_can_be_invoiced(
+        db,
+        business_id=access.business.id,
+        order=order,
+    )
 
     customer = _resolve_invoice_customer(
         db,
@@ -1644,6 +1765,15 @@ def mark_invoice_paid(
             )
         ).scalar_one_or_none()
         if existing:
+            if invoice.status == "paid":
+                _sync_linked_order_paid_from_invoice(
+                    db,
+                    invoice=invoice,
+                    actor_user_id=actor.id,
+                    source_event="mark_paid_idempotent",
+                )
+                db.commit()
+                db.refresh(invoice)
             customer_name_map = get_customer_name_map(
                 db,
                 business_id=access.business.id,
@@ -1652,6 +1782,15 @@ def mark_invoice_paid(
             return _invoice_out(invoice, customer_name=customer_name_map.get(invoice.customer_id or ""))
 
     if _outstanding_amount(invoice) <= ZERO_MONEY:
+        if invoice.status == "paid":
+            _sync_linked_order_paid_from_invoice(
+                db,
+                invoice=invoice,
+                actor_user_id=actor.id,
+                source_event="mark_paid_already_paid",
+            )
+            db.commit()
+            db.refresh(invoice)
         customer_name_map = get_customer_name_map(
             db,
             business_id=access.business.id,
@@ -1684,6 +1823,13 @@ def mark_invoice_paid(
             "idempotency_key": payment.idempotency_key,
         },
     )
+    if invoice.status == "paid":
+        _sync_linked_order_paid_from_invoice(
+            db,
+            invoice=invoice,
+            actor_user_id=actor.id,
+            source_event="mark_paid",
+        )
     db.commit()
     db.refresh(invoice)
     customer_name_map = get_customer_name_map(
@@ -1692,6 +1838,105 @@ def mark_invoice_paid(
         customer_ids=[invoice.customer_id],
     )
     return _invoice_out(invoice, customer_name=customer_name_map.get(invoice.customer_id or ""))
+
+
+@router.patch(
+    "/{invoice_id}/cancel",
+    response_model=InvoiceOut,
+    summary="Cancel invoice",
+    responses=error_responses(400, 401, 403, 404, 422, 500),
+)
+def cancel_invoice(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin", "staff")),
+    actor: User = Depends(get_current_user),
+):
+    invoice = _invoice_or_404(db, business_id=access.business.id, invoice_id=invoice_id)
+    _ensure_invoice_can_be_reversed(invoice)
+
+    if invoice.status != "cancelled":
+        invoice.status = "cancelled"
+        invoice.next_reminder_at = None
+        _record_invoice_event(
+            db,
+            invoice=invoice,
+            event_type="cancel",
+            metadata_json={"order_id": invoice.order_id},
+        )
+        log_audit_event(
+            db,
+            business_id=access.business.id,
+            actor_user_id=actor.id,
+            action="invoice.cancel",
+            target_type="invoice",
+            target_id=invoice.id,
+            metadata_json={
+                "order_id": invoice.order_id,
+                "customer_id": invoice.customer_id,
+                "status": invoice.status,
+            },
+        )
+        db.commit()
+        db.refresh(invoice)
+
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=access.business.id,
+        customer_ids=[invoice.customer_id],
+    )
+    return _invoice_out(invoice, customer_name=customer_name_map.get(invoice.customer_id or ""))
+
+
+@router.delete(
+    "/{invoice_id}",
+    status_code=204,
+    summary="Delete invoice",
+    responses=error_responses(400, 401, 403, 404, 422, 500),
+)
+def delete_invoice(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin", "staff")),
+    actor: User = Depends(get_current_user),
+):
+    invoice = _invoice_or_404(db, business_id=access.business.id, invoice_id=invoice_id)
+    _ensure_invoice_can_be_reversed(invoice)
+
+    log_audit_event(
+        db,
+        business_id=access.business.id,
+        actor_user_id=actor.id,
+        action="invoice.delete",
+        target_type="invoice",
+        target_id=invoice.id,
+        metadata_json={
+            "order_id": invoice.order_id,
+            "customer_id": invoice.customer_id,
+            "status": invoice.status,
+        },
+    )
+    db.execute(
+        delete(InvoiceInstallment).where(
+            InvoiceInstallment.business_id == access.business.id,
+            InvoiceInstallment.invoice_id == invoice.id,
+        )
+    )
+    db.execute(
+        delete(InvoiceEvent).where(
+            InvoiceEvent.business_id == access.business.id,
+            InvoiceEvent.invoice_id == invoice.id,
+        )
+    )
+    db.execute(
+        delete(InvoicePayment).where(
+            InvoicePayment.business_id == access.business.id,
+            InvoicePayment.invoice_id == invoice.id,
+        )
+    )
+    db.delete(invoice)
+    db.commit()
+    return Response(status_code=204)
 
 
 @router.post(
@@ -1717,6 +1962,14 @@ def create_invoice_payment(
             )
         ).scalar_one_or_none()
         if existing:
+            if invoice.status == "paid":
+                _sync_linked_order_paid_from_invoice(
+                    db,
+                    invoice=invoice,
+                    actor_user_id=actor.id,
+                    source_event="payment_recorded_idempotent",
+                )
+                db.commit()
             return _payment_out(existing)
 
     payment = _apply_payment(
@@ -1743,6 +1996,13 @@ def create_invoice_payment(
             "currency": payment.currency,
         },
     )
+    if invoice.status == "paid":
+        _sync_linked_order_paid_from_invoice(
+            db,
+            invoice=invoice,
+            actor_user_id=actor.id,
+            source_event="payment_recorded",
+        )
     db.commit()
     db.refresh(payment)
     return _payment_out(payment)

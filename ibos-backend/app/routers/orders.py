@@ -14,6 +14,7 @@ from app.core.money import ZERO_MONEY, to_money
 from app.core.permissions import require_business_roles
 from app.core.security_current import BusinessAccess, get_current_user
 from app.models.customer import Customer
+from app.models.invoice import Invoice
 from app.models.order import Order, OrderItem
 from app.models.product import ProductVariant
 from app.models.sales import Sale, SaleItem
@@ -391,6 +392,7 @@ def list_orders(
     status: str | None = Query(default=None),
     channel: str | None = Query(default=None),
     customer_id: str | None = Query(default=None),
+    invoice_eligible: bool = Query(default=False),
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
@@ -417,6 +419,20 @@ def list_orders(
     if normalized_customer_id:
         count_stmt = count_stmt.where(Order.customer_id == normalized_customer_id)
         data_stmt = data_stmt.where(Order.customer_id == normalized_customer_id)
+    if invoice_eligible:
+        active_invoice_order_ids = select(Invoice.order_id).where(
+            Invoice.business_id == access.business.id,
+            Invoice.order_id.is_not(None),
+            Invoice.status != "cancelled",
+        )
+        count_stmt = count_stmt.where(
+            Order.status == "pending",
+            ~Order.id.in_(active_invoice_order_ids),
+        )
+        data_stmt = data_stmt.where(
+            Order.status == "pending",
+            ~Order.id.in_(active_invoice_order_ids),
+        )
     if start_date:
         count_stmt = count_stmt.where(func.date(Order.created_at) >= start_date)
         data_stmt = data_stmt.where(func.date(Order.created_at) >= start_date)

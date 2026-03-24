@@ -40,7 +40,7 @@ def _auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _create_product_with_variant(client, token: str) -> tuple[str, str]:
+def _create_product_with_variant(client, token: str, *, qty: int | None = None) -> tuple[str, str]:
     create_product_res = client.post(
         "/products",
         json={"name": "Ankara Fabric", "category": "fabrics"},
@@ -58,6 +58,7 @@ def _create_product_with_variant(client, token: str) -> tuple[str, str]:
             "reorder_level": 4,
             "cost_price": 50.0,
             "selling_price": 100.0,
+            **({"qty": qty} if qty is not None else {}),
         },
         headers=_auth_headers(token),
     )
@@ -672,7 +673,7 @@ def test_dashboard_credit_profile_returns_weighted_breakdown(test_context):
     assert owner.status_code == 200, owner.text
     token = owner.json()["access_token"]
 
-    _, variant_id = _create_product_with_variant(client, token)
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
 
     stock_res = client.post(
         "/inventory/stock-in",
@@ -719,7 +720,7 @@ def test_sales_prevent_duplicate_variant_oversell(test_context):
     assert owner.status_code == 200, owner.text
     token = owner.json()["access_token"]
 
-    _, variant_id = _create_product_with_variant(client, token)
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
 
     stock_res = client.post(
         "/inventory/stock-in",
@@ -804,7 +805,7 @@ def test_sales_quote_returns_stock_validation_errors_without_creating_sale(test_
     assert owner.status_code == 200, owner.text
     token = owner.json()["access_token"]
 
-    _, variant_id = _create_product_with_variant(client, token)
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
 
     stock_res = client.post(
         "/inventory/stock-in",
@@ -1875,7 +1876,7 @@ def test_invoices_create_send_reminder_mark_paid_flow(test_context):
     assert create_customer.status_code == 200, create_customer.text
     customer_id = create_customer.json()["id"]
 
-    _, variant_id = _create_product_with_variant(client, token)
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
     create_order = client.post(
         "/orders",
         json={
@@ -1971,7 +1972,7 @@ def test_invoices_mark_paid_idempotency_key_is_safe(test_context):
     assert customer.status_code == 200, customer.text
     customer_id = customer.json()["id"]
 
-    _, variant_id = _create_product_with_variant(client, token)
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
     order = client.post(
         "/orders",
         json={
@@ -2046,7 +2047,7 @@ def test_invoices_auto_overdue_on_list(test_context):
     assert customer.status_code == 200, customer.text
     customer_id = customer.json()["id"]
 
-    _, variant_id = _create_product_with_variant(client, token)
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
     order = client.post(
         "/orders",
         json={
@@ -2260,10 +2261,22 @@ def test_orders_and_invoices_validate_customer_linkage(test_context):
     assert valid_invoice.status_code == 200, valid_invoice.text
     assert valid_invoice.json()["status"] == "draft"
 
+    mismatched_order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 100}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert mismatched_order.status_code == 200, mismatched_order.text
+
     mismatched_invoice = client.post(
         "/invoices",
         json={
-            "order_id": order_id,
+            "order_id": mismatched_order.json()["id"],
             "customer_id": other_customer_id,
             "customer_name": "Other Invoice Customer",
             "currency": "USD",
@@ -2315,7 +2328,7 @@ def test_invoice_create_requires_effective_due_date_not_before_today(test_contex
     assert customer.status_code == 200, customer.text
     customer_id = customer.json()["id"]
 
-    _, variant_id = _create_product_with_variant(client, token)
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
     order = client.post(
         "/orders",
         json={
@@ -2350,7 +2363,7 @@ def test_invoice_create_auto_creates_customer_from_name_when_order_has_none(test
     assert owner.status_code == 200, owner.text
     token = owner.json()["access_token"]
 
-    _, variant_id = _create_product_with_variant(client, token)
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
     order = client.post(
         "/orders",
         json={
@@ -2386,6 +2399,248 @@ def test_invoice_create_auto_creates_customer_from_name_when_order_has_none(test
     assert customer_row.name == "Manual Invoice Customer"
     assert invoice_row.customer_id == customer_row.id
     assert order_row.customer_id == customer_row.id
+
+
+def test_orders_invoice_eligible_filter_and_invoice_reversal_flow(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="invoice-eligible-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    customer = client.post(
+        "/customers",
+        json={"name": "Invoice Eligible Customer", "email": "eligible@example.com"},
+        headers=_auth_headers(token),
+    )
+    assert customer.status_code == 200, customer.text
+    customer_id = customer.json()["id"]
+
+    _, variant_id = _create_product_with_variant(client, token, qty=3)
+
+    eligible_order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 140}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert eligible_order.status_code == 200, eligible_order.text
+    eligible_order_id = eligible_order.json()["id"]
+
+    invoiced_order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 155}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert invoiced_order.status_code == 200, invoiced_order.text
+    invoiced_order_id = invoiced_order.json()["id"]
+
+    invoice = client.post(
+        "/invoices",
+        json={
+            "customer_id": customer_id,
+            "customer_name": "Invoice Eligible Customer",
+            "order_id": invoiced_order_id,
+            "currency": "USD",
+        },
+        headers=_auth_headers(token),
+    )
+    assert invoice.status_code == 200, invoice.text
+    invoice_id = invoice.json()["id"]
+
+    duplicate_invoice = client.post(
+        "/invoices",
+        json={
+            "customer_id": customer_id,
+            "customer_name": "Invoice Eligible Customer",
+            "order_id": invoiced_order_id,
+            "currency": "USD",
+        },
+        headers=_auth_headers(token),
+    )
+    assert duplicate_invoice.status_code == 409, duplicate_invoice.text
+    assert "active invoice" in duplicate_invoice.text
+
+    paid_order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 170}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert paid_order.status_code == 200, paid_order.text
+    paid_order_id = paid_order.json()["id"]
+
+    mark_order_paid = client.patch(
+        f"/orders/{paid_order_id}/status",
+        json={"status": "paid"},
+        headers=_auth_headers(token),
+    )
+    assert mark_order_paid.status_code == 200, mark_order_paid.text
+
+    eligible_listing = client.get("/orders?invoice_eligible=true", headers=_auth_headers(token))
+    assert eligible_listing.status_code == 200, eligible_listing.text
+    eligible_ids = {item["id"] for item in eligible_listing.json()["items"]}
+    assert eligible_order_id in eligible_ids
+    assert invoiced_order_id not in eligible_ids
+    assert paid_order_id not in eligible_ids
+
+    cancel_invoice = client.patch(f"/invoices/{invoice_id}/cancel", headers=_auth_headers(token))
+    assert cancel_invoice.status_code == 200, cancel_invoice.text
+    assert cancel_invoice.json()["status"] == "cancelled"
+
+    eligible_after_cancel = client.get("/orders?invoice_eligible=true", headers=_auth_headers(token))
+    assert eligible_after_cancel.status_code == 200, eligible_after_cancel.text
+    assert invoiced_order_id in {item["id"] for item in eligible_after_cancel.json()["items"]}
+
+    recreated_invoice = client.post(
+        "/invoices",
+        json={
+            "customer_id": customer_id,
+            "customer_name": "Invoice Eligible Customer",
+            "order_id": invoiced_order_id,
+            "currency": "USD",
+        },
+        headers=_auth_headers(token),
+    )
+    assert recreated_invoice.status_code == 200, recreated_invoice.text
+    recreated_invoice_id = recreated_invoice.json()["id"]
+
+    delete_invoice = client.delete(
+        f"/invoices/{recreated_invoice_id}",
+        headers=_auth_headers(token),
+    )
+    assert delete_invoice.status_code == 204, delete_invoice.text
+
+    eligible_after_delete = client.get("/orders?invoice_eligible=true", headers=_auth_headers(token))
+    assert eligible_after_delete.status_code == 200, eligible_after_delete.text
+    assert invoiced_order_id in {item["id"] for item in eligible_after_delete.json()["items"]}
+
+
+def test_invoice_mark_paid_syncs_order_status_and_invoice_eligibility(test_context):
+    client, session_local = test_context
+
+    owner = _register(client, email="invoice-order-sync-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    customer = client.post(
+        "/customers",
+        json={"name": "Invoice Order Sync", "email": "invoice.sync@example.com"},
+        headers=_auth_headers(token),
+    )
+    assert customer.status_code == 200, customer.text
+    customer_id = customer.json()["id"]
+
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
+    order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 2, "unit_price": 125}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert order.status_code == 200, order.text
+    order_id = order.json()["id"]
+
+    invoice = client.post(
+        "/invoices",
+        json={
+            "customer_id": customer_id,
+            "customer_name": "Invoice Order Sync",
+            "order_id": order_id,
+            "currency": "USD",
+        },
+        headers=_auth_headers(token),
+    )
+    assert invoice.status_code == 200, invoice.text
+    invoice_id = invoice.json()["id"]
+
+    mark_paid = client.patch(
+        f"/invoices/{invoice_id}/mark-paid",
+        json={"payment_method": "transfer", "idempotency_key": "invoice-order-sync-paid-1"},
+        headers=_auth_headers(token),
+    )
+    assert mark_paid.status_code == 200, mark_paid.text
+    assert mark_paid.json()["status"] == "paid"
+
+    db = session_local()
+    try:
+        order_row = db.execute(select(Order).where(Order.id == order_id)).scalar_one()
+    finally:
+        db.close()
+
+    assert order_row.status == "paid"
+    assert order_row.sale_id is not None
+
+    eligible_listing = client.get("/orders?invoice_eligible=true", headers=_auth_headers(token))
+    assert eligible_listing.status_code == 200, eligible_listing.text
+    assert order_id not in {item["id"] for item in eligible_listing.json()["items"]}
+
+
+def test_invoice_create_rejects_orders_that_are_not_invoice_eligible(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="invoice-order-eligibility-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    customer = client.post(
+        "/customers",
+        json={"name": "Invoice Eligibility Block", "email": "invoice.block@example.com"},
+        headers=_auth_headers(token),
+    )
+    assert customer.status_code == 200, customer.text
+    customer_id = customer.json()["id"]
+
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
+    order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 90}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert order.status_code == 200, order.text
+    order_id = order.json()["id"]
+
+    mark_order_paid = client.patch(
+        f"/orders/{order_id}/status",
+        json={"status": "paid"},
+        headers=_auth_headers(token),
+    )
+    assert mark_order_paid.status_code == 200, mark_order_paid.text
+
+    create_invoice = client.post(
+        "/invoices",
+        json={
+            "customer_id": customer_id,
+            "customer_name": "Invoice Eligibility Block",
+            "order_id": order_id,
+            "currency": "USD",
+        },
+        headers=_auth_headers(token),
+    )
+    assert create_invoice.status_code == 400, create_invoice.text
+    assert "cannot be assigned to a new invoice" in create_invoice.text
 
 
 def test_customers_import_csv_reports_summary_and_rejections(test_context):
@@ -3928,7 +4183,7 @@ def test_invoices_advanced_receivables_templates_partials_aging_and_statements(t
     assert fx_quote.json()["to_currency"] == "USD"
     assert fx_quote.json()["rate"] > 0
 
-    _, variant_id = _create_product_with_variant(client, token)
+    _, variant_id = _create_product_with_variant(client, token, qty=3)
     stock_seed = client.post(
         "/inventory/stock-in",
         json={"variant_id": variant_id, "qty": 10, "unit_cost": 50},
