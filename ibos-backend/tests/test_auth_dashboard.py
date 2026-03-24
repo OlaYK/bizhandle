@@ -13,9 +13,10 @@ from app.core.security import hash_password
 from app.models.business import Business
 from app.models.business_membership import BusinessMembership
 from app.models.checkout import CheckoutSession, CheckoutWebhookEvent
+from app.models.customer import Customer
 from app.models.developer import MarketplaceAppListing, PublicApiKey, WebhookEventDelivery
 from app.models.expense import Expense
-from app.models.invoice import InvoiceEvent
+from app.models.invoice import Invoice, InvoiceEvent
 from app.models.order import Order
 from app.models.pos import PosShiftSession
 from app.models.sales import Sale
@@ -1887,14 +1888,16 @@ def test_invoices_create_send_reminder_mark_paid_flow(test_context):
     )
     assert create_order.status_code == 200, create_order.text
     order_id = create_order.json()["id"]
+    due_date = (date.today() + timedelta(days=7)).isoformat()
 
     create_invoice = client.post(
         "/invoices",
         json={
             "customer_id": customer_id,
+            "customer_name": "Invoice Flow Customer",
             "order_id": order_id,
             "currency": "usd",
-            "due_date": "2026-02-28",
+            "due_date": due_date,
             "note": "Net 7",
         },
         headers=_auth_headers(token),
@@ -1960,9 +1963,34 @@ def test_invoices_mark_paid_idempotency_key_is_safe(test_context):
     assert owner.status_code == 200, owner.text
     token = owner.json()["access_token"]
 
+    customer = client.post(
+        "/customers",
+        json={"name": "Idempotency Customer", "email": "invoice.idem@example.com"},
+        headers=_auth_headers(token),
+    )
+    assert customer.status_code == 200, customer.text
+    customer_id = customer.json()["id"]
+
+    _, variant_id = _create_product_with_variant(client, token)
+    order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 2, "unit_price": 120}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert order.status_code == 200, order.text
+    order_id = order.json()["id"]
+
     create_invoice = client.post(
         "/invoices",
         json={
+            "customer_id": customer_id,
+            "customer_name": "Idempotency Customer",
+            "order_id": order_id,
             "currency": "USD",
             "total_amount": 240,
             "send_now": True,
@@ -2010,11 +2038,37 @@ def test_invoices_auto_overdue_on_list(test_context):
     assert owner.status_code == 200, owner.text
     token = owner.json()["access_token"]
 
+    customer = client.post(
+        "/customers",
+        json={"name": "Overdue Customer", "email": "invoice.overdue@example.com"},
+        headers=_auth_headers(token),
+    )
+    assert customer.status_code == 200, customer.text
+    customer_id = customer.json()["id"]
+
+    _, variant_id = _create_product_with_variant(client, token)
+    order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 90}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert order.status_code == 200, order.text
+    order_id = order.json()["id"]
+
     create_invoice = client.post(
         "/invoices",
         json={
+            "customer_id": customer_id,
+            "customer_name": "Overdue Customer",
+            "order_id": order_id,
             "currency": "USD",
             "total_amount": 90,
+            "issue_date": "2019-12-01",
             "due_date": "2020-01-01",
             "send_now": True,
         },
@@ -2198,6 +2252,7 @@ def test_orders_and_invoices_validate_customer_linkage(test_context):
         json={
             "order_id": order_id,
             "customer_id": customer_id,
+            "customer_name": "Customer Link",
             "currency": "USD",
         },
         headers=_auth_headers(token),
@@ -2210,6 +2265,7 @@ def test_orders_and_invoices_validate_customer_linkage(test_context):
         json={
             "order_id": order_id,
             "customer_id": other_customer_id,
+            "customer_name": "Other Invoice Customer",
             "currency": "USD",
         },
         headers=_auth_headers(token),
@@ -2217,10 +2273,24 @@ def test_orders_and_invoices_validate_customer_linkage(test_context):
     assert mismatched_invoice.status_code == 400, mismatched_invoice.text
     assert "must match linked order customer" in mismatched_invoice.text
 
+    order_without_customer = client.post(
+        "/orders",
+        json={
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 50}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert order_without_customer.status_code == 200, order_without_customer.text
+    order_without_customer_id = order_without_customer.json()["id"]
+
     invalid_customer_invoice = client.post(
         "/invoices",
         json={
+            "order_id": order_without_customer_id,
             "customer_id": "missing-customer-id",
+            "customer_name": "Missing Customer",
             "currency": "USD",
             "total_amount": 50,
         },
@@ -2228,6 +2298,94 @@ def test_orders_and_invoices_validate_customer_linkage(test_context):
     )
     assert invalid_customer_invoice.status_code == 404, invalid_customer_invoice.text
     assert "Customer not found" in invalid_customer_invoice.text
+
+
+def test_invoice_create_requires_effective_due_date_not_before_today(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="invoice-date-hardening-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    customer = client.post(
+        "/customers",
+        json={"name": "Date Hardening Customer", "email": "invoice.date@example.com"},
+        headers=_auth_headers(token),
+    )
+    assert customer.status_code == 200, customer.text
+    customer_id = customer.json()["id"]
+
+    _, variant_id = _create_product_with_variant(client, token)
+    order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 75}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert order.status_code == 200, order.text
+
+    create_invoice = client.post(
+        "/invoices",
+        json={
+            "customer_id": customer_id,
+            "customer_name": "Date Hardening Customer",
+            "order_id": order.json()["id"],
+            "currency": "USD",
+            "due_date": "2020-01-01",
+        },
+        headers=_auth_headers(token),
+    )
+    assert create_invoice.status_code == 422, create_invoice.text
+    assert "due_date cannot be before issue_date" in create_invoice.text
+
+
+def test_invoice_create_auto_creates_customer_from_name_when_order_has_none(test_context):
+    client, session_local = test_context
+
+    owner = _register(client, email="invoice-manual-customer-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    _, variant_id = _create_product_with_variant(client, token)
+    order = client.post(
+        "/orders",
+        json={
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 110}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert order.status_code == 200, order.text
+    order_id = order.json()["id"]
+
+    create_invoice = client.post(
+        "/invoices",
+        json={
+            "customer_name": "Manual Invoice Customer",
+            "order_id": order_id,
+            "currency": "USD",
+        },
+        headers=_auth_headers(token),
+    )
+    assert create_invoice.status_code == 200, create_invoice.text
+    invoice_id = create_invoice.json()["id"]
+
+    db = session_local()
+    try:
+        order_row = db.execute(select(Order).where(Order.id == order_id)).scalar_one()
+        invoice_row = db.execute(select(Invoice).where(Invoice.id == invoice_id)).scalar_one()
+        customer_row = db.execute(select(Customer).where(Customer.id == invoice_row.customer_id)).scalar_one()
+    finally:
+        db.close()
+
+    assert customer_row.name == "Manual Invoice Customer"
+    assert invoice_row.customer_id == customer_row.id
+    assert order_row.customer_id == customer_row.id
 
 
 def test_customers_import_csv_reports_summary_and_rejections(test_context):
@@ -2380,10 +2538,25 @@ def test_dashboard_customer_insights_returns_repeat_buyers_and_top_customers(tes
     )
     assert second_paid.status_code == 200, second_paid.text
 
+    third_order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_b_id,
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 80}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert third_order.status_code == 200, third_order.text
+    third_order_id = third_order.json()["id"]
+
     invoice_res = client.post(
         "/invoices",
         json={
             "customer_id": customer_b_id,
+            "customer_name": "Tunde Ade",
+            "order_id": third_order_id,
             "currency": "USD",
             "total_amount": 80,
             "due_date": "2026-02-28",
@@ -3755,6 +3928,40 @@ def test_invoices_advanced_receivables_templates_partials_aging_and_statements(t
     assert fx_quote.json()["to_currency"] == "USD"
     assert fx_quote.json()["rate"] > 0
 
+    _, variant_id = _create_product_with_variant(client, token)
+    stock_seed = client.post(
+        "/inventory/stock-in",
+        json={"variant_id": variant_id, "qty": 10, "unit_cost": 50},
+        headers=_auth_headers(token),
+    )
+    assert stock_seed.status_code == 200, stock_seed.text
+
+    invoice_order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 3, "unit_price": 100}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert invoice_order.status_code == 200, invoice_order.text
+    invoice_order_id = invoice_order.json()["id"]
+
+    old_due_order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 90}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert old_due_order.status_code == 200, old_due_order.text
+    old_due_order_id = old_due_order.json()["id"]
+
     template = client.put(
         "/invoices/templates",
         json={
@@ -3777,6 +3984,8 @@ def test_invoices_advanced_receivables_templates_partials_aging_and_statements(t
         "/invoices",
         json={
             "customer_id": customer_id,
+            "customer_name": "Advanced Receivables Customer",
+            "order_id": invoice_order_id,
             "currency": "EUR",
             "total_amount": 300,
             "issue_date": today.isoformat(),
@@ -3873,8 +4082,11 @@ def test_invoices_advanced_receivables_templates_partials_aging_and_statements(t
         "/invoices",
         json={
             "customer_id": customer_id,
+            "customer_name": "Advanced Receivables Customer",
+            "order_id": old_due_order_id,
             "currency": "USD",
             "total_amount": 90,
+            "issue_date": "2024-12-01",
             "due_date": "2025-01-01",
             "reminder_policy": {
                 "enabled": True,
@@ -4091,6 +4303,8 @@ def test_analytics_pos_offline_and_privacy_hardening_flow(test_context):
         "/invoices",
         json={
             "customer_id": customer_id,
+            "customer_name": "Privacy Customer",
+            "order_id": order.json()["id"],
             "currency": "USD",
             "total_amount": 100,
         },

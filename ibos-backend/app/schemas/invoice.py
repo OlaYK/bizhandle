@@ -51,7 +51,8 @@ class InvoiceReminderPolicyIn(BaseModel):
 
 class InvoiceCreate(BaseModel):
     customer_id: Optional[str] = None
-    order_id: Optional[str] = None
+    customer_name: str = Field(min_length=2, max_length=120)
+    order_id: str
     currency: str = "USD"
     fx_rate_to_base: Decimal | None = Field(default=None, gt=0)
     total_amount: Decimal | None = Field(default=None, gt=0)
@@ -68,6 +69,7 @@ class InvoiceCreate(BaseModel):
 
     @field_validator(
         "customer_id",
+        "customer_name",
         "order_id",
         "note",
         "template_id",
@@ -80,6 +82,14 @@ class InvoiceCreate(BaseModel):
             return None
         cleaned = value.strip()
         return cleaned or None
+
+    @field_validator("customer_name")
+    @classmethod
+    def _normalize_customer_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if len(cleaned) < 2:
+            raise ValueError("customer_name is required")
+        return cleaned
 
     @field_validator("send_channel")
     @classmethod
@@ -104,17 +114,18 @@ class InvoiceCreate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_dates_and_installments(self) -> "InvoiceCreate":
-        if self.issue_date and self.due_date and self.due_date < self.issue_date:
+        effective_issue_date = self.issue_date or date.today()
+        if self.due_date and self.due_date < effective_issue_date:
             raise ValueError("due_date cannot be before issue_date")
         if self.installments:
-            issue = self.issue_date or date.today()
-            if any(item.due_date < issue for item in self.installments):
+            if any(item.due_date < effective_issue_date for item in self.installments):
                 raise ValueError("installment due_date cannot be before issue_date")
         return self
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
+                "customer_name": "Jane Buyer",
                 "customer_id": "customer-id",
                 "order_id": "order-id",
                 "currency": "EUR",

@@ -127,6 +127,25 @@ def _customer_exists(db: Session, *, business_id: str, customer_id: str) -> bool
     return bool(row)
 
 
+def _find_customer_by_name(
+    db: Session,
+    *,
+    business_id: str,
+    customer_name: str,
+) -> Customer | None:
+    normalized_name = customer_name.strip().lower()
+    if not normalized_name:
+        return None
+    return db.execute(
+        select(Customer)
+        .where(
+            Customer.business_id == business_id,
+            func.lower(Customer.name) == normalized_name,
+        )
+        .order_by(Customer.created_at.asc())
+    ).scalars().first()
+
+
 def _customer_for_invoice(
     db: Session,
     *,
@@ -138,6 +157,77 @@ def _customer_for_invoice(
     return db.execute(
         select(Customer).where(Customer.id == customer_id, Customer.business_id == business_id)
     ).scalar_one_or_none()
+
+
+def _resolve_invoice_customer(
+    db: Session,
+    *,
+    business_id: str,
+    order: Order,
+    customer_id: str | None,
+    customer_name: str,
+) -> Customer:
+    normalized_name = customer_name.strip()
+    if not normalized_name:
+        raise HTTPException(status_code=400, detail="customer_name is required")
+
+    resolved_customer: Customer | None = None
+    if customer_id:
+        resolved_customer = _customer_for_invoice(
+            db,
+            business_id=business_id,
+            customer_id=customer_id,
+        )
+        if not resolved_customer:
+            raise HTTPException(status_code=404, detail="Customer not found")
+
+    if order.customer_id:
+        order_customer = _customer_for_invoice(
+            db,
+            business_id=business_id,
+            customer_id=order.customer_id,
+        )
+        if order_customer is None:
+            raise HTTPException(status_code=404, detail="Linked order customer not found")
+        if resolved_customer and resolved_customer.id != order_customer.id:
+            raise HTTPException(
+                status_code=400,
+                detail="customer_id must match linked order customer",
+            )
+        if normalized_name.lower() != order_customer.name.strip().lower():
+            raise HTTPException(
+                status_code=400,
+                detail="customer_name must match linked order customer",
+            )
+        return order_customer
+
+    if resolved_customer:
+        if normalized_name.lower() != resolved_customer.name.strip().lower():
+            raise HTTPException(
+                status_code=400,
+                detail="customer_name must match selected customer",
+            )
+        order.customer_id = resolved_customer.id
+        return resolved_customer
+
+    matched_customer = _find_customer_by_name(
+        db,
+        business_id=business_id,
+        customer_name=normalized_name,
+    )
+    if matched_customer:
+        order.customer_id = matched_customer.id
+        return matched_customer
+
+    created_customer = Customer(
+        id=str(uuid.uuid4()),
+        business_id=business_id,
+        name=normalized_name,
+    )
+    db.add(created_customer)
+    db.flush()
+    order.customer_id = created_customer.id
+    return created_customer
 
 
 def _default_reminder_policy_dict() -> dict:
@@ -1156,32 +1246,23 @@ def create_invoice(
     access: BusinessAccess = Depends(require_business_roles("owner", "admin", "staff")),
     actor: User = Depends(get_current_user),
 ):
-    customer_id = payload.customer_id
-    order: Order | None = None
-    if payload.order_id:
-        order = db.execute(
-            select(Order).where(
-                Order.id == payload.order_id,
-                Order.business_id == access.business.id,
-            )
-        ).scalar_one_or_none()
-        if not order:
-            raise HTTPException(status_code=404, detail="Order not found")
-        if order.customer_id:
-            if customer_id and customer_id != order.customer_id:
-                raise HTTPException(status_code=400, detail="customer_id must match linked order customer")
-            customer_id = order.customer_id
+    order = db.execute(
+        select(Order).where(
+            Order.id == payload.order_id,
+            Order.business_id == access.business.id,
+        )
+    ).scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
 
-    if customer_id and not _customer_exists(db, business_id=access.business.id, customer_id=customer_id):
-        raise HTTPException(status_code=404, detail="Customer not found")
-    customer = _customer_for_invoice(
+    customer = _resolve_invoice_customer(
         db,
         business_id=access.business.id,
-        customer_id=customer_id,
+        order=order,
+        customer_id=payload.customer_id,
+        customer_name=payload.customer_name,
     )
-
-    if payload.total_amount is None and order is None:
-        raise HTTPException(status_code=400, detail="Provide total_amount or link an order")
+    customer_id = customer.id
 
     total_amount = to_money(payload.total_amount if payload.total_amount is not None else order.total_amount)
     if total_amount <= ZERO_MONEY:

@@ -120,6 +120,9 @@ def create_variant(
         selling_price=payload.selling_price,
     )
     db.add(v)
+    # Flush the variant insert before seeding opening stock so Postgres sees
+    # the parent row before the inventory ledger FK is written.
+    db.flush()
     if payload.qty > 0:
         add_ledger_entry(
             db,

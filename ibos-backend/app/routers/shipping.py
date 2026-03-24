@@ -278,6 +278,9 @@ def upsert_shipping_settings(
             )
         )
         zone_id_by_name[zone.zone_name.strip().lower()] = zone_id
+    # Flush new zones before inserting service rules that reference them so
+    # Postgres resolves the FK consistently during the same request.
+    db.flush()
 
     for rule in payload.service_rules:
         zone_id = None
