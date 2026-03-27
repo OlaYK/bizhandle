@@ -710,6 +710,12 @@ export function OrdersPage() {
                     <p className="mt-1 text-xs text-surface-500">
                       Customer: {order.customer_name || "-"}
                     </p>
+                    <p className="mt-1 text-xs text-surface-500">
+                      Allocation:{" "}
+                      {order.allocation
+                        ? `${order.allocation.location_name || order.allocation.location_id} · ${formatDateTime(order.allocation.allocated_at)}`
+                        : "-"}
+                    </p>
                     <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
                       <select
                         className="h-9 rounded border border-surface-200 bg-white px-2 text-sm text-surface-700 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100"
@@ -760,6 +766,7 @@ export function OrdersPage() {
                     <th className="px-2 py-2">Channel</th>
                     <th className="px-2 py-2">Payment</th>
                     <th className="px-2 py-2">Customer</th>
+                    <th className="px-2 py-2">Allocation</th>
                     <th className="px-2 py-2">Date</th>
                     <th className="px-2 py-2">Lifecycle</th>
                   </tr>
@@ -792,6 +799,21 @@ export function OrdersPage() {
                         </td>
                         <td className="px-2 py-2 text-surface-600">
                           {order.customer_name || "-"}
+                        </td>
+                        <td className="px-2 py-2 text-surface-600">
+                          {order.allocation ? (
+                            <>
+                              <p>
+                                {order.allocation.location_name ||
+                                  order.allocation.location_id}
+                              </p>
+                              <p className="text-xs text-surface-500">
+                                {formatDateTime(order.allocation.allocated_at)}
+                              </p>
+                            </>
+                          ) : (
+                            "-"
+                          )}
                         </td>
                         <td className="px-2 py-2 text-surface-500">
                           {formatDateTime(order.created_at)}

@@ -2,7 +2,12 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useFieldArray, useForm, type UseFormReturn } from "react-hook-form";
+import {
+  useFieldArray,
+  useForm,
+  useWatch,
+  type UseFormReturn,
+} from "react-hook-form";
 import { z } from "zod";
 import { authService, productService, salesService } from "../api/services";
 import { EmptyState } from "../components/state/empty-state";
@@ -19,7 +24,7 @@ import { Textarea } from "../components/ui/textarea";
 import { useToast } from "../hooks/use-toast";
 import { getApiErrorMessage } from "../lib/api-error";
 import { formatCurrency, formatDateTime } from "../lib/format";
-import type { ProductOut } from "../api/types";
+import type { ProductOut, SaleQuoteLineOut } from "../api/types";
 
 const saleItemSchema = z.object({
   variant_id: z.string().min(1, "Variant is required"),
@@ -70,6 +75,7 @@ function SaleLineItem({
   saleForm,
   products,
   defaultProductId,
+  quoteLine,
   canRemove,
   onRemove,
 }: {
@@ -77,6 +83,7 @@ function SaleLineItem({
   saleForm: UseFormReturn<SaleFormData>;
   products: ProductOut[];
   defaultProductId: string;
+  quoteLine?: SaleQuoteLineOut;
   canRemove: boolean;
   onRemove: () => void;
 }) {
@@ -188,6 +195,19 @@ function SaleLineItem({
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
+      <div className="md:col-span-12 flex flex-wrap items-center gap-3 text-xs">
+        <span className="font-semibold text-surface-600">
+          Line Total: {formatCurrency(quoteLine?.line_total ?? 0)}
+        </span>
+        {quoteLine?.available_stock !== undefined ? (
+          <span className="text-surface-500">
+            Available Stock: {quoteLine.available_stock ?? "-"}
+          </span>
+        ) : null}
+        {quoteLine?.errors?.length ? (
+          <span className="text-red-600">{quoteLine.errors[0]}</span>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -233,6 +253,46 @@ export function SalesPage() {
     control: saleForm.control,
     name: "items",
   });
+  const watchedItems = useWatch({
+    control: saleForm.control,
+    name: "items",
+  }) ?? [];
+
+  const normalizedQuoteItems = useMemo(
+    () =>
+      watchedItems.map((item) => ({
+        variant_id: item?.variant_id || "",
+        qty: Number(item?.qty || 0),
+        unit_price: Number(item?.unit_price || 0),
+      })),
+    [watchedItems],
+  );
+  const [debouncedQuoteItems, setDebouncedQuoteItems] = useState(
+    normalizedQuoteItems,
+  );
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedQuoteItems(normalizedQuoteItems);
+    }, 350);
+    return () => window.clearTimeout(timeout);
+  }, [normalizedQuoteItems]);
+
+  const hasQuoteReadyItems =
+    debouncedQuoteItems.length > 0 &&
+    debouncedQuoteItems.every(
+      (item) => item.variant_id && item.qty > 0 && item.unit_price > 0,
+    );
+
+  const quoteQuery = useQuery({
+    queryKey: ["sales", "quote", debouncedQuoteItems],
+    enabled: hasQuoteReadyItems,
+    retry: false,
+    queryFn: () =>
+      salesService.quote({
+        items: debouncedQuoteItems,
+      }),
+  });
 
   const listQuery = useQuery({
     queryKey: [
@@ -253,6 +313,25 @@ export function SalesPage() {
         offset,
       }),
   });
+
+  const summaryQuery = useQuery({
+    queryKey: ["sales", "summary", startDate, endDate],
+    queryFn: () =>
+      salesService.summary({
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+      }),
+  });
+
+  const quoteLines = quoteQuery.data?.items ?? [];
+  const draftTotal = quoteQuery.data?.total ?? watchedItems.reduce((sum, item) => {
+    const qty = Number(item?.qty || 0);
+    const unitPrice = Number(item?.unit_price || 0);
+    return sum + qty * unitPrice;
+  }, 0);
+  const quoteHasBlockingErrors = Boolean(
+    hasQuoteReadyItems && quoteQuery.data && !quoteQuery.data.is_valid,
+  );
 
   const createSaleMutation = useMutation({
     mutationFn: salesService.create,
@@ -391,17 +470,18 @@ export function SalesPage() {
     },
   });
 
-  if (productsQuery.isLoading || listQuery.isLoading) {
+  if (productsQuery.isLoading || listQuery.isLoading || summaryQuery.isLoading) {
     return <LoadingState label="Loading sales workspace..." />;
   }
 
-  if (productsQuery.isError || listQuery.isError) {
+  if (productsQuery.isError || listQuery.isError || summaryQuery.isError) {
     return (
       <ErrorState
         message="Failed to load sales data."
         onRetry={() => {
           productsQuery.refetch();
           listQuery.refetch();
+          summaryQuery.refetch();
         }}
       />
     );
@@ -469,14 +549,51 @@ export function SalesPage() {
                 saleForm={saleForm}
                 products={products}
                 defaultProductId={firstProductId}
+                quoteLine={quoteLines[index]}
                 canRemove={fields.length > 1}
                 onRemove={() => remove(index)}
               />
             ))}
           </div>
 
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+              <p className="text-xs uppercase tracking-wide text-surface-500">
+                Draft Total
+              </p>
+              <p className="mt-1 text-lg font-semibold text-mint-700">
+                {formatCurrency(draftTotal, profileQuery.data?.base_currency)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+              <p className="text-xs uppercase tracking-wide text-surface-500">
+                Quote Status
+              </p>
+              <p className="mt-1 text-sm font-semibold text-surface-700">
+                {quoteQuery.isFetching
+                  ? "Refreshing totals..."
+                  : quoteHasBlockingErrors
+                    ? "Fix stock or variant issues"
+                    : "Ready to save"}
+              </p>
+            </div>
+            <div className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+              <p className="text-xs uppercase tracking-wide text-surface-500">
+                Validation
+              </p>
+              <p className="mt-1 text-sm text-surface-600">
+                {quoteQuery.data?.errors?.[0] ||
+                  "Line totals and stock checks update automatically."}
+              </p>
+            </div>
+          </div>
+
           <Textarea label="Note" rows={3} {...saleForm.register("note")} />
-          <Button type="submit" loading={createSaleMutation.isPending}>
+          <Button
+            type="submit"
+            loading={createSaleMutation.isPending}
+            disabled={quoteHasBlockingErrors}
+          >
             Save Sale
           </Button>
         </form>
@@ -508,6 +625,27 @@ export function SalesPage() {
             <Badge variant="info">
               {listQuery.data?.pagination.total ?? 0} records
             </Badge>
+          </div>
+        </div>
+        <div className="mb-4 grid gap-3 md:grid-cols-2">
+          <div className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+            <p className="text-xs uppercase tracking-wide text-surface-500">
+              Paid Sales Total
+            </p>
+            <p className="mt-1 text-lg font-semibold text-mint-700">
+              {formatCurrency(
+                summaryQuery.data?.total_amount ?? 0,
+                summaryQuery.data?.base_currency ?? profileQuery.data?.base_currency,
+              )}
+            </p>
+          </div>
+          <div className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+            <p className="text-xs uppercase tracking-wide text-surface-500">
+              Paid Sales Count
+            </p>
+            <p className="mt-1 text-lg font-semibold text-surface-700">
+              {summaryQuery.data?.sales_count ?? 0}
+            </p>
           </div>
         </div>
 

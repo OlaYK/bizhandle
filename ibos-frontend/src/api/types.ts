@@ -920,13 +920,20 @@ export interface StockTransferCreateIn {
 
 export interface StockTransferItemOut {
   variant_id: string;
+  product_id?: string | null;
+  product_name?: string | null;
+  size?: string | null;
+  label?: string | null;
+  sku?: string | null;
   qty: number;
 }
 
 export interface StockTransferOut {
   id: string;
   from_location_id: string;
+  from_location_name?: string | null;
   to_location_id: string;
+  to_location_name?: string | null;
   status: string;
   note?: string | null;
   created_at: string;
@@ -965,6 +972,7 @@ export interface OrderLocationAllocationOut {
   id: string;
   order_id: string;
   location_id: string;
+  location_name?: string | null;
   allocated_at: string;
 }
 
@@ -1595,6 +1603,33 @@ export interface SaleCreateIn {
 export interface SaleCreateOut {
   id: string;
   total: number;
+  currency?: string;
+}
+
+export interface SaleQuoteLineOut {
+  variant_id: string;
+  qty: number;
+  unit_price: number;
+  line_total: number;
+  available_stock?: number | null;
+  errors: string[];
+  is_valid: boolean;
+}
+
+export interface SaleQuoteIn {
+  items: Array<{
+    variant_id: string;
+    qty: number;
+    unit_price: number;
+  }>;
+}
+
+export interface SaleQuoteOut {
+  total: number;
+  currency: string;
+  items: SaleQuoteLineOut[];
+  errors: string[];
+  is_valid: boolean;
 }
 
 export interface SaleOut {
@@ -1613,6 +1648,14 @@ export interface SaleListOut {
   start_date: string | null;
   end_date: string | null;
   items: SaleOut[];
+}
+
+export interface SaleSummaryOut {
+  base_currency: string;
+  start_date: string | null;
+  end_date: string | null;
+  sales_count: number;
+  total_amount: number;
 }
 
 export interface SaleRefundOptionOut {
@@ -1671,8 +1714,15 @@ export interface OrderOut {
   payment_method: PaymentMethod;
   channel: SalesChannel;
   status: OrderStatus;
+  currency?: string;
   total_amount: number;
   sale_id?: string | null;
+  allocation?: {
+    id: string;
+    location_id: string;
+    location_name?: string | null;
+    allocated_at: string;
+  } | null;
   note?: string | null;
   created_at: string;
   updated_at: string;
@@ -1721,7 +1771,8 @@ export interface InvoiceReminderPolicyIn {
 
 export interface InvoiceCreateIn {
   customer_id?: string;
-  order_id?: string;
+  customer_name: string;
+  order_id: string;
   currency?: string;
   fx_rate_to_base?: number;
   total_amount?: number;
@@ -1746,6 +1797,7 @@ export interface InvoiceCreateOut {
 export interface InvoiceOut {
   id: string;
   customer_id?: string | null;
+  customer_name?: string | null;
   order_id?: string | null;
   status: InvoiceStatus;
   currency: string;
@@ -1792,6 +1844,13 @@ export interface InvoiceMarkPaidIn {
 
 export interface InvoiceReminderIn {
   channel?: ReminderChannel;
+  recipient_override?: string;
+  note?: string;
+}
+
+export interface InvoiceSendIn {
+  channel?: ReminderChannel;
+  recipient_override?: string;
   note?: string;
 }
 
@@ -1944,6 +2003,41 @@ export interface InvoiceStatementExportOut {
   content_type: string;
   row_count: number;
   csv_content: string;
+}
+
+export interface InvoiceDeliveryOptionOut {
+  channel: string;
+  recipient?: string | null;
+  ready: boolean;
+  reason?: string | null;
+  suggested: boolean;
+}
+
+export interface InvoicePreviewLineItemOut {
+  variant_id: string;
+  product_id: string;
+  product_name: string;
+  size: string;
+  label?: string | null;
+  sku?: string | null;
+  qty: number;
+  unit_price: number;
+  line_total: number;
+}
+
+export interface InvoicePreviewOut {
+  invoice: InvoiceOut;
+  customer_name?: string | null;
+  customer_email?: string | null;
+  customer_phone?: string | null;
+  template?: InvoiceTemplateOut | null;
+  delivery_options: InvoiceDeliveryOptionOut[];
+  recommended_channel?: string | null;
+  subject: string;
+  message_preview: string;
+  line_items: InvoicePreviewLineItemOut[];
+  installments: InvoiceInstallmentOut[];
+  reminder_policy: InvoiceReminderPolicyOut;
 }
 
 export interface CustomerTagCreateIn {
@@ -2273,11 +2367,17 @@ export interface AutomationRunFilter extends PaginationFilter {
 export interface AuditLogOut {
   id: string;
   actor_user_id: string;
-  actor_username: string;
+  actor_name?: string | null;
+  actor_username?: string | null;
+  actor_role?: string | null;
+  actor_email?: string | null;
   action: string;
+  summary: string;
   target_type: string;
   target_id?: string | null;
+  target_label?: string | null;
   metadata_json?: Record<string, unknown> | null;
+  metadata_preview: string[];
   created_at: string;
 }
 
@@ -2290,6 +2390,51 @@ export interface AnalyticsMartRefreshOut {
   start_date: string;
   end_date: string;
   rows_refreshed: number;
+}
+
+export interface AnalyticsOverviewSummaryOut {
+  revenue_total: number;
+  expenses_total: number;
+  net_profit_total: number;
+  orders_total: number;
+  sales_total: number;
+  stock_in_qty_total: number;
+  stock_out_qty_total: number;
+  stock_in_cost_total: number;
+}
+
+export interface AnalyticsOverviewPointOut {
+  metric_date: string;
+  revenue: number;
+  expenses: number;
+  net_profit: number;
+  orders_count: number;
+  sales_count: number;
+  stock_in_qty: number;
+  stock_out_qty: number;
+  stock_in_cost: number;
+}
+
+export interface AnalyticsExpenseCategoryOut {
+  category: string;
+  total_amount: number;
+  share_pct: number;
+}
+
+export interface AnalyticsInventoryMovementOut {
+  reason: string;
+  qty_total: number;
+  total_cost: number;
+}
+
+export interface AnalyticsOverviewOut {
+  start_date: string;
+  end_date: string;
+  base_currency: string;
+  summary: AnalyticsOverviewSummaryOut;
+  timeline: AnalyticsOverviewPointOut[];
+  expense_categories: AnalyticsExpenseCategoryOut[];
+  inventory_movements: AnalyticsInventoryMovementOut[];
 }
 
 export interface ChannelProfitabilityItemOut {
@@ -2532,6 +2677,7 @@ export interface OrderFilter extends DateFilter, PaginationFilter {
   status?: OrderStatus;
   channel?: SalesChannel;
   customer_id?: string;
+  invoice_eligible?: boolean;
 }
 
 export interface InvoiceFilter extends DateFilter, PaginationFilter {

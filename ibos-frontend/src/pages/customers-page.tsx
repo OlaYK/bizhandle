@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { customerService } from "../api/services";
-import type { CustomerOut } from "../api/types";
+import type { CustomerOut, CustomerTagOut } from "../api/types";
 import { EmptyState } from "../components/state/empty-state";
 import { ErrorState } from "../components/state/error-state";
 import { LoadingState } from "../components/state/loading-state";
@@ -38,6 +38,69 @@ const editCustomerSchema = z.object({
 
 type CreateCustomerFormData = z.infer<typeof createCustomerSchema>;
 type EditCustomerFormData = z.infer<typeof editCustomerSchema>;
+
+const customerTagColorOptions = [
+  { label: "Black", value: "#111827" },
+  { label: "White", value: "#FFFFFF" },
+  { label: "Gold", value: "#D4AF37" },
+  { label: "Blue", value: "#2563EB" },
+  { label: "Silver", value: "#9CA3AF" },
+  { label: "Bronze", value: "#CD7F32" },
+  { label: "Green", value: "#16A34A" },
+  { label: "Red", value: "#DC2626" },
+  { label: "Purple", value: "#7C3AED" },
+  { label: "Orange", value: "#EA580C" },
+  { label: "Teal", value: "#0F766E" },
+  { label: "Pink", value: "#DB2777" },
+];
+
+function getCustomerTagColor(color?: string | null) {
+  return color?.trim() || "#CBD5E1";
+}
+
+function ColorSwatch({
+  color,
+  className = "h-3.5 w-3.5",
+}: {
+  color?: string | null;
+  className?: string;
+}) {
+  return (
+    <span
+      className={`${className} inline-flex rounded-full border border-surface-300 shadow-sm dark:border-surface-500`}
+      style={{ backgroundColor: getCustomerTagColor(color) }}
+      aria-hidden="true"
+    />
+  );
+}
+
+function TagChip({
+  tag,
+  selected = false,
+  removable = false,
+  onClick,
+}: {
+  tag: CustomerTagOut;
+  selected?: boolean;
+  removable?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition ${
+        selected
+          ? "border-cobalt-500 bg-cobalt-100 text-cobalt-700"
+          : "border-surface-200 bg-white text-surface-700 hover:border-surface-400 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100"
+      }`}
+      onClick={onClick}
+    >
+      <ColorSwatch color={tag.color} />
+      <span>{tag.name}</span>
+      {removable ? <Trash2 className="h-3 w-3" /> : null}
+    </button>
+  );
+}
 
 export function CustomersPage() {
   const queryClient = useQueryClient();
@@ -282,22 +345,16 @@ export function CustomersPage() {
                 {tags.map((tag) => {
                   const selected = selectedTagIds.includes(tag.id);
                   return (
-                    <button
+                    <TagChip
                       key={tag.id}
-                      type="button"
-                      className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                        selected
-                          ? "border-cobalt-500 bg-cobalt-100 text-cobalt-700"
-                          : "border-surface-200 text-surface-600 hover:border-surface-400"
-                      }`}
+                      tag={tag}
+                      selected={selected}
                       onClick={() =>
                         setSelectedTagIds((current) =>
                           selected ? current.filter((id) => id !== tag.id) : [...current, tag.id]
                         )
                       }
-                    >
-                      {tag.name}
-                    </button>
+                    />
                   );
                 })}
               </div>
@@ -311,19 +368,32 @@ export function CustomersPage() {
         <Card>
           <h3 className="font-heading text-lg font-bold">Tag Manager</h3>
           <div className="mt-4 grid gap-3">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
               <Input
                 label="Tag Name"
                 placeholder="VIP"
                 value={newTagName}
                 onChange={(event) => setNewTagName(event.target.value)}
               />
-              <Input
-                label="Color (optional)"
-                placeholder="#16a34a"
-                value={newTagColor}
-                onChange={(event) => setNewTagColor(event.target.value)}
-              />
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+                <Select
+                  label="Tag Color"
+                  value={newTagColor}
+                  onChange={(event) => setNewTagColor(event.target.value)}
+                >
+                  <option value="">Select a color</option>
+                  {customerTagColorOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+                <div className="pt-[30px]">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-surface-200 bg-surface-50 dark:border-surface-600 dark:bg-surface-800">
+                    <ColorSwatch color={newTagColor} className="h-5 w-5" />
+                  </div>
+                </div>
+              </div>
             </div>
             <Button
               type="button"
@@ -351,9 +421,13 @@ export function CustomersPage() {
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {tags.map((tag) => (
-                    <Badge key={tag.id} variant="info">
-                      {tag.name}
-                    </Badge>
+                    <div
+                      key={tag.id}
+                      className="inline-flex items-center gap-2 rounded-full border border-surface-200 bg-white px-3 py-1 text-xs font-semibold text-surface-700 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100"
+                    >
+                      <ColorSwatch color={tag.color} />
+                      <span>{tag.name}</span>
+                    </div>
                   ))}
                 </div>
               )}
@@ -417,15 +491,12 @@ export function CustomersPage() {
                     <p className="mt-1 text-xs text-surface-500">{formatDateTime(customer.created_at)}</p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {customer.tags.map((tag) => (
-                        <button
+                        <TagChip
                           key={tag.id}
-                          type="button"
-                          className="inline-flex items-center gap-1 rounded-full border border-surface-200 bg-white px-2 py-1 text-xs font-semibold text-surface-700 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100"
+                          tag={tag}
+                          removable
                           onClick={() => detachTagMutation.mutate({ customerId: customer.id, tagId: tag.id })}
-                        >
-                          {tag.name}
-                          <Trash2 className="h-3 w-3" />
-                        </button>
+                        />
                       ))}
                     </div>
                     <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
@@ -496,17 +567,14 @@ export function CustomersPage() {
                         <td className="px-2 py-2">
                           <div className="flex flex-wrap gap-1">
                             {customer.tags.map((tag) => (
-                              <button
+                              <TagChip
                                 key={tag.id}
-                                type="button"
-                                className="inline-flex items-center gap-1 rounded-full border border-surface-200 bg-white px-2 py-1 text-xs font-semibold text-surface-700 dark:border-surface-600 dark:bg-surface-800 dark:text-surface-100"
+                                tag={tag}
+                                removable
                                 onClick={() =>
                                   detachTagMutation.mutate({ customerId: customer.id, tagId: tag.id })
                                 }
-                              >
-                                {tag.name}
-                                <Trash2 className="h-3 w-3" />
-                              </button>
+                              />
                             ))}
                             {!customer.tags.length ? <span className="text-xs text-surface-500">-</span> : null}
                           </div>

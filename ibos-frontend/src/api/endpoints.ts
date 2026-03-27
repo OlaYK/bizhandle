@@ -155,6 +155,7 @@ export const endpoints = {
   },
   analytics: {
     refreshMart: "/analytics/mart/refresh",
+    overview: "/analytics/overview",
     channelProfitability: "/analytics/channel-profitability",
     cohorts: "/analytics/cohorts",
     inventoryAging: "/analytics/inventory-aging",
@@ -186,6 +187,8 @@ export const endpoints = {
   },
   sales: {
     base: "/sales",
+    quote: "/sales/quote",
+    summary: "/sales/summary",
     refund: (saleId: string) => `/sales/${saleId}/refund`,
     refundOptions: (saleId: string) => `/sales/${saleId}/refund-options`,
   },
@@ -195,13 +198,16 @@ export const endpoints = {
   },
   invoices: {
     base: "/invoices",
+    invoice: (invoiceId: string) => `/invoices/${invoiceId}`,
     fxQuote: "/invoices/fx-quote",
     templates: "/invoices/templates",
     aging: "/invoices/aging",
     statements: "/invoices/statements",
     statementsExport: "/invoices/statements/export",
     runDueReminders: "/invoices/reminders/run-due",
+    preview: (invoiceId: string) => `/invoices/${invoiceId}/preview`,
     send: (invoiceId: string) => `/invoices/${invoiceId}/send`,
+    cancel: (invoiceId: string) => `/invoices/${invoiceId}/cancel`,
     markPaid: (invoiceId: string) => `/invoices/${invoiceId}/mark-paid`,
     reminders: (invoiceId: string) => `/invoices/${invoiceId}/reminders`,
     payments: (invoiceId: string) => `/invoices/${invoiceId}/payments`,
@@ -246,5 +252,6 @@ export const endpoints = {
   },
   audit: {
     base: "/audit-logs",
+    export: "/audit-logs/export",
   },
 } as const;

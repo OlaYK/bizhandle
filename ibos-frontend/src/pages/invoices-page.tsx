@@ -1,6 +1,14 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellRing, FileDown, Send, Wallet } from "lucide-react";
+import {
+  BellRing,
+  Eye,
+  FileDown,
+  Send,
+  Trash2,
+  Wallet,
+  XCircle,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -39,8 +47,9 @@ const optionalPositiveNumber = z.preprocess((value) => {
 
 const createInvoiceSchema = z
   .object({
+    customer_name: z.string().min(2, "Customer name is required"),
     customer_id: z.string().optional(),
-    order_id: z.string().optional(),
+    order_id: z.string().min(1, "Order is required"),
     currency: z
       .string()
       .min(3, "Currency is required")
@@ -53,10 +62,12 @@ const createInvoiceSchema = z
   })
   .refine(
     (values) =>
-      Boolean(values.order_id?.trim()) || values.total_amount !== undefined,
+      !values.issue_date ||
+      !values.due_date ||
+      values.due_date >= values.issue_date,
     {
-      path: ["total_amount"],
-      message: "Provide total amount or choose an order.",
+      path: ["due_date"],
+      message: "Due date cannot be before issue date.",
     },
   );
 
@@ -68,8 +79,25 @@ const markPaidSchema = z.object({
   note: z.string().optional(),
 });
 
+const optionalReminderChannel = z.preprocess(
+  (value) => {
+    if (value === "" || value === null || value === undefined) {
+      return undefined;
+    }
+    return value;
+  },
+  z.enum(["email", "sms", "whatsapp"]).optional(),
+);
+
+const sendInvoiceSchema = z.object({
+  channel: optionalReminderChannel,
+  recipient_override: z.string().optional(),
+  note: z.string().optional(),
+});
+
 type CreateInvoiceFormData = z.infer<typeof createInvoiceSchema>;
 type MarkPaidFormData = z.infer<typeof markPaidSchema>;
+type SendInvoiceFormData = z.infer<typeof sendInvoiceSchema>;
 
 const invoiceStatuses: Array<InvoiceStatus | ""> = [
   "",
@@ -97,6 +125,24 @@ function badgeVariantForInvoiceStatus(
   return "neutral";
 }
 
+function canCancelInvoice(invoice: InvoiceOut) {
+  return invoice.status !== "paid" && invoice.status !== "cancelled" && invoice.amount_paid === 0;
+}
+
+function canDeleteInvoice(invoice: InvoiceOut) {
+  return invoice.amount_paid === 0;
+}
+
+function channelLabel(channel: string) {
+  return channel.charAt(0).toUpperCase() + channel.slice(1).replaceAll("_", " ");
+}
+
+function isReminderChannel(
+  value?: string | null,
+): value is "email" | "sms" | "whatsapp" {
+  return value === "email" || value === "sms" || value === "whatsapp";
+}
+
 export function InvoicesPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -114,6 +160,10 @@ export function InvoicesPage() {
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceOut | null>(
     null,
   );
+  const [previewInvoice, setPreviewInvoice] = useState<InvoiceOut | null>(null);
+  const [sendInvoiceTarget, setSendInvoiceTarget] = useState<InvoiceOut | null>(
+    null,
+  );
   const todayDate = toDateInputValue(new Date());
   const monthStartDate = toDateInputValue(
     new Date(new Date().getFullYear(), new Date().getMonth(), 1),
@@ -123,14 +173,22 @@ export function InvoicesPage() {
   const [templateName, setTemplateName] = useState("");
 
   const offset = (page - 1) * pageSize;
+  const activePreviewInvoiceId = previewInvoice?.id ?? sendInvoiceTarget?.id;
 
   useEffect(() => {
     setPage(1);
   }, [statusFilter, customerFilter, orderFilter, startDate, endDate]);
 
   const ordersQuery = useQuery({
-    queryKey: ["invoices", "orders"],
-    queryFn: () => orderService.list({ limit: 200, offset: 0 }),
+    queryKey: ["invoices", "orders", "eligible"],
+    queryFn: () =>
+      orderService.list({ limit: 200, offset: 0, invoice_eligible: true }),
+  });
+
+  const previewQuery = useQuery({
+    queryKey: ["invoices", "preview", activePreviewInvoiceId],
+    enabled: Boolean(activePreviewInvoiceId),
+    queryFn: () => invoiceService.preview(activePreviewInvoiceId as string),
   });
 
   const customersQuery = useQuery({
@@ -141,6 +199,7 @@ export function InvoicesPage() {
   const createForm = useForm<CreateInvoiceFormData>({
     resolver: zodResolver(createInvoiceSchema),
     defaultValues: {
+      customer_name: "",
       customer_id: "",
       order_id: "",
       currency: profileQuery.data?.base_currency ?? "NGN",
@@ -176,6 +235,60 @@ export function InvoicesPage() {
       }),
   });
 
+  const customers = customersQuery.data?.items ?? [];
+  const orderOptions = useMemo(
+    () => ordersQuery.data?.items ?? [],
+    [ordersQuery.data],
+  );
+  const orderOptionsById = useMemo(
+    () => Object.fromEntries(orderOptions.map((order) => [order.id, order])),
+    [orderOptions],
+  );
+  const customersById = useMemo(
+    () => Object.fromEntries(customers.map((customer) => [customer.id, customer])),
+    [customers],
+  );
+  const selectedOrderId = createForm.watch("order_id");
+  const selectedCustomerId = createForm.watch("customer_id");
+
+  useEffect(() => {
+    const selectedOrder = orderOptionsById[selectedOrderId];
+    if (!selectedOrder) {
+      return;
+    }
+
+    if (
+      selectedOrder.customer_name &&
+      createForm.getValues("customer_name") !== selectedOrder.customer_name
+    ) {
+      createForm.setValue("customer_name", selectedOrder.customer_name, {
+        shouldValidate: true,
+      });
+    }
+
+    if (
+      selectedOrder.customer_id &&
+      createForm.getValues("customer_id") !== selectedOrder.customer_id
+    ) {
+      createForm.setValue("customer_id", selectedOrder.customer_id);
+    }
+  }, [createForm, orderOptionsById, selectedOrderId]);
+
+  useEffect(() => {
+    if (!selectedCustomerId) {
+      return;
+    }
+    const customer = customersById[selectedCustomerId];
+    if (!customer) {
+      return;
+    }
+    if (createForm.getValues("customer_name") !== customer.name) {
+      createForm.setValue("customer_name", customer.name, {
+        shouldValidate: true,
+      });
+    }
+  }, [createForm, customersById, selectedCustomerId]);
+
   const templatesQuery = useQuery({
     queryKey: ["invoices", "templates"],
     queryFn: () => invoiceService.listTemplates(),
@@ -201,9 +314,10 @@ export function InvoicesPage() {
     onSuccess: () => {
       showToast({ title: "Invoice created", variant: "success" });
       createForm.reset({
+        customer_name: "",
         customer_id: "",
         order_id: "",
-        currency: "USD",
+        currency: profileQuery.data?.base_currency ?? "NGN",
         total_amount: undefined,
         issue_date: "",
         due_date: "",
@@ -211,6 +325,8 @@ export function InvoicesPage() {
         send_now: false,
       });
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["invoices", "orders"] });
     },
     onError: (error) => {
       showToast({
@@ -221,10 +337,57 @@ export function InvoicesPage() {
     },
   });
 
+  const sendForm = useForm<SendInvoiceFormData>({
+    resolver: zodResolver(sendInvoiceSchema),
+    defaultValues: {
+      channel: undefined,
+      recipient_override: "",
+      note: "",
+    },
+  });
+
+  useEffect(() => {
+    if (!sendInvoiceTarget) {
+      return;
+    }
+    sendForm.reset({
+      channel: undefined,
+      recipient_override: "",
+      note: "",
+    });
+  }, [sendForm, sendInvoiceTarget]);
+
+  useEffect(() => {
+    if (!sendInvoiceTarget) {
+      return;
+    }
+    if (!isReminderChannel(previewQuery.data?.recommended_channel)) {
+      return;
+    }
+    if (sendForm.getValues("channel")) {
+      return;
+    }
+    sendForm.setValue("channel", previewQuery.data.recommended_channel, {
+      shouldValidate: true,
+    });
+  }, [previewQuery.data?.recommended_channel, sendForm, sendInvoiceTarget]);
+
   const sendMutation = useMutation({
-    mutationFn: (invoiceId: string) => invoiceService.send(invoiceId),
+    mutationFn: ({
+      invoiceId,
+      values,
+    }: {
+      invoiceId: string;
+      values: SendInvoiceFormData;
+    }) =>
+      invoiceService.send(invoiceId, {
+        channel: values.channel,
+        recipient_override: values.recipient_override?.trim() || undefined,
+        note: values.note?.trim() || undefined,
+      }),
     onSuccess: () => {
       showToast({ title: "Invoice sent", variant: "success" });
+      setSendInvoiceTarget(null);
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
     },
     onError: (error) => {
@@ -303,20 +466,17 @@ export function InvoicesPage() {
         end_date: statementEndDate,
       }),
     onSuccess: (result) => {
-      const blob = new Blob([result.csv_content], {
-        type: result.content_type || "text/csv",
-      });
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(result.blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = result.filename || "invoice-statements.csv";
+      link.download = result.filename;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
       showToast({
         title: "Statements exported",
-        description: `${result.row_count} customer rows exported.`,
+        description: "Invoice statements downloaded successfully.",
         variant: "success",
       });
     },
@@ -373,6 +533,7 @@ export function InvoicesPage() {
       setSelectedInvoice(null);
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["invoices", "orders"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error) => {
@@ -384,28 +545,58 @@ export function InvoicesPage() {
     },
   });
 
-  const orderOptions = useMemo(
-    () => ordersQuery.data?.items ?? [],
-    [ordersQuery.data],
-  );
+  const cancelMutation = useMutation({
+    mutationFn: (invoiceId: string) => invoiceService.cancel(invoiceId),
+    onSuccess: () => {
+      showToast({ title: "Invoice cancelled", variant: "success" });
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["invoices", "orders"] });
+    },
+    onError: (error) => {
+      showToast({
+        title: "Cancel failed",
+        description: getApiErrorMessage(error),
+        variant: "error",
+      });
+    },
+  });
 
-  if (ordersQuery.isLoading || listQuery.isLoading) {
+  const deleteMutation = useMutation({
+    mutationFn: (invoiceId: string) => invoiceService.remove(invoiceId),
+    onSuccess: () => {
+      showToast({ title: "Invoice deleted", variant: "success" });
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["invoices", "orders"] });
+    },
+    onError: (error) => {
+      showToast({
+        title: "Delete failed",
+        description: getApiErrorMessage(error),
+        variant: "error",
+      });
+    },
+  });
+
+  if (ordersQuery.isLoading || customersQuery.isLoading || listQuery.isLoading) {
     return <LoadingState label="Loading invoice workspace..." />;
   }
 
-  if (ordersQuery.isError || listQuery.isError) {
+  if (ordersQuery.isError || customersQuery.isError || listQuery.isError) {
     return (
       <ErrorState
         message="Failed to load invoice data."
         onRetry={() => {
           ordersQuery.refetch();
+          customersQuery.refetch();
           listQuery.refetch();
         }}
       />
     );
   }
 
-  const customers = customersQuery.data?.items ?? [];
+  const previewData = previewQuery.data;
 
   return (
     <div className="space-y-6">
@@ -415,8 +606,9 @@ export function InvoicesPage() {
           className="mt-4 grid gap-3"
           onSubmit={createForm.handleSubmit((values) =>
             createMutation.mutate({
+              customer_name: values.customer_name.trim(),
               customer_id: values.customer_id?.trim() || undefined,
-              order_id: values.order_id?.trim() || undefined,
+              order_id: values.order_id.trim(),
               currency: values.currency.toUpperCase(),
               total_amount: values.total_amount,
               issue_date: values.issue_date || undefined,
@@ -427,12 +619,18 @@ export function InvoicesPage() {
           )}
         >
           <div className="grid gap-3 md:grid-cols-4">
+            <Input
+              label="Customer Name"
+              placeholder="Aisha Bello"
+              {...createForm.register("customer_name")}
+              error={createForm.formState.errors.customer_name?.message}
+            />
             <Select
-              label="Customer (optional)"
+              label="Customer Record Match"
               {...createForm.register("customer_id")}
               error={createForm.formState.errors.customer_id?.message}
             >
-              <option value="">Select customer</option>
+              <option value="">Match from customers database</option>
               {(customers ?? []).map((customer) => (
                 <option key={customer.id} value={customer.id}>
                   {customer.name}
@@ -440,18 +638,20 @@ export function InvoicesPage() {
               ))}
             </Select>
             <Select
-              label="Order (optional)"
+              label="Order"
               {...createForm.register("order_id")}
+              error={createForm.formState.errors.order_id?.message}
             >
-              <option value="">No linked order</option>
+              <option value="">Select eligible order</option>
               {orderOptions.map((order) => (
                 <option key={order.id} value={order.id}>
-                  {order.id.slice(0, 8)}... (
+                  {(order.customer_name || "No customer")} -{" "}
                   {formatCurrency(
                     order.total_amount,
                     profileQuery.data?.base_currency,
                   )}
-                  )
+                  {" · "}
+                  {order.id.slice(0, 8)}...
                 </option>
               ))}
             </Select>
@@ -462,13 +662,17 @@ export function InvoicesPage() {
               error={createForm.formState.errors.currency?.message}
             />
             <Input
-              label="Total Amount"
+              label="Total Amount (optional)"
               type="number"
               step="0.01"
               {...createForm.register("total_amount")}
               error={createForm.formState.errors.total_amount?.message}
             />
           </div>
+          <p className="text-xs text-surface-500">
+            Pick an eligible order first. If the order already has a customer,
+            the customer name is auto-filled for you.
+          </p>
           <div className="grid gap-3 md:grid-cols-3">
             <Input
               label="Issue Date"
@@ -718,20 +922,28 @@ export function InvoicesPage() {
                     Due: {invoice.due_date ? formatDate(invoice.due_date) : "-"}
                   </p>
                   <p className="mt-1 text-xs text-surface-500">
+                    Customer: {invoice.customer_name || invoice.customer_id || "-"}
+                  </p>
+                  <p className="mt-1 text-xs text-surface-500">
                     {formatDateTime(invoice.created_at)}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setPreviewInvoice(invoice)}
+                    >
+                      <Eye className="h-4 w-4" />
+                      Preview
+                    </Button>
                     {invoice.status !== "paid" &&
                     invoice.status !== "cancelled" ? (
                       <Button
                         type="button"
                         size="sm"
                         variant="ghost"
-                        onClick={() => sendMutation.mutate(invoice.id)}
-                        loading={
-                          sendMutation.isPending &&
-                          sendMutation.variables === invoice.id
-                        }
+                        onClick={() => setSendInvoiceTarget(invoice)}
                       >
                         <Send className="h-4 w-4" />
                         Send
@@ -762,6 +974,40 @@ export function InvoicesPage() {
                       >
                         <Wallet className="h-4 w-4" />
                         Mark Paid
+                      </Button>
+                    ) : null}
+                    {canCancelInvoice(invoice) ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => cancelMutation.mutate(invoice.id)}
+                        loading={
+                          cancelMutation.isPending &&
+                          cancelMutation.variables === invoice.id
+                        }
+                      >
+                        <XCircle className="h-4 w-4" />
+                        Cancel
+                      </Button>
+                    ) : null}
+                    {canDeleteInvoice(invoice) ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="danger"
+                        onClick={() => {
+                          if (window.confirm("Delete this invoice? This cannot be undone.")) {
+                            deleteMutation.mutate(invoice.id);
+                          }
+                        }}
+                        loading={
+                          deleteMutation.isPending &&
+                          deleteMutation.variables === invoice.id
+                        }
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete
                       </Button>
                     ) : null}
                   </div>
@@ -810,24 +1056,28 @@ export function InvoicesPage() {
                         )}
                       </td>
                       <td className="px-2 py-2 text-surface-600">
-                        {invoice.customer_id || "-"}
+                        {invoice.customer_name || invoice.customer_id || "-"}
                       </td>
                       <td className="px-2 py-2 text-surface-600">
                         {invoice.due_date ? formatDate(invoice.due_date) : "-"}
                       </td>
                       <td className="px-2 py-2">
                         <div className="flex flex-wrap gap-1">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setPreviewInvoice(invoice)}
+                          >
+                            Preview
+                          </Button>
                           {invoice.status !== "paid" &&
                           invoice.status !== "cancelled" ? (
                             <Button
                               type="button"
                               size="sm"
                               variant="ghost"
-                              onClick={() => sendMutation.mutate(invoice.id)}
-                              loading={
-                                sendMutation.isPending &&
-                                sendMutation.variables === invoice.id
-                              }
+                              onClick={() => setSendInvoiceTarget(invoice)}
                             >
                               Send
                             </Button>
@@ -856,6 +1106,38 @@ export function InvoicesPage() {
                               onClick={() => setSelectedInvoice(invoice)}
                             >
                               Mark Paid
+                            </Button>
+                          ) : null}
+                          {canCancelInvoice(invoice) ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => cancelMutation.mutate(invoice.id)}
+                              loading={
+                                cancelMutation.isPending &&
+                                cancelMutation.variables === invoice.id
+                              }
+                            >
+                              Cancel
+                            </Button>
+                          ) : null}
+                          {canDeleteInvoice(invoice) ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="danger"
+                              onClick={() => {
+                                if (window.confirm("Delete this invoice? This cannot be undone.")) {
+                                  deleteMutation.mutate(invoice.id);
+                                }
+                              }}
+                              loading={
+                                deleteMutation.isPending &&
+                                deleteMutation.variables === invoice.id
+                              }
+                            >
+                              Delete
                             </Button>
                           ) : null}
                         </div>
@@ -952,6 +1234,267 @@ export function InvoicesPage() {
                 loading={markPaidMutation.isPending}
               >
                 Confirm Paid
+              </Button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      <Modal
+        open={Boolean(previewInvoice)}
+        title="Invoice Preview"
+        onClose={() => setPreviewInvoice(null)}
+      >
+        {!previewInvoice ? null : previewQuery.isLoading ? (
+          <LoadingState label="Loading invoice preview..." />
+        ) : previewQuery.isError || !previewData ? (
+          <ErrorState
+            message="Failed to load invoice preview."
+            onRetry={() => previewQuery.refetch()}
+          />
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm dark:border-surface-700 dark:bg-surface-800/60">
+              <p className="text-xs uppercase tracking-wide text-surface-500">
+                Subject
+              </p>
+              <p className="mt-1 font-semibold text-surface-900 dark:text-surface-100">
+                {previewData.subject}
+              </p>
+              <p className="mt-2 text-xs text-surface-500">
+                Recommended channel:{" "}
+                <span className="font-semibold text-surface-700 dark:text-surface-200">
+                  {previewData.recommended_channel
+                    ? channelLabel(previewData.recommended_channel)
+                    : "None"}
+                </span>
+              </p>
+            </div>
+
+            <div className="grid gap-2">
+              {previewData.delivery_options.map((option) => (
+                <div
+                  key={option.channel}
+                  className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm dark:border-surface-700 dark:bg-surface-800/60"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold text-surface-900 dark:text-surface-100">
+                      {channelLabel(option.channel)}
+                    </p>
+                    <Badge
+                      variant={
+                        option.ready
+                          ? option.suggested
+                            ? "positive"
+                            : "info"
+                          : "negative"
+                      }
+                    >
+                      {option.ready
+                        ? option.suggested
+                          ? "suggested"
+                          : "ready"
+                        : "not ready"}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-surface-500">
+                    Recipient: {option.recipient || "Not available"}
+                  </p>
+                  {!option.ready && option.reason ? (
+                    <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">
+                      {option.reason}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm dark:border-surface-700 dark:bg-surface-800/60">
+              <p className="text-xs uppercase tracking-wide text-surface-500">
+                Message Preview
+              </p>
+              <p className="mt-2 whitespace-pre-wrap text-surface-700 dark:text-surface-200">
+                {previewData.message_preview}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="font-semibold text-surface-900 dark:text-surface-100">
+                Line Items
+              </h4>
+              {previewData.line_items.length ? (
+                previewData.line_items.map((item) => (
+                  <div
+                    key={`${item.variant_id}-${item.sku || item.label || item.size}`}
+                    className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm dark:border-surface-700 dark:bg-surface-800/60"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-surface-900 dark:text-surface-100">
+                          {item.product_name}
+                        </p>
+                        <p className="text-xs text-surface-500">
+                          {item.size}
+                          {item.label ? ` - ${item.label}` : ""}
+                          {item.sku ? ` (${item.sku})` : ""}
+                        </p>
+                      </div>
+                      <p className="font-semibold text-mint-700">
+                        {formatCurrency(
+                          item.line_total,
+                          previewData.invoice.currency,
+                        )}
+                      </p>
+                    </div>
+                    <p className="mt-1 text-xs text-surface-500">
+                      {item.qty} x{" "}
+                      {formatCurrency(
+                        item.unit_price,
+                        previewData.invoice.currency,
+                      )}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-surface-500">No line items available.</p>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setPreviewInvoice(null)}
+              >
+                Close
+              </Button>
+              {previewInvoice.status !== "paid" &&
+              previewInvoice.status !== "cancelled" ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setSendInvoiceTarget(previewInvoice);
+                    setPreviewInvoice(null);
+                  }}
+                >
+                  Open Send Options
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={Boolean(sendInvoiceTarget)}
+        title="Send Invoice"
+        onClose={() => setSendInvoiceTarget(null)}
+      >
+        {!sendInvoiceTarget ? null : previewQuery.isLoading ? (
+          <LoadingState label="Loading delivery options..." />
+        ) : previewQuery.isError || !previewData ? (
+          <ErrorState
+            message="Failed to load invoice delivery options."
+            onRetry={() => previewQuery.refetch()}
+          />
+        ) : (
+          <form
+            className="grid gap-3"
+            onSubmit={sendForm.handleSubmit((values) =>
+              sendMutation.mutate({
+                invoiceId: sendInvoiceTarget.id,
+                values,
+              })
+            )}
+          >
+            <div className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm dark:border-surface-700 dark:bg-surface-800/60">
+              <p className="text-xs uppercase tracking-wide text-surface-500">
+                Delivery Guidance
+              </p>
+              <p className="mt-1 text-surface-700 dark:text-surface-200">
+                Recommended channel:{" "}
+                <span className="font-semibold">
+                  {previewData.recommended_channel
+                    ? channelLabel(previewData.recommended_channel)
+                    : "Use any ready channel"}
+                </span>
+              </p>
+            </div>
+
+            <Select
+              label="Send Via"
+              {...sendForm.register("channel")}
+              error={sendForm.formState.errors.channel?.message}
+            >
+              <option value="">Use recommended channel</option>
+              {previewData.delivery_options.map((option) => (
+                <option
+                  key={option.channel}
+                  value={option.channel}
+                  disabled={!option.ready}
+                >
+                  {channelLabel(option.channel)}
+                  {option.suggested ? " (recommended)" : ""}
+                  {!option.ready && option.reason ? ` - ${option.reason}` : ""}
+                </option>
+              ))}
+            </Select>
+
+            <Input
+              label="Recipient Override"
+              placeholder="optional@example.com or 080..."
+              {...sendForm.register("recipient_override")}
+              error={sendForm.formState.errors.recipient_override?.message}
+            />
+
+            <Textarea
+              label="Send Note"
+              rows={3}
+              placeholder="Optional note for this delivery"
+              {...sendForm.register("note")}
+            />
+
+            <div className="grid gap-2">
+              {previewData.delivery_options.map((option) => (
+                <div
+                  key={option.channel}
+                  className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm dark:border-surface-700 dark:bg-surface-800/60"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold text-surface-900 dark:text-surface-100">
+                      {channelLabel(option.channel)}
+                    </p>
+                    <Badge variant={option.ready ? "positive" : "negative"}>
+                      {option.ready ? "ready" : "unavailable"}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-surface-500">
+                    Recipient: {option.recipient || "Not available"}
+                  </p>
+                  {!option.ready && option.reason ? (
+                    <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">
+                      {option.reason}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setSendInvoiceTarget(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="secondary"
+                loading={sendMutation.isPending}
+              >
+                Send Invoice
               </Button>
             </div>
           </form>

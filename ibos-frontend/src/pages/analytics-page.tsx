@@ -109,20 +109,17 @@ export function AnalyticsPage() {
         end_date: endDate,
       }),
     onSuccess: (result) => {
-      const blob = new Blob([result.csv_content], {
-        type: result.content_type || "text/csv",
-      });
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(result.blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = result.filename || "analytics-export.csv";
+      link.download = result.filename;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
       showToast({
         title: "Export ready",
-        description: `${result.row_count} rows downloaded.`,
+        description: "Analytics export downloaded successfully.",
         variant: "success",
       });
     },
@@ -198,9 +195,6 @@ export function AnalyticsPage() {
       />
     );
   }
-
-  console.log(inventoryAgingQuery.data?.items);
-
   return (
     <div className="space-y-6">
       <Card>
