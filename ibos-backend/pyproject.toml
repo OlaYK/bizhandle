@@ -21,6 +21,7 @@ python-multipart = "^0.0.9"
 shortuuid = "^1.0.13"
 openai = "^1.63.2"
 google-auth = "^2.38.0"
+requests = "^2.32.3"
 email-validator = "^2.3.0"
 bcrypt = "^5.0.0"
 
