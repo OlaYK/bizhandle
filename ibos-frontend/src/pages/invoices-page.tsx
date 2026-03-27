@@ -134,7 +134,7 @@ function canDeleteInvoice(invoice: InvoiceOut) {
 }
 
 function channelLabel(channel: string) {
-  return channel.charAt(0).toUpperCase() + channel.slice(1).replaceAll("_", " ");
+  return channel.charAt(0).toUpperCase() + channel.slice(1).replace(/_/g, " ");
 }
 
 function isReminderChannel(

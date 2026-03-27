@@ -615,9 +615,12 @@ export function LocationsPage() {
             <option value="">Select variant</option>
             {variants.map((variant) => (
               <option key={variant.id} value={variant.id}>
-                {variant.product_name || "Variant"} · {variant.size}
-                {variant.label ? ` - ${variant.label}` : ""}
-                {variant.sku ? ` (${variant.sku})` : ""}
+                {formatVariantLabel(
+                  productsById[variant.product_id]?.name,
+                  variant.size,
+                  variant.label,
+                  variant.sku,
+                )}
               </option>
             ))}
           </Select>
@@ -728,9 +731,12 @@ export function LocationsPage() {
             <option value="">Select variant</option>
             {overviewVariants.map((variant) => (
               <option key={variant.id} value={variant.id}>
-                {variant.size}
-                {variant.label ? ` - ${variant.label}` : ""}
-                {variant.sku ? ` (${variant.sku})` : ""}
+                {formatVariantLabel(
+                  productsById[variant.product_id]?.name,
+                  variant.size,
+                  variant.label,
+                  variant.sku,
+                )}
               </option>
             ))}
           </Select>
@@ -814,9 +820,12 @@ export function LocationsPage() {
             <option value="">Select variant</option>
             {transferVariants.map((variant) => (
               <option key={variant.id} value={variant.id}>
-                {variant.size}
-                {variant.label ? ` - ${variant.label}` : ""}
-                {variant.sku ? ` (${variant.sku})` : ""}
+                {formatVariantLabel(
+                  productsById[variant.product_id]?.name,
+                  variant.size,
+                  variant.label,
+                  variant.sku,
+                )}
               </option>
             ))}
           </Select>
@@ -866,7 +875,9 @@ export function LocationsPage() {
             <option value="">Select order</option>
             {orders.map((order) => (
               <option key={order.id} value={order.id}>
-                {(order.customer_name || "No customer")} · {order.id.slice(0, 8)}...
+                {(order.customer_name || "No customer") +
+                  " - " +
+                  `${order.id.slice(0, 8)}...`}
               </option>
             ))}
           </Select>
