@@ -153,6 +153,7 @@ import type {
   InvoiceTemplateListOut,
   InvoiceTemplateOut,
   InvoiceTemplateUpsertIn,
+  GoogleAuthIn,
   LoginIn,
   LocationCreateIn,
   LocationListFilter,
@@ -302,6 +303,11 @@ export const authService = {
   login(payload: LoginIn) {
     return apiClient
       .post<TokenOut>(endpoints.auth.login, payload)
+      .then((res) => res.data);
+  },
+  google(payload: GoogleAuthIn) {
+    return apiClient
+      .post<TokenOut>(endpoints.auth.google, payload)
       .then((res) => res.data);
   },
   refresh(payload: RefreshIn) {

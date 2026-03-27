@@ -55,6 +55,12 @@ export interface LoginIn {
   password: string;
 }
 
+export interface GoogleAuthIn {
+  id_token: string;
+  business_name?: string;
+  username?: string;
+}
+
 export interface RefreshIn {
   refresh_token: string;
 }
