@@ -54,6 +54,7 @@ from app.schemas.campaign import (
 )
 from app.schemas.common import PaginationMeta
 from app.services.audit_service import log_audit_event
+from app.services.display_service import get_customer_name_map
 from app.services.integration_service import queue_outbox_event
 from app.services.messaging_provider import MessageSendRequest, get_messaging_provider
 
@@ -137,7 +138,64 @@ def _segment_out(segment: CustomerSegment) -> CustomerSegmentOut:
     )
 
 
-def _template_out(template: CampaignTemplate) -> CampaignTemplateOut:
+def _user_name_map(
+    db: Session,
+    *,
+    user_ids: list[str | None],
+) -> dict[str, str]:
+    normalized_ids = sorted({item for item in user_ids if item})
+    if not normalized_ids:
+        return {}
+    rows = db.execute(
+        select(User.id, User.full_name, User.email).where(User.id.in_(normalized_ids))
+    ).all()
+    return {
+        user_id: (full_name or email or user_id)
+        for user_id, full_name, email in rows
+    }
+
+
+def _segment_name_map(
+    db: Session,
+    *,
+    business_id: str,
+    segment_ids: list[str | None],
+) -> dict[str, str]:
+    normalized_ids = sorted({item for item in segment_ids if item})
+    if not normalized_ids:
+        return {}
+    rows = db.execute(
+        select(CustomerSegment.id, CustomerSegment.name).where(
+            CustomerSegment.business_id == business_id,
+            CustomerSegment.id.in_(normalized_ids),
+        )
+    ).all()
+    return {segment_id: name for segment_id, name in rows}
+
+
+def _template_name_map(
+    db: Session,
+    *,
+    business_id: str,
+    template_ids: list[str | None],
+) -> dict[str, str]:
+    normalized_ids = sorted({item for item in template_ids if item})
+    if not normalized_ids:
+        return {}
+    rows = db.execute(
+        select(CampaignTemplate.id, CampaignTemplate.name).where(
+            CampaignTemplate.business_id == business_id,
+            CampaignTemplate.id.in_(normalized_ids),
+        )
+    ).all()
+    return {template_id: name for template_id, name in rows}
+
+
+def _template_out(
+    template: CampaignTemplate,
+    *,
+    user_name_map: dict[str, str] | None = None,
+) -> CampaignTemplateOut:
     return CampaignTemplateOut(
         id=template.id,
         name=template.name,
@@ -145,19 +203,29 @@ def _template_out(template: CampaignTemplate) -> CampaignTemplateOut:
         content=template.content,
         status=template.status,
         created_by_user_id=template.created_by_user_id,
+        created_by_name=(user_name_map or {}).get(template.created_by_user_id),
         approved_by_user_id=template.approved_by_user_id,
+        approved_by_name=(user_name_map or {}).get(template.approved_by_user_id or ""),
         approved_at=template.approved_at,
         created_at=template.created_at,
         updated_at=template.updated_at,
     )
 
 
-def _campaign_out(campaign: Campaign) -> CampaignOut:
+def _campaign_out(
+    campaign: Campaign,
+    *,
+    segment_name_map: dict[str, str] | None = None,
+    template_name_map: dict[str, str] | None = None,
+    user_name_map: dict[str, str] | None = None,
+) -> CampaignOut:
     return CampaignOut(
         id=campaign.id,
         name=campaign.name,
         segment_id=campaign.segment_id,
+        segment_name=(segment_name_map or {}).get(campaign.segment_id or ""),
         template_id=campaign.template_id,
+        template_name=(template_name_map or {}).get(campaign.template_id or ""),
         channel=campaign.channel,
         provider=campaign.provider,
         message_content=campaign.message_content,
@@ -174,16 +242,22 @@ def _campaign_out(campaign: Campaign) -> CampaignOut:
         suppressed_count=campaign.suppressed_count,
         skipped_count=campaign.skipped_count,
         created_by_user_id=campaign.created_by_user_id,
+        created_by_name=(user_name_map or {}).get(campaign.created_by_user_id),
         created_at=campaign.created_at,
         updated_at=campaign.updated_at,
     )
 
 
-def _recipient_out(recipient: CampaignRecipient) -> CampaignRecipientOut:
+def _recipient_out(
+    recipient: CampaignRecipient,
+    *,
+    customer_name_map: dict[str, str] | None = None,
+) -> CampaignRecipientOut:
     return CampaignRecipientOut(
         id=recipient.id,
         campaign_id=recipient.campaign_id,
         customer_id=recipient.customer_id,
+        customer_name=(customer_name_map or {}).get(recipient.customer_id),
         recipient=recipient.recipient,
         status=recipient.status,
         outbound_message_id=recipient.outbound_message_id,
@@ -197,10 +271,15 @@ def _recipient_out(recipient: CampaignRecipient) -> CampaignRecipientOut:
     )
 
 
-def _consent_out(consent: CustomerConsent) -> CustomerConsentOut:
+def _consent_out(
+    consent: CustomerConsent,
+    *,
+    customer_name_map: dict[str, str] | None = None,
+) -> CustomerConsentOut:
     return CustomerConsentOut(
         id=consent.id,
         customer_id=consent.customer_id,
+        customer_name=(customer_name_map or {}).get(consent.customer_id),
         channel=consent.channel,
         status=consent.status,
         source=consent.source,
@@ -210,18 +289,27 @@ def _consent_out(consent: CustomerConsent) -> CustomerConsentOut:
     )
 
 
-def _retention_trigger_out(trigger: RetentionTrigger) -> RetentionTriggerOut:
+def _retention_trigger_out(
+    trigger: RetentionTrigger,
+    *,
+    segment_name_map: dict[str, str] | None = None,
+    template_name_map: dict[str, str] | None = None,
+    user_name_map: dict[str, str] | None = None,
+) -> RetentionTriggerOut:
     return RetentionTriggerOut(
         id=trigger.id,
         name=trigger.name,
         trigger_type=trigger.trigger_type,
         status=trigger.status,
         segment_id=trigger.segment_id,
+        segment_name=(segment_name_map or {}).get(trigger.segment_id or ""),
         template_id=trigger.template_id,
+        template_name=(template_name_map or {}).get(trigger.template_id or ""),
         channel=trigger.channel,
         provider=trigger.provider,
         config_json=trigger.config_json,
         created_by_user_id=trigger.created_by_user_id,
+        created_by_name=(user_name_map or {}).get(trigger.created_by_user_id),
         last_run_at=trigger.last_run_at,
         created_at=trigger.created_at,
         updated_at=trigger.updated_at,
@@ -834,7 +922,11 @@ def create_template(
     )
     db.commit()
     db.refresh(template)
-    return _template_out(template)
+    user_name_map = _user_name_map(
+        db,
+        user_ids=[template.created_by_user_id, template.approved_by_user_id],
+    )
+    return _template_out(template, user_name_map=user_name_map)
 
 
 @router.get(
@@ -866,7 +958,11 @@ def list_templates(
     rows = db.execute(
         stmt.order_by(CampaignTemplate.updated_at.desc()).offset(offset).limit(limit)
     ).scalars().all()
-    items = [_template_out(row) for row in rows]
+    user_name_map = _user_name_map(
+        db,
+        user_ids=[item.created_by_user_id for item in rows] + [item.approved_by_user_id for item in rows],
+    )
+    items = [_template_out(row, user_name_map=user_name_map) for row in rows]
     count = len(items)
     return CampaignTemplateListOut(
         items=items,
@@ -933,7 +1029,11 @@ def update_template(
     )
     db.commit()
     db.refresh(template)
-    return _template_out(template)
+    user_name_map = _user_name_map(
+        db,
+        user_ids=[template.created_by_user_id, template.approved_by_user_id],
+    )
+    return _template_out(template, user_name_map=user_name_map)
 
 
 @router.put(
@@ -1000,7 +1100,12 @@ def upsert_customer_consent(
     )
     db.commit()
     db.refresh(consent)
-    return _consent_out(consent)
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=access.business.id,
+        customer_ids=[consent.customer_id],
+    )
+    return _consent_out(consent, customer_name_map=customer_name_map)
 
 
 @router.get(
@@ -1032,7 +1137,12 @@ def list_customer_consents(
     rows = db.execute(
         stmt.order_by(CustomerConsent.updated_at.desc()).offset(offset).limit(limit)
     ).scalars().all()
-    items = [_consent_out(row) for row in rows]
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=access.business.id,
+        customer_ids=[row.customer_id for row in rows],
+    )
+    items = [_consent_out(row, customer_name_map=customer_name_map) for row in rows]
     count = len(items)
     return CustomerConsentListOut(
         items=items,
@@ -1066,7 +1176,15 @@ def create_campaign(
     campaign = _create_campaign(db, business_id=access.business.id, actor=actor, payload=payload)
     db.commit()
     db.refresh(campaign)
-    return _campaign_out(campaign)
+    segment_name_map = _segment_name_map(db, business_id=access.business.id, segment_ids=[campaign.segment_id])
+    template_name_map = _template_name_map(db, business_id=access.business.id, template_ids=[campaign.template_id])
+    user_name_map = _user_name_map(db, user_ids=[campaign.created_by_user_id])
+    return _campaign_out(
+        campaign,
+        segment_name_map=segment_name_map,
+        template_name_map=template_name_map,
+        user_name_map=user_name_map,
+    )
 
 
 @router.get(
@@ -1096,7 +1214,18 @@ def list_campaigns(
 
     total = int(db.execute(count_stmt).scalar_one())
     rows = db.execute(stmt.order_by(Campaign.created_at.desc()).offset(offset).limit(limit)).scalars().all()
-    items = [_campaign_out(row) for row in rows]
+    segment_name_map = _segment_name_map(db, business_id=access.business.id, segment_ids=[row.segment_id for row in rows])
+    template_name_map = _template_name_map(db, business_id=access.business.id, template_ids=[row.template_id for row in rows])
+    user_name_map = _user_name_map(db, user_ids=[row.created_by_user_id for row in rows])
+    items = [
+        _campaign_out(
+            row,
+            segment_name_map=segment_name_map,
+            template_name_map=template_name_map,
+            user_name_map=user_name_map,
+        )
+        for row in rows
+    ]
     count = len(items)
     return CampaignListOut(
         items=items,
@@ -1161,7 +1290,12 @@ def list_campaign_recipients(
     rows = db.execute(
         stmt.order_by(CampaignRecipient.created_at.desc()).offset(offset).limit(limit)
     ).scalars().all()
-    items = [_recipient_out(row) for row in rows]
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=access.business.id,
+        customer_ids=[row.customer_id for row in rows],
+    )
+    items = [_recipient_out(row, customer_name_map=customer_name_map) for row in rows]
     count = len(items)
     return CampaignRecipientListOut(
         items=items,
@@ -1247,7 +1381,15 @@ def create_retention_trigger(
     )
     db.commit()
     db.refresh(trigger)
-    return _retention_trigger_out(trigger)
+    segment_name_map = _segment_name_map(db, business_id=access.business.id, segment_ids=[trigger.segment_id])
+    template_name_map = _template_name_map(db, business_id=access.business.id, template_ids=[trigger.template_id])
+    user_name_map = _user_name_map(db, user_ids=[trigger.created_by_user_id])
+    return _retention_trigger_out(
+        trigger,
+        segment_name_map=segment_name_map,
+        template_name_map=template_name_map,
+        user_name_map=user_name_map,
+    )
 
 
 @router.get(
@@ -1276,7 +1418,18 @@ def list_retention_triggers(
         .offset(offset)
         .limit(limit)
     ).scalars().all()
-    items = [_retention_trigger_out(row) for row in rows]
+    segment_name_map = _segment_name_map(db, business_id=access.business.id, segment_ids=[row.segment_id for row in rows])
+    template_name_map = _template_name_map(db, business_id=access.business.id, template_ids=[row.template_id for row in rows])
+    user_name_map = _user_name_map(db, user_ids=[row.created_by_user_id for row in rows])
+    items = [
+        _retention_trigger_out(
+            row,
+            segment_name_map=segment_name_map,
+            template_name_map=template_name_map,
+            user_name_map=user_name_map,
+        )
+        for row in rows
+    ]
     count = len(items)
     return RetentionTriggerListOut(
         items=items,

@@ -36,12 +36,18 @@ from app.schemas.checkout import (
     CheckoutSessionPlaceOrderOut,
     CheckoutSessionPublicOut,
     StorefrontCheckoutSessionCreateIn,
+    StorefrontCartSessionCreateIn,
     CheckoutSessionRetryPaymentOut,
     CheckoutWebhookEventIn,
     CheckoutWebhookOut,
 )
 from app.schemas.common import PaginationMeta
 from app.services.audit_service import log_audit_event
+from app.services.display_service import (
+    build_display_reference,
+    get_customer_name_map,
+    get_variant_display_map,
+)
 from app.services.payment_provider import PaymentInitRequest, get_payment_provider
 
 router = APIRouter(prefix="/checkout", tags=["checkout"])
@@ -79,6 +85,68 @@ def _resolve_customer_id(db: Session, *, business_id: str, customer_id: str | No
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
     return normalized
+
+
+def _resolve_or_create_checkout_customer_id(
+    db: Session,
+    *,
+    business_id: str,
+    customer_id: str | None,
+    customer_name: str | None,
+    customer_email: str | None,
+    customer_phone: str | None,
+) -> str | None:
+    resolved_customer_id = _resolve_customer_id(
+        db,
+        business_id=business_id,
+        customer_id=customer_id,
+    )
+    if resolved_customer_id:
+        return resolved_customer_id
+
+    normalized_name = (customer_name or "").strip() or None
+    normalized_email = (customer_email or "").strip().lower() or None
+    normalized_phone = (customer_phone or "").strip() or None
+    if not any([normalized_name, normalized_email, normalized_phone]):
+        return None
+    if not normalized_name:
+        raise HTTPException(status_code=400, detail="customer_name is required for guest checkout")
+
+    existing_customer = None
+    if normalized_email:
+        existing_customer = db.execute(
+            select(Customer).where(
+                Customer.business_id == business_id,
+                func.lower(Customer.email) == normalized_email,
+            )
+        ).scalar_one_or_none()
+    if not existing_customer and normalized_phone:
+        existing_customer = db.execute(
+            select(Customer).where(
+                Customer.business_id == business_id,
+                Customer.phone == normalized_phone,
+            )
+        ).scalar_one_or_none()
+    if existing_customer:
+        if normalized_name and existing_customer.name != normalized_name:
+            existing_customer.name = normalized_name
+        if normalized_email and not existing_customer.email:
+            existing_customer.email = normalized_email
+        if normalized_phone and not existing_customer.phone:
+            existing_customer.phone = normalized_phone
+        return existing_customer.id
+
+    new_customer = Customer(
+        id=str(uuid.uuid4()),
+        business_id=business_id,
+        name=normalized_name,
+        email=normalized_email,
+        phone=normalized_phone,
+        note="Created from public checkout",
+    )
+    db.add(new_customer)
+    db.flush()
+    return new_customer.id
 
 
 def _checkout_by_token_or_404(db: Session, *, session_token: str) -> CheckoutSession:
@@ -152,13 +220,37 @@ def _init_provider_checkout(
     checkout.payment_checkout_url = payment_result.checkout_url
 
 
-def _checkout_out(db: Session, checkout: CheckoutSession) -> CheckoutSessionOut:
-    order = None
-    if checkout.order_id:
+def _checkout_out(
+    db: Session,
+    checkout: CheckoutSession,
+    *,
+    order_lookup: dict[str, dict[str, object]] | None = None,
+    customer_name_map: dict[str, str] | None = None,
+) -> CheckoutSessionOut:
+    order_payload: dict[str, object] | None = None
+    if order_lookup is not None:
+        order_payload = order_lookup.get(checkout.order_id or "")
+    elif checkout.order_id:
         order = db.execute(
             select(Order).where(
                 Order.id == checkout.order_id,
                 Order.business_id == checkout.business_id,
+            )
+        ).scalar_one_or_none()
+        if order:
+            order_payload = {
+                "status": order.status,
+                "sale_id": order.sale_id,
+            }
+
+    customer_name = None
+    if customer_name_map is not None:
+        customer_name = customer_name_map.get(checkout.customer_id or "")
+    elif checkout.customer_id:
+        customer_name = db.execute(
+            select(Customer.name).where(
+                Customer.id == checkout.customer_id,
+                Customer.business_id == checkout.business_id,
             )
         ).scalar_one_or_none()
 
@@ -168,6 +260,7 @@ def _checkout_out(db: Session, checkout: CheckoutSession) -> CheckoutSessionOut:
         status=checkout.status,
         currency=checkout.currency,
         customer_id=checkout.customer_id,
+        customer_name=customer_name,
         payment_method=checkout.payment_method,
         channel=checkout.channel,
         total_amount=float(to_money(checkout.total_amount)),
@@ -175,13 +268,177 @@ def _checkout_out(db: Session, checkout: CheckoutSession) -> CheckoutSessionOut:
         payment_reference=checkout.payment_reference,
         payment_checkout_url=checkout.payment_checkout_url,
         order_id=checkout.order_id,
-        order_status=order.status if order else None,
-        sale_id=order.sale_id if order else None,
-        has_sale=bool(order and order.sale_id),
+        order_reference=build_display_reference("ORD", checkout.order_id),
+        order_status=str(order_payload["status"]) if order_payload else None,
+        sale_id=str(order_payload["sale_id"]) if order_payload and order_payload.get("sale_id") else None,
+        has_sale=bool(order_payload and order_payload.get("sale_id")),
         created_at=checkout.created_at,
         updated_at=checkout.updated_at,
         expires_at=checkout.expires_at,
     )
+
+
+def _checkout_public_items(db: Session, checkout: CheckoutSession) -> list[CheckoutSessionItemOut]:
+    items = db.execute(
+        select(CheckoutSessionItem).where(CheckoutSessionItem.checkout_session_id == checkout.id)
+    ).scalars().all()
+    variant_display_map = get_variant_display_map(
+        db,
+        business_id=checkout.business_id,
+        variant_ids=[item.variant_id for item in items],
+    )
+    return [
+        CheckoutSessionItemOut(
+            variant_id=item.variant_id,
+            product_id=variant_display_map.get(item.variant_id).product_id
+            if item.variant_id in variant_display_map
+            else None,
+            product_name=variant_display_map.get(item.variant_id).product_name
+            if item.variant_id in variant_display_map
+            else None,
+            size=variant_display_map.get(item.variant_id).size
+            if item.variant_id in variant_display_map
+            else None,
+            label=variant_display_map.get(item.variant_id).label
+            if item.variant_id in variant_display_map
+            else None,
+            sku=variant_display_map.get(item.variant_id).sku
+            if item.variant_id in variant_display_map
+            else None,
+            qty=item.qty,
+            unit_price=float(to_money(item.unit_price)),
+            line_total=float(to_money(item.line_total)),
+        )
+        for item in items
+    ]
+
+
+def _storefront_cart_rows_or_404(
+    db: Session,
+    *,
+    storefront: StorefrontConfig,
+    variant_ids: list[str],
+) -> dict[str, tuple[ProductVariant, Product]]:
+    rows = db.execute(
+        select(ProductVariant, Product)
+        .join(
+            Product,
+            (Product.id == ProductVariant.product_id)
+            & (Product.business_id == ProductVariant.business_id),
+        )
+        .where(
+            ProductVariant.id.in_(variant_ids),
+            ProductVariant.business_id == storefront.business_id,
+            ProductVariant.is_published.is_(True),
+            Product.business_id == storefront.business_id,
+            Product.active.is_(True),
+            Product.is_published.is_(True),
+        )
+    ).all()
+    row_map = {variant.id: (variant, product) for variant, product in rows}
+    missing = [variant_id for variant_id in variant_ids if variant_id not in row_map]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Variant not available on this storefront: {missing[0]}")
+    return row_map
+
+
+def _public_storefront_or_404(db: Session, *, slug: str) -> StorefrontConfig:
+    storefront = db.execute(
+        select(StorefrontConfig).where(
+            func.lower(StorefrontConfig.slug) == slug.strip().lower(),
+            StorefrontConfig.is_published.is_(True),
+        )
+    ).scalar_one_or_none()
+    if not storefront:
+        raise HTTPException(status_code=404, detail="Storefront not found")
+    return storefront
+
+
+def _create_storefront_checkout_session(
+    db: Session,
+    *,
+    storefront: StorefrontConfig,
+    items: list[tuple[str, int]],
+    audit_action: str,
+    payment_method: str,
+    channel: str,
+    note: str | None,
+    success_redirect_url: str | None,
+    cancel_redirect_url: str | None,
+    expires_in_minutes: int,
+) -> CheckoutSession:
+    variant_ids = [variant_id for variant_id, _qty in items]
+    row_map = _storefront_cart_rows_or_404(
+        db,
+        storefront=storefront,
+        variant_ids=variant_ids,
+    )
+
+    business = db.execute(select(Business).where(Business.id == storefront.business_id)).scalar_one_or_none()
+    if not business:
+        raise HTTPException(status_code=404, detail="Storefront business not found")
+
+    qty_by_variant: dict[str, int] = {}
+    for variant_id, qty in items:
+        qty_by_variant[variant_id] = qty_by_variant.get(variant_id, 0) + qty
+
+    checkout = CheckoutSession(
+        id=str(uuid.uuid4()),
+        business_id=storefront.business_id,
+        session_token=uuid.uuid4().hex,
+        status="open",
+        currency=business.base_currency.upper(),
+        payment_method=payment_method,
+        channel=channel,
+        note=note,
+        total_amount=ZERO_MONEY,
+        success_redirect_url=success_redirect_url,
+        cancel_redirect_url=cancel_redirect_url,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=expires_in_minutes),
+    )
+    db.add(checkout)
+
+    total = ZERO_MONEY
+    for variant_id, qty in qty_by_variant.items():
+        variant, _product = row_map[variant_id]
+        if variant.selling_price is None or to_money(variant.selling_price) <= ZERO_MONEY:
+            raise HTTPException(status_code=400, detail=f"Variant has no valid selling price: {variant_id}")
+        unit_price = to_money(variant.selling_price)
+        line_total = to_money(unit_price * qty)
+        total += line_total
+        db.add(
+            CheckoutSessionItem(
+                id=str(uuid.uuid4()),
+                checkout_session_id=checkout.id,
+                variant_id=variant_id,
+                qty=qty,
+                unit_price=unit_price,
+                line_total=line_total,
+            )
+        )
+
+    checkout.total_amount = to_money(total)
+    _init_provider_checkout(checkout=checkout, total_amount=float(to_money(total)))
+
+    log_audit_event(
+        db,
+        business_id=storefront.business_id,
+        actor_user_id=business.owner_user_id,
+        action=audit_action,
+        target_type="checkout_session",
+        target_id=checkout.id,
+        metadata_json={
+            "slug": storefront.slug,
+            "items_count": len(qty_by_variant),
+            "units_total": sum(qty_by_variant.values()),
+            "currency": checkout.currency,
+            "payment_method": checkout.payment_method,
+            "channel": checkout.channel,
+            "total_amount": float(to_money(total)),
+            "payment_provider": checkout.payment_provider,
+        },
+    )
+    return checkout
 
 
 def _build_webhook_signature(payload_bytes: bytes) -> str:
@@ -372,88 +629,18 @@ def create_storefront_checkout_session(
     payload: StorefrontCheckoutSessionCreateIn,
     db: Session = Depends(get_db),
 ):
-    storefront = db.execute(
-        select(StorefrontConfig).where(
-            func.lower(StorefrontConfig.slug) == slug.strip().lower(),
-            StorefrontConfig.is_published.is_(True),
-        )
-    ).scalar_one_or_none()
-    if not storefront:
-        raise HTTPException(status_code=404, detail="Storefront not found")
-
-    row = db.execute(
-        select(ProductVariant, Product)
-        .join(
-            Product,
-            (Product.id == ProductVariant.product_id)
-            & (Product.business_id == ProductVariant.business_id),
-        )
-        .where(
-            ProductVariant.id == payload.variant_id,
-            ProductVariant.business_id == storefront.business_id,
-            Product.business_id == storefront.business_id,
-            Product.active.is_(True),
-        )
-    ).first()
-    if not row:
-        raise HTTPException(status_code=404, detail="Variant not available on this storefront")
-
-    variant, _product = row
-    if variant.selling_price is None or to_money(variant.selling_price) <= ZERO_MONEY:
-        raise HTTPException(status_code=400, detail="Variant has no valid selling price")
-
-    business = db.execute(select(Business).where(Business.id == storefront.business_id)).scalar_one_or_none()
-    if not business:
-        raise HTTPException(status_code=404, detail="Storefront business not found")
-
-    unit_price = to_money(variant.selling_price)
-    total = to_money(unit_price * payload.qty)
-
-    checkout = CheckoutSession(
-        id=str(uuid.uuid4()),
-        business_id=storefront.business_id,
-        session_token=uuid.uuid4().hex,
-        status="open",
-        currency=business.base_currency.upper(),
+    storefront = _public_storefront_or_404(db, slug=slug)
+    checkout = _create_storefront_checkout_session(
+        db,
+        storefront=storefront,
+        items=[(payload.variant_id, payload.qty)],
+        audit_action="checkout.session.create_storefront",
         payment_method=payload.payment_method,
         channel=payload.channel,
         note=payload.note,
-        total_amount=to_money(total),
         success_redirect_url=payload.success_redirect_url,
         cancel_redirect_url=payload.cancel_redirect_url,
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=payload.expires_in_minutes),
-    )
-    db.add(checkout)
-    db.add(
-        CheckoutSessionItem(
-            id=str(uuid.uuid4()),
-            checkout_session_id=checkout.id,
-            variant_id=payload.variant_id,
-            qty=payload.qty,
-            unit_price=unit_price,
-            line_total=total,
-        )
-    )
-
-    _init_provider_checkout(checkout=checkout, total_amount=float(to_money(total)))
-
-    log_audit_event(
-        db,
-        business_id=storefront.business_id,
-        actor_user_id=business.owner_user_id,
-        action="checkout.session.create_storefront",
-        target_type="checkout_session",
-        target_id=checkout.id,
-        metadata_json={
-            "slug": storefront.slug,
-            "variant_id": payload.variant_id,
-            "qty": payload.qty,
-            "currency": checkout.currency,
-            "payment_method": checkout.payment_method,
-            "channel": checkout.channel,
-            "total_amount": float(to_money(total)),
-            "payment_provider": checkout.payment_provider,
-        },
+        expires_in_minutes=payload.expires_in_minutes,
     )
     db.commit()
     return CheckoutSessionCreateOut(
@@ -465,6 +652,44 @@ def create_storefront_checkout_session(
         payment_reference=checkout.payment_reference,
         payment_checkout_url=checkout.payment_checkout_url,
         total_amount=float(to_money(total)),
+        expires_at=checkout.expires_at,
+    )
+
+
+@router.post(
+    "/storefront/{slug}/cart-session",
+    response_model=CheckoutSessionCreateOut,
+    summary="Create public checkout session from storefront cart",
+    responses=error_responses(400, 404, 422, 500),
+)
+def create_storefront_cart_checkout_session(
+    slug: str,
+    payload: StorefrontCartSessionCreateIn,
+    db: Session = Depends(get_db),
+):
+    storefront = _public_storefront_or_404(db, slug=slug)
+    checkout = _create_storefront_checkout_session(
+        db,
+        storefront=storefront,
+        items=[(item.variant_id, item.qty) for item in payload.items],
+        audit_action="checkout.session.create_storefront_cart",
+        payment_method=payload.payment_method,
+        channel=payload.channel,
+        note=payload.note,
+        success_redirect_url=payload.success_redirect_url,
+        cancel_redirect_url=payload.cancel_redirect_url,
+        expires_in_minutes=payload.expires_in_minutes,
+    )
+    db.commit()
+    return CheckoutSessionCreateOut(
+        id=checkout.id,
+        session_token=checkout.session_token,
+        checkout_url=f"/checkout/{checkout.session_token}",
+        status=checkout.status,
+        payment_provider=checkout.payment_provider,
+        payment_reference=checkout.payment_reference,
+        payment_checkout_url=checkout.payment_checkout_url,
+        total_amount=float(to_money(checkout.total_amount)),
         expires_at=checkout.expires_at,
     )
 
@@ -521,7 +746,35 @@ def list_checkout_sessions(
         for session in sessions:
             db.refresh(session)
 
-    items = [_checkout_out(db, session) for session in sessions]
+    order_ids = [session.order_id for session in sessions if session.order_id]
+    order_rows = (
+        db.execute(
+            select(Order.id, Order.status, Order.sale_id).where(
+                Order.business_id == access.business.id,
+                Order.id.in_(order_ids),
+            )
+        ).all()
+        if order_ids
+        else []
+    )
+    order_lookup = {
+        order_id: {"status": order_status, "sale_id": sale_id}
+        for order_id, order_status, sale_id in order_rows
+    }
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=access.business.id,
+        customer_ids=[session.customer_id for session in sessions],
+    )
+    items = [
+        _checkout_out(
+            db,
+            session,
+            order_lookup=order_lookup,
+            customer_name_map=customer_name_map,
+        )
+        for session in sessions
+    ]
     count = len(items)
     return CheckoutSessionListOut(
         items=items,
@@ -682,28 +935,26 @@ def get_checkout_session(
         db.commit()
         db.refresh(checkout)
 
-    items = db.execute(
-        select(CheckoutSessionItem).where(CheckoutSessionItem.checkout_session_id == checkout.id)
-    ).scalars().all()
-
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=checkout.business_id,
+        customer_ids=[checkout.customer_id],
+    )
     return CheckoutSessionPublicOut(
         session_token=checkout.session_token,
         status=checkout.status,
         currency=checkout.currency,
+        customer_id=checkout.customer_id,
+        customer_name=customer_name_map.get(checkout.customer_id or ""),
         payment_method=checkout.payment_method,
         channel=checkout.channel,
         note=checkout.note,
         total_amount=float(to_money(checkout.total_amount)),
+        payment_provider=checkout.payment_provider,
+        payment_reference=checkout.payment_reference,
+        payment_checkout_url=checkout.payment_checkout_url,
         expires_at=checkout.expires_at,
-        items=[
-            CheckoutSessionItemOut(
-                variant_id=item.variant_id,
-                qty=item.qty,
-                unit_price=float(to_money(item.unit_price)),
-                line_total=float(to_money(item.line_total)),
-            )
-            for item in items
-        ],
+        items=_checkout_public_items(db, checkout),
     )
 
 
@@ -726,10 +977,13 @@ def place_order_from_checkout_session(
     if checkout.status != "open":
         raise HTTPException(status_code=400, detail=f"Checkout session is not open (status={checkout.status})")
 
-    resolved_customer_id = _resolve_customer_id(
+    resolved_customer_id = _resolve_or_create_checkout_customer_id(
         db,
         business_id=checkout.business_id,
         customer_id=payload.customer_id or checkout.customer_id,
+        customer_name=payload.customer_name,
+        customer_email=payload.customer_email,
+        customer_phone=payload.customer_phone,
     )
 
     items = db.execute(
@@ -765,6 +1019,7 @@ def place_order_from_checkout_session(
 
     checkout.status = "pending_payment"
     checkout.order_id = order_id
+    checkout.customer_id = resolved_customer_id
 
     business = db.execute(select(Business).where(Business.id == checkout.business_id)).scalar_one()
     log_audit_event(
@@ -780,12 +1035,20 @@ def place_order_from_checkout_session(
         },
     )
     db.commit()
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=checkout.business_id,
+        customer_ids=[resolved_customer_id],
+    )
     return CheckoutSessionPlaceOrderOut(
         checkout_session_id=checkout.id,
         checkout_session_token=checkout.session_token,
         checkout_status=checkout.status,
         order_id=order_id,
+        order_reference=build_display_reference("ORD", order_id),
         order_status="pending",
+        customer_id=resolved_customer_id,
+        customer_name=customer_name_map.get(resolved_customer_id or ""),
         total_amount=float(to_money(order.total_amount)),
     )
 
@@ -823,6 +1086,7 @@ async def process_payment_webhook(
             checkout_session_id=checkout.id if checkout else None,
             checkout_session_status=checkout.status if checkout else None,
             order_id=checkout.order_id if checkout else None,
+            order_reference=build_display_reference("ORD", checkout.order_id if checkout else None),
             duplicate=True,
         )
 
@@ -889,6 +1153,7 @@ async def process_payment_webhook(
         checkout_session_id=checkout.id,
         checkout_session_status=checkout.status,
         order_id=order_id or checkout.order_id,
+        order_reference=build_display_reference("ORD", order_id or checkout.order_id),
         order_status=order_status,
         duplicate=False,
     )

@@ -11,6 +11,7 @@ from app.core.money import to_money
 from app.core.permissions import require_business_roles
 from app.core.security_current import BusinessAccess, get_current_user
 from app.models.checkout import CheckoutSession
+from app.models.customer import Customer
 from app.models.order import Order
 from app.models.shipping import (
     CheckoutShippingSelection,
@@ -40,6 +41,7 @@ from app.schemas.shipping import (
     ShippingZoneOut,
 )
 from app.services.audit_service import log_audit_event
+from app.services.display_service import build_display_reference, get_customer_name_map
 from app.services.carrier_provider import (
     ShippingLabelRequest,
     ShippingQuoteRequest,
@@ -155,13 +157,45 @@ def _resolve_zone_for_destination(
     return candidates[0][1]
 
 
-def _shipment_out(db: Session, shipment: Shipment) -> ShipmentOut:
+def _shipment_out(
+    db: Session,
+    shipment: Shipment,
+    *,
+    order_lookup: dict[str, tuple[str | None, str | None, str | None]] | None = None,
+) -> ShipmentOut:
     tracking_events = db.execute(
         select(ShipmentTrackingEvent).where(ShipmentTrackingEvent.shipment_id == shipment.id).order_by(ShipmentTrackingEvent.event_time.desc())
     ).scalars().all()
+    order_payload: tuple[str | None, str | None, str | None] | None = None
+    if order_lookup is not None:
+        order_payload = order_lookup.get(shipment.order_id or "")
+    elif shipment.order_id:
+        order_row = db.execute(
+            select(Order.id, Order.status, Order.customer_id).where(
+                Order.id == shipment.order_id,
+                Order.business_id == shipment.business_id,
+            )
+        ).one_or_none()
+        if order_row:
+            order_payload = (order_row.id, order_row.status, order_row.customer_id)
+
+    customer_id = order_payload[2] if order_payload else None
+    customer_name = None
+    if customer_id:
+        customer_name = db.execute(
+            select(Customer.name).where(
+                Customer.id == customer_id,
+                Customer.business_id == shipment.business_id,
+            )
+        ).scalar_one_or_none()
+
     return ShipmentOut(
         id=shipment.id,
         order_id=shipment.order_id,
+        order_reference=build_display_reference("ORD", shipment.order_id),
+        order_status=order_payload[1] if order_payload else None,
+        customer_id=customer_id,
+        customer_name=customer_name,
         checkout_session_id=shipment.checkout_session_id,
         provider=shipment.provider,
         service_code=shipment.service_code,
@@ -244,6 +278,9 @@ def upsert_shipping_settings(
             )
         )
         zone_id_by_name[zone.zone_name.strip().lower()] = zone_id
+    # Flush new zones before inserting service rules that reference them so
+    # Postgres resolves the FK consistently during the same request.
+    db.flush()
 
     for rule in payload.service_rules:
         zone_id = None
@@ -611,7 +648,21 @@ def list_shipments(
 
     total = int(db.execute(count_stmt).scalar_one())
     rows = db.execute(stmt.order_by(Shipment.created_at.desc()).offset(offset).limit(limit)).scalars().all()
-    items = [_shipment_out(db, row) for row in rows]
+    order_rows = (
+        db.execute(
+            select(Order.id, Order.status, Order.customer_id).where(
+                Order.business_id == access.business.id,
+                Order.id.in_([row.order_id for row in rows if row.order_id]),
+            )
+        ).all()
+        if rows
+        else []
+    )
+    order_lookup = {
+        order_id: (order_id, order_status, customer_id)
+        for order_id, order_status, customer_id in order_rows
+    }
+    items = [_shipment_out(db, row, order_lookup=order_lookup) for row in rows]
     count = len(items)
     return ShipmentListOut(
         items=items,
@@ -707,10 +758,18 @@ def sync_shipment_tracking(
         },
     )
     db.commit()
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=shipment.business_id,
+        customer_ids=[order.customer_id],
+    )
     return ShipmentTrackingSyncOut(
         shipment_id=shipment.id,
         shipment_status=shipment.status,
         order_id=order.id,
+        order_reference=build_display_reference("ORD", order.id),
+        customer_id=order.customer_id,
+        customer_name=customer_name_map.get(order.customer_id or ""),
         order_status=order.status,
         tracking_events_added=1,
     )

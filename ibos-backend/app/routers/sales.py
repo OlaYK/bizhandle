@@ -19,6 +19,10 @@ from app.schemas.sales import (
     SaleCreate,
     SaleCreateOut,
     SaleListOut,
+    SaleSummaryOut,
+    SaleQuote,
+    SaleQuoteLineOut,
+    SaleQuoteOut,
     SaleOut,
     SaleRefundOptionsOut,
     SaleRefundOptionOut,
@@ -29,6 +33,11 @@ from app.services.inventory_service import add_ledger_entry, get_variant_stock
 router = APIRouter(prefix="/sales", tags=["sales"])
 
 
+def _validate_sales_date_range(start_date: date | None, end_date: date | None) -> None:
+    if start_date and end_date and end_date < start_date:
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
+
+
 def _variant_business_map(db: Session, variant_ids: list[str]) -> dict[str, str]:
     rows = db.execute(
         select(ProductVariant.id, ProductVariant.business_id).where(
@@ -36,6 +45,139 @@ def _variant_business_map(db: Session, variant_ids: list[str]) -> dict[str, str]
         )
     ).all()
     return {variant_id: business_id for variant_id, business_id in rows}
+
+
+def _build_sale_quote(
+    db: Session,
+    *,
+    business_id: str,
+    currency: str,
+    items: list,
+) -> SaleQuoteOut:
+    quantity_by_variant: dict[str, int] = {}
+    total = ZERO_MONEY
+    line_items: list[tuple[str, int, Decimal, Decimal]] = []
+
+    for item in items:
+        unit_price = to_money(item.unit_price)
+        line_total = to_money(unit_price * item.qty)
+        quantity_by_variant[item.variant_id] = quantity_by_variant.get(item.variant_id, 0) + item.qty
+        total += line_total
+        line_items.append((item.variant_id, item.qty, unit_price, line_total))
+
+    variant_ids = list(quantity_by_variant.keys())
+    business_by_variant = _variant_business_map(db, variant_ids)
+
+    errors_by_variant: dict[str, list[str]] = {}
+    stock_by_variant: dict[str, int] = {}
+
+    for variant_id in variant_ids:
+        variant_business = business_by_variant.get(variant_id)
+        if not variant_business:
+            errors_by_variant[variant_id] = [f"Variant not found: {variant_id}"]
+            continue
+        if variant_business != business_id:
+            errors_by_variant[variant_id] = ["Contains item not in your business"]
+            continue
+
+        stock = get_variant_stock(db, business_id, variant_id)
+        stock_by_variant[variant_id] = stock
+        requested_qty = quantity_by_variant[variant_id]
+        if stock < requested_qty:
+            errors_by_variant[variant_id] = [
+                f"Insufficient stock for variant {variant_id}: requested {requested_qty}, available {stock}"
+            ]
+
+    lines = [
+        SaleQuoteLineOut(
+            variant_id=variant_id,
+            qty=qty,
+            unit_price=float(unit_price),
+            line_total=float(line_total),
+            available_stock=stock_by_variant.get(variant_id),
+            errors=errors_by_variant.get(variant_id, []),
+            is_valid=variant_id not in errors_by_variant,
+        )
+        for variant_id, qty, unit_price, line_total in line_items
+    ]
+
+    aggregated_errors: list[str] = []
+    for variant_id in variant_ids:
+        aggregated_errors.extend(errors_by_variant.get(variant_id, []))
+
+    return SaleQuoteOut(
+        total=float(to_money(total)),
+        currency=currency,
+        items=lines,
+        errors=aggregated_errors,
+        is_valid=not aggregated_errors,
+    )
+
+
+@router.post(
+    "/quote",
+    response_model=SaleQuoteOut,
+    summary="Preview sale totals",
+    description="Calculates draft sale line totals and grand total without creating a sale.",
+    responses=error_responses(400, 401, 422, 500),
+)
+def quote_sale(
+    payload: SaleQuote,
+    db: Session = Depends(get_db),
+    biz=Depends(get_current_business),
+):
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="No items")
+
+    return _build_sale_quote(
+        db,
+        business_id=biz.id,
+        currency=biz.base_currency,
+        items=payload.items,
+    )
+
+
+@router.get(
+    "/summary",
+    response_model=SaleSummaryOut,
+    summary="Get total paid sales summary",
+    description="Returns the aggregate amount and count of completed sales rows, excluding refunds.",
+    responses=error_responses(400, 401, 422, 500),
+)
+def get_sales_summary(
+    start_date: date | None = Query(default=None, description="Filter from date (YYYY-MM-DD)"),
+    end_date: date | None = Query(default=None, description="Filter to date (YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    biz=Depends(get_current_business),
+):
+    _validate_sales_date_range(start_date, end_date)
+
+    count_stmt = select(func.count(Sale.id)).where(
+        Sale.business_id == biz.id,
+        Sale.kind == "sale",
+    )
+    total_stmt = select(func.coalesce(func.sum(Sale.total_amount), 0)).where(
+        Sale.business_id == biz.id,
+        Sale.kind == "sale",
+    )
+
+    if start_date:
+        count_stmt = count_stmt.where(func.date(Sale.created_at) >= start_date)
+        total_stmt = total_stmt.where(func.date(Sale.created_at) >= start_date)
+    if end_date:
+        count_stmt = count_stmt.where(func.date(Sale.created_at) <= end_date)
+        total_stmt = total_stmt.where(func.date(Sale.created_at) <= end_date)
+
+    sales_count = int(db.execute(count_stmt).scalar_one())
+    total_amount = to_money(db.execute(total_stmt).scalar_one())
+
+    return SaleSummaryOut(
+        base_currency=biz.base_currency,
+        start_date=start_date,
+        end_date=end_date,
+        sales_count=sales_count,
+        total_amount=float(total_amount),
+    )
 
 
 @router.post(
@@ -128,7 +270,7 @@ def create_sale(
         },
     )
     db.commit()
-    return SaleCreateOut(id=sale_id, total=float(to_money(total)))
+    return SaleCreateOut(id=sale_id, total=float(to_money(total)), currency=biz.base_currency)
 
 
 def _resolve_refund_unit_prices(
@@ -302,7 +444,11 @@ def create_refund(
         },
     )
     db.commit()
-    return SaleCreateOut(id=refund_sale_id, total=float(to_money(-refund_total)))
+    return SaleCreateOut(
+        id=refund_sale_id,
+        total=float(to_money(-refund_total)),
+        currency=biz.base_currency,
+    )
 
 
 @router.get(
@@ -461,8 +607,7 @@ def list_sales(
     db: Session = Depends(get_db),
     biz=Depends(get_current_business),
 ):
-    if start_date and end_date and end_date < start_date:
-        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
+    _validate_sales_date_range(start_date, end_date)
 
     count_stmt = select(func.count(Sale.id)).where(Sale.business_id == biz.id)
     data_stmt = select(Sale).where(Sale.business_id == biz.id)
@@ -491,6 +636,7 @@ def list_sales(
             payment_method=row.payment_method,
             channel=row.channel,
             note=row.note,
+            currency=biz.base_currency,
             total_amount=float(to_money(row.total_amount)),
             created_at=row.created_at,
         )
@@ -506,6 +652,7 @@ def list_sales(
             count=count,
             has_next=(offset + count) < total_count,
         ),
+        base_currency=biz.base_currency,
         start_date=start_date,
         end_date=end_date,
         items=items,

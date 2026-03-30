@@ -24,7 +24,53 @@ class ChannelProfitabilityItemOut(BaseModel):
 class ChannelProfitabilityOut(BaseModel):
     start_date: date
     end_date: date
+    base_currency: str
     items: list[ChannelProfitabilityItemOut]
+
+
+class AnalyticsOverviewSummaryOut(BaseModel):
+    revenue_total: float
+    expenses_total: float
+    net_profit_total: float
+    orders_total: int
+    sales_total: int
+    stock_in_qty_total: int
+    stock_out_qty_total: int
+    stock_in_cost_total: float
+
+
+class AnalyticsOverviewPointOut(BaseModel):
+    metric_date: date
+    revenue: float
+    expenses: float
+    net_profit: float
+    orders_count: int
+    sales_count: int
+    stock_in_qty: int
+    stock_out_qty: int
+    stock_in_cost: float
+
+
+class AnalyticsExpenseCategoryOut(BaseModel):
+    category: str
+    total_amount: float
+    share_pct: float
+
+
+class AnalyticsInventoryMovementOut(BaseModel):
+    reason: str
+    qty_total: int
+    total_cost: float
+
+
+class AnalyticsOverviewOut(BaseModel):
+    start_date: date
+    end_date: date
+    base_currency: str
+    summary: AnalyticsOverviewSummaryOut
+    timeline: list[AnalyticsOverviewPointOut]
+    expense_categories: list[AnalyticsExpenseCategoryOut]
+    inventory_movements: list[AnalyticsInventoryMovementOut]
 
 
 class CohortRetentionItemOut(BaseModel):
@@ -41,6 +87,12 @@ class CohortRetentionOut(BaseModel):
 
 class InventoryAgingItemOut(BaseModel):
     variant_id: str
+    product_id: str
+    product_name: str
+    size: str
+    label: str | None = None
+    sku: str | None = None
+    reorder_level: int
     bucket: str
     stock: int
     estimated_value: float
@@ -49,6 +101,7 @@ class InventoryAgingItemOut(BaseModel):
 
 class InventoryAgingOut(BaseModel):
     as_of_date: date
+    base_currency: str
     stockout_count: int
     total_estimated_inventory_value: float
     items: list[InventoryAgingItemOut]

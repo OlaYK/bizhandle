@@ -41,12 +41,13 @@ const variantSchema = z.object({
   reorder_level: z.coerce.number().min(0, "Must be >= 0"),
   cost_price: optionalPositiveNumber,
   selling_price: optionalPositiveNumber,
+  qty: z.coerce.number().int().min(0, "Must be >= 0").optional(),
 });
 
-const stockInSchema = z.object({
-  qty: z.coerce.number().int().min(1, "Quantity must be at least 1"),
-  unit_cost: optionalPositiveNumber,
-});
+// const stockInSchema = z.object({
+//   qty: z.coerce.number().int().min(1, "Quantity must be at least 1"),
+//   unit_cost: optionalPositiveNumber,
+// });
 
 const adjustSchema = z.object({
   qty_delta: z.coerce
@@ -60,7 +61,7 @@ const adjustSchema = z.object({
 
 type ProductForm = z.infer<typeof productSchema>;
 type VariantForm = z.infer<typeof variantSchema>;
-type StockInForm = z.infer<typeof stockInSchema>;
+// type StockInForm = z.infer<typeof stockInSchema>;
 type AdjustForm = z.infer<typeof adjustSchema>;
 
 function normalizeOptionalNumber(value: number | undefined) {
@@ -162,13 +163,14 @@ export function InventoryPage() {
       reorder_level: 0,
       cost_price: undefined,
       selling_price: undefined,
+      qty: undefined,
     },
   });
 
-  const stockInForm = useForm<StockInForm>({
-    resolver: zodResolver(stockInSchema),
-    defaultValues: { qty: 1, unit_cost: undefined },
-  });
+  // const stockInForm = useForm<StockInForm>({
+  //   resolver: zodResolver(stockInSchema),
+  //   defaultValues: { qty: 1, unit_cost: undefined },
+  // });
 
   const adjustForm = useForm<AdjustForm>({
     resolver: zodResolver(adjustSchema),
@@ -203,6 +205,7 @@ export function InventoryPage() {
         reorder_level: values.reorder_level,
         cost_price: normalizeOptionalNumber(values.cost_price),
         selling_price: normalizeOptionalNumber(values.selling_price),
+        qty: values.qty,
       });
     },
     onSuccess: () => {
@@ -214,6 +217,7 @@ export function InventoryPage() {
         reorder_level: 0,
         cost_price: undefined,
         selling_price: undefined,
+        qty: undefined,
       });
       queryClient.invalidateQueries({
         queryKey: ["products", "variants", selectedProductId],
@@ -229,33 +233,33 @@ export function InventoryPage() {
     },
   });
 
-  const stockInMutation = useMutation({
-    mutationFn: (values: StockInForm) => {
-      if (!selectedVariantId) {
-        throw new Error("Select a variant first");
-      }
-      return inventoryService.stockIn({
-        variant_id: selectedVariantId,
-        qty: values.qty,
-        unit_cost: normalizeOptionalNumber(values.unit_cost),
-      });
-    },
-    onSuccess: () => {
-      showToast({ title: "Stock updated", variant: "success" });
-      stockInForm.reset({ qty: 1, unit_cost: undefined });
-      queryClient.invalidateQueries({
-        queryKey: ["products", "variants", selectedProductId],
-      });
-      queryClient.invalidateQueries({ queryKey: ["inventory"] });
-    },
-    onError: (error) => {
-      showToast({
-        title: "Stock update failed",
-        description: getApiErrorMessage(error),
-        variant: "error",
-      });
-    },
-  });
+  // const stockInMutation = useMutation({
+  //   mutationFn: (values: StockInForm) => {
+  //     if (!selectedVariantId) {
+  //       throw new Error("Select a variant first");
+  //     }
+  //     return inventoryService.stockIn({
+  //       variant_id: selectedVariantId,
+  //       qty: values.qty,
+  //       unit_cost: normalizeOptionalNumber(values.unit_cost),
+  //     });
+  //   },
+  //   onSuccess: () => {
+  //     showToast({ title: "Stock updated", variant: "success" });
+  //     stockInForm.reset({ qty: 1, unit_cost: undefined });
+  //     queryClient.invalidateQueries({
+  //       queryKey: ["products", "variants", selectedProductId],
+  //     });
+  //     queryClient.invalidateQueries({ queryKey: ["inventory"] });
+  //   },
+  //   onError: (error) => {
+  //     showToast({
+  //       title: "Stock update failed",
+  //       description: getApiErrorMessage(error),
+  //       variant: "error",
+  //     });
+  //   },
+  // });
 
   const adjustMutation = useMutation({
     mutationFn: (values: AdjustForm) => {
@@ -442,6 +446,12 @@ export function InventoryPage() {
                 {...variantForm.register("selling_price")}
               />
             </div>
+            <Input
+              label="Quantity"
+              type="number"
+              {...variantForm.register("qty")}
+              error={variantForm.formState.errors.qty?.message}
+            />
             <Button
               type="submit"
               loading={createVariantMutation.isPending}
@@ -510,6 +520,7 @@ export function InventoryPage() {
                       <th className="px-2 py-2">SKU</th>
                       <th className="px-2 py-2">Stock</th>
                       <th className="px-2 py-2">Price</th>
+                      <th className="px-2 py-2">id</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-surface-50">
@@ -552,6 +563,32 @@ export function InventoryPage() {
                               )
                             : "-"}
                         </td>
+                        <td className="px-2 py-2 text-surface-600">
+                          <button
+                            type="button"
+                            title="Click to copy full ID"
+                            className="inline-flex items-center gap-1 rounded px-1 py-0.5 font-mono text-xs transition hover:bg-surface-100 hover:text-surface-800 active:scale-95"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(variant.id);
+                              showToast({
+                                title: "ID copied to clipboard",
+                                variant: "success",
+                              });
+                            }}
+                          >
+                            {variant.id.slice(0, 8)}…
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              viewBox="0 0 20 20"
+                              fill="currentColor"
+                              className="h-3.5 w-3.5 text-surface-400"
+                            >
+                              <path d="M7 3.5A1.5 1.5 0 0 1 8.5 2h3.879a1.5 1.5 0 0 1 1.06.44l3.122 3.12A1.5 1.5 0 0 1 17 6.622V12.5a1.5 1.5 0 0 1-1.5 1.5h-1v-3.379a3 3 0 0 0-.879-2.121L10.5 5.379A3 3 0 0 0 8.379 4.5H7v-1Z" />
+                              <path d="M4.5 6A1.5 1.5 0 0 0 3 7.5v9A1.5 1.5 0 0 0 4.5 18h7a1.5 1.5 0 0 0 1.5-1.5v-5.879a1.5 1.5 0 0 0-.44-1.06L9.44 6.439A1.5 1.5 0 0 0 8.378 6H4.5Z" />
+                            </svg>
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -562,8 +599,8 @@ export function InventoryPage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Card>
+      <div className="grid gap-6">
+        {/* <Card>
           <h3 className="font-heading text-lg font-bold">Stock-In</h3>
           <p className="mt-1 text-sm text-surface-500">
             Selected variant: {selectedVariantId || "-"}
@@ -577,8 +614,8 @@ export function InventoryPage() {
             <Input
               label="Quantity"
               type="number"
-              {...stockInForm.register("qty")}
-              error={stockInForm.formState.errors.qty?.message}
+              {...variantForm.register("qty")}
+              error={variantForm.formState.errors.qty?.message}
             />
             <Input
               label="Unit Cost (optional)"
@@ -594,42 +631,61 @@ export function InventoryPage() {
               Add Stock
             </Button>
           </form>
-        </Card>
+        </Card> */}
 
         <Card>
-          <h3 className="font-heading text-lg font-bold">Manual Adjustment</h3>
-          <p className="mt-1 text-sm text-surface-500">
-            Use positive value to add, negative to remove.
-          </p>
+          <h3 className="font-heading text-lg font-bold">
+            Variant Stock Adjustment
+          </h3>
+
           <form
             className="mt-4 grid gap-3"
             onSubmit={adjustForm.handleSubmit((values) =>
               adjustMutation.mutate(values),
             )}
           >
-            <Input
-              label="Quantity Delta"
-              type="number"
-              {...adjustForm.register("qty_delta")}
-              error={adjustForm.formState.errors.qty_delta?.message}
-            />
-            <Input
-              label="Reason"
-              placeholder="damaged_stock"
-              {...adjustForm.register("reason")}
-              error={adjustForm.formState.errors.reason?.message}
-            />
-            <Textarea
-              label="Note (optional)"
-              rows={3}
-              {...adjustForm.register("note")}
-            />
-            <Input
-              label="Unit Cost (optional)"
-              type="number"
-              step="0.01"
-              {...adjustForm.register("unit_cost")}
-            />
+            <div className="w-full flex justify-between  gap-4">
+              <div className="w-full">
+                <Input
+                  className="w-full"
+                  label="Reason"
+                  placeholder="damaged stock"
+                  {...adjustForm.register("reason")}
+                  error={adjustForm.formState.errors.reason?.message}
+                />
+              </div>
+
+              <div className="flex w-full flex-col gap-1 ">
+                <Input
+                  label="Quantity"
+                  type="number"
+                  {...adjustForm.register("qty_delta")}
+                  error={adjustForm.formState.errors.qty_delta?.message}
+                />
+                <p className=" text-xs text-surface-500">
+                  *Use positive value to add, negative to remove.
+                </p>
+              </div>
+            </div>
+
+            <div className="w-full flex justify-between  gap-4">
+              <div className="w-full">
+                <Textarea
+                  label="Note (optional)"
+                  rows={3}
+                  {...adjustForm.register("note")}
+                />
+              </div>
+              <div className="w-full">
+                <Input
+                  label="Unit Cost (optional)"
+                  type="number"
+                  step="0.01"
+                  {...adjustForm.register("unit_cost")}
+                />
+              </div>
+            </div>
+
             <Button
               type="submit"
               loading={adjustMutation.isPending}

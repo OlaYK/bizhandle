@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
@@ -16,8 +16,10 @@ from app.core.permissions import require_business_roles
 from app.core.security_current import BusinessAccess, get_current_user
 from app.models.customer import Customer
 from app.models.invoice import Invoice, InvoiceEvent, InvoiceInstallment, InvoicePayment, InvoiceTemplate
-from app.models.order import Order
+from app.models.order import Order, OrderItem
+from app.models.product import Product, ProductVariant
 from app.models.user import User
+from app.routers.orders import _convert_order_to_sale, _normalize_order_status
 from app.schemas.common import PaginationMeta
 from app.schemas.invoice import (
     ALLOWED_INVOICE_STATUSES,
@@ -38,10 +40,12 @@ from app.schemas.invoice import (
     InvoicePaymentListOut,
     InvoicePaymentOut,
     InvoiceReminderIn,
+    InvoicePreviewLineItemOut,
+    InvoicePreviewOut,
     InvoiceReminderPolicyIn,
     InvoiceReminderPolicyOut,
     InvoiceReminderRunOut,
-    InvoiceStatementExportOut,
+    InvoiceSendIn,
     InvoiceStatementItemOut,
     InvoiceStatementListOut,
     InvoiceTemplateListOut,
@@ -49,10 +53,12 @@ from app.schemas.invoice import (
     InvoiceTemplateUpsertIn,
 )
 from app.services.audit_service import log_audit_event
+from app.services.display_service import get_customer_name_map
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
 FX_RATE_QUANT = Decimal("0.000001")
+INVOICE_INELIGIBLE_ORDER_STATUSES = {"paid", "processing", "fulfilled", "cancelled", "refunded"}
 
 _USD_PER_CURRENCY = {
     "USD": Decimal("1"),
@@ -123,6 +129,153 @@ def _customer_exists(db: Session, *, business_id: str, customer_id: str) -> bool
     return bool(row)
 
 
+def _find_customer_by_name(
+    db: Session,
+    *,
+    business_id: str,
+    customer_name: str,
+) -> Customer | None:
+    normalized_name = customer_name.strip().lower()
+    if not normalized_name:
+        return None
+    return db.execute(
+        select(Customer)
+        .where(
+            Customer.business_id == business_id,
+            func.lower(Customer.name) == normalized_name,
+        )
+        .order_by(Customer.created_at.asc())
+    ).scalars().first()
+
+
+def _customer_for_invoice(
+    db: Session,
+    *,
+    business_id: str,
+    customer_id: str | None,
+) -> Customer | None:
+    if not customer_id:
+        return None
+    return db.execute(
+        select(Customer).where(Customer.id == customer_id, Customer.business_id == business_id)
+    ).scalar_one_or_none()
+
+
+def _active_invoice_for_order(
+    db: Session,
+    *,
+    business_id: str,
+    order_id: str,
+    exclude_invoice_id: str | None = None,
+) -> Invoice | None:
+    stmt = select(Invoice).where(
+        Invoice.business_id == business_id,
+        Invoice.order_id == order_id,
+        Invoice.status != "cancelled",
+    )
+    if exclude_invoice_id:
+        stmt = stmt.where(Invoice.id != exclude_invoice_id)
+    return db.execute(stmt.order_by(Invoice.created_at.desc())).scalars().first()
+
+
+def _ensure_order_can_be_invoiced(
+    db: Session,
+    *,
+    business_id: str,
+    order: Order,
+    exclude_invoice_id: str | None = None,
+) -> None:
+    normalized_status = _normalize_order_status(order.status)
+    if normalized_status in INVOICE_INELIGIBLE_ORDER_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Orders with status '{normalized_status}' cannot be assigned to a new invoice",
+        )
+
+    existing_invoice = _active_invoice_for_order(
+        db,
+        business_id=business_id,
+        order_id=order.id,
+        exclude_invoice_id=exclude_invoice_id,
+    )
+    if existing_invoice is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Order already has an active invoice",
+        )
+
+
+def _resolve_invoice_customer(
+    db: Session,
+    *,
+    business_id: str,
+    order: Order,
+    customer_id: str | None,
+    customer_name: str,
+) -> Customer:
+    normalized_name = customer_name.strip()
+    if not normalized_name:
+        raise HTTPException(status_code=400, detail="customer_name is required")
+
+    resolved_customer: Customer | None = None
+    if customer_id:
+        resolved_customer = _customer_for_invoice(
+            db,
+            business_id=business_id,
+            customer_id=customer_id,
+        )
+        if not resolved_customer:
+            raise HTTPException(status_code=404, detail="Customer not found")
+
+    if order.customer_id:
+        order_customer = _customer_for_invoice(
+            db,
+            business_id=business_id,
+            customer_id=order.customer_id,
+        )
+        if order_customer is None:
+            raise HTTPException(status_code=404, detail="Linked order customer not found")
+        if resolved_customer and resolved_customer.id != order_customer.id:
+            raise HTTPException(
+                status_code=400,
+                detail="customer_id must match linked order customer",
+            )
+        if normalized_name.lower() != order_customer.name.strip().lower():
+            raise HTTPException(
+                status_code=400,
+                detail="customer_name must match linked order customer",
+            )
+        return order_customer
+
+    if resolved_customer:
+        if normalized_name.lower() != resolved_customer.name.strip().lower():
+            raise HTTPException(
+                status_code=400,
+                detail="customer_name must match selected customer",
+            )
+        order.customer_id = resolved_customer.id
+        return resolved_customer
+
+    matched_customer = _find_customer_by_name(
+        db,
+        business_id=business_id,
+        customer_name=normalized_name,
+    )
+    if matched_customer:
+        order.customer_id = matched_customer.id
+        return matched_customer
+
+    created_customer = Customer(
+        id=str(uuid.uuid4()),
+        business_id=business_id,
+        name=normalized_name,
+    )
+    db.add(created_customer)
+    db.flush()
+    order.customer_id = created_customer.id
+    return created_customer
+
+
 def _default_reminder_policy_dict() -> dict:
     defaults = InvoiceReminderPolicyIn()
     return defaults.model_dump()
@@ -173,6 +326,24 @@ def _record_invoice_event(
     )
 
 
+def _invoice_template_out(template: InvoiceTemplate | None) -> InvoiceTemplateOut | None:
+    if template is None:
+        return None
+    return InvoiceTemplateOut(
+        id=template.id,
+        name=template.name,
+        status=template.status,
+        is_default=bool(template.is_default),
+        brand_name=template.brand_name,
+        logo_url=template.logo_url,
+        primary_color=template.primary_color,
+        footer_text=template.footer_text,
+        config_json=template.config_json,
+        created_at=template.created_at,
+        updated_at=template.updated_at,
+    )
+
+
 def _outstanding_amount(invoice: Invoice) -> Decimal:
     return to_money(max(to_money(invoice.total_amount) - to_money(invoice.amount_paid), ZERO_MONEY))
 
@@ -181,10 +352,11 @@ def _outstanding_amount_base(invoice: Invoice) -> Decimal:
     return to_money(max(to_money(invoice.total_amount_base) - to_money(invoice.amount_paid_base), ZERO_MONEY))
 
 
-def _invoice_out(invoice: Invoice) -> InvoiceOut:
+def _invoice_out(invoice: Invoice, *, customer_name: str | None = None) -> InvoiceOut:
     return InvoiceOut(
         id=invoice.id,
         customer_id=invoice.customer_id,
+        customer_name=customer_name,
         order_id=invoice.order_id,
         status=invoice.status,
         currency=invoice.currency,
@@ -240,6 +412,211 @@ def _payment_out(payment: InvoicePayment) -> InvoicePaymentOut:
         paid_at=payment.paid_at,
         created_at=payment.created_at,
     )
+
+
+def _resolve_invoice_delivery_target(
+    *,
+    customer: Customer | None,
+    channel: str | None,
+    recipient_override: str | None,
+) -> tuple[str, str | None]:
+    normalized_channel = (channel or "manual").strip().lower() or "manual"
+    if normalized_channel == "manual":
+        return "manual", recipient_override
+    if recipient_override:
+        return normalized_channel, recipient_override
+    if customer is None:
+        raise HTTPException(status_code=400, detail="Customer is required for channel-based delivery")
+    recipient = customer.email if normalized_channel == "email" else customer.phone
+    if not recipient:
+        field_name = "email" if normalized_channel == "email" else "phone"
+        raise HTTPException(
+            status_code=400,
+            detail=f"Customer {field_name} is required for {normalized_channel} delivery",
+        )
+    return normalized_channel, recipient
+
+
+def _build_invoice_delivery_options(customer: Customer | None) -> tuple[list, str]:
+    options = []
+    has_email = bool(customer and customer.email)
+    has_phone = bool(customer and customer.phone)
+    options.append(
+        {
+            "channel": "manual",
+            "recipient": None,
+            "ready": True,
+            "reason": None,
+        }
+    )
+    options.append(
+        {
+            "channel": "email",
+            "recipient": customer.email if customer else None,
+            "ready": has_email,
+            "reason": None if has_email else "Customer email missing",
+        }
+    )
+    options.append(
+        {
+            "channel": "whatsapp",
+            "recipient": customer.phone if customer else None,
+            "ready": has_phone,
+            "reason": None if has_phone else "Customer phone missing",
+        }
+    )
+    options.append(
+        {
+            "channel": "sms",
+            "recipient": customer.phone if customer else None,
+            "ready": has_phone,
+            "reason": None if has_phone else "Customer phone missing",
+        }
+    )
+    recommended_channel = "email" if has_email else "whatsapp" if has_phone else "manual"
+    return options, recommended_channel
+
+
+def _invoice_preview_line_items(
+    db: Session,
+    *,
+    business_id: str,
+    order_id: str | None,
+) -> list[InvoicePreviewLineItemOut]:
+    if not order_id:
+        return []
+    rows = db.execute(
+        select(
+            OrderItem.variant_id,
+            Product.id,
+            Product.name,
+            ProductVariant.size,
+            ProductVariant.label,
+            ProductVariant.sku,
+            OrderItem.qty,
+            OrderItem.unit_price,
+            OrderItem.line_total,
+        )
+        .join(ProductVariant, ProductVariant.id == OrderItem.variant_id)
+        .join(Product, Product.id == ProductVariant.product_id)
+        .where(
+            OrderItem.order_id == order_id,
+            ProductVariant.business_id == business_id,
+        )
+        .order_by(Product.name.asc(), ProductVariant.size.asc(), ProductVariant.label.asc())
+    ).all()
+    return [
+        InvoicePreviewLineItemOut(
+            variant_id=variant_id,
+            product_id=product_id,
+            product_name=product_name,
+            size=size,
+            label=label,
+            sku=sku,
+            qty=int(qty),
+            unit_price=float(to_money(unit_price)),
+            line_total=float(to_money(line_total)),
+        )
+        for variant_id, product_id, product_name, size, label, sku, qty, unit_price, line_total in rows
+    ]
+
+
+def _build_invoice_preview(
+    db: Session,
+    *,
+    business_name: str,
+    invoice: Invoice,
+) -> InvoicePreviewOut:
+    customer = _customer_for_invoice(
+        db,
+        business_id=invoice.business_id,
+        customer_id=invoice.customer_id,
+    )
+    template = (
+        _template_or_404(db, business_id=invoice.business_id, template_id=invoice.template_id)
+        if invoice.template_id
+        else None
+    )
+    delivery_options_payload, recommended_channel = _build_invoice_delivery_options(customer)
+    line_items = _invoice_preview_line_items(
+        db,
+        business_id=invoice.business_id,
+        order_id=invoice.order_id,
+    )
+    installments = _installment_list_out(db, invoice=invoice).items
+    reminder_policy = _to_policy_out(invoice)
+    customer_name = customer.name if customer else None
+    display_business_name = template.brand_name if template and template.brand_name else business_name
+    amount_due = float(_outstanding_amount(invoice))
+    subject = f"Invoice {invoice.id[:8]} from {display_business_name}"
+    message_preview = (
+        f"Hello {customer_name or 'customer'}, your invoice for "
+        f"{invoice.currency} {amount_due:.2f} from {display_business_name} is ready."
+    )
+    return InvoicePreviewOut(
+        invoice=_invoice_out(invoice, customer_name=customer_name),
+        customer_name=customer_name,
+        customer_email=customer.email if customer else None,
+        customer_phone=customer.phone if customer else None,
+        template=_invoice_template_out(template),
+        delivery_options=[
+            {
+                **option,
+                "suggested": option["channel"] == recommended_channel,
+            }
+            for option in delivery_options_payload
+        ],
+        recommended_channel=recommended_channel,
+        subject=subject,
+        message_preview=message_preview,
+        line_items=line_items,
+        installments=installments,
+        reminder_policy=reminder_policy,
+    )
+
+
+def _send_invoice_now(
+    db: Session,
+    *,
+    invoice: Invoice,
+    customer: Customer | None,
+    channel: str | None,
+    recipient_override: str | None,
+    note: str | None,
+    event_type: str = "send",
+) -> tuple[str, str | None]:
+    if invoice.status in {"paid", "cancelled"}:
+        raise HTTPException(status_code=400, detail="Cannot send paid/cancelled invoice")
+
+    delivery_channel, recipient = _resolve_invoice_delivery_target(
+        customer=customer,
+        channel=channel,
+        recipient_override=recipient_override,
+    )
+    now = datetime.now(timezone.utc)
+    if invoice.status == "draft":
+        invoice.status = "sent"
+    invoice.last_sent_at = now
+    policy = _reminder_policy_for_invoice(invoice)
+    if invoice.next_reminder_at is None:
+        invoice.next_reminder_at = _compute_next_reminder_at(
+            invoice=invoice,
+            policy=policy,
+            now=now,
+            reset_first=True,
+        )
+    _record_invoice_event(
+        db,
+        invoice=invoice,
+        event_type=event_type,
+        metadata_json={
+            "channel": delivery_channel,
+            "recipient": recipient,
+            "note": note,
+            "delivery_status": "sent",
+        },
+    )
+    return delivery_channel, recipient
 
 
 def _compute_next_reminder_at(
@@ -424,6 +801,76 @@ def _apply_payment(
     )
     _sync_installments_from_paid_amount(db, invoice=invoice)
     return payment
+
+
+def _sync_linked_order_paid_from_invoice(
+    db: Session,
+    *,
+    invoice: Invoice,
+    actor_user_id: str,
+    source_event: str,
+) -> tuple[str | None, str | None]:
+    if not invoice.order_id:
+        return None, None
+
+    order = db.execute(
+        select(Order).where(
+            Order.id == invoice.order_id,
+            Order.business_id == invoice.business_id,
+        )
+    ).scalar_one_or_none()
+    if not order:
+        return None, None
+
+    current_status = _normalize_order_status(order.status)
+    if current_status in {"cancelled", "refunded"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Linked order cannot be marked paid from status '{current_status}'",
+        )
+
+    if current_status == "pending":
+        order.status = "paid"
+
+    converted_sale_id: str | None = None
+    if order.sale_id is None:
+        order_items = db.execute(select(OrderItem).where(OrderItem.order_id == order.id)).scalars().all()
+        converted_sale_id = _convert_order_to_sale(
+            db,
+            order=order,
+            order_items=order_items,
+            actor_user_id=actor_user_id,
+        )
+
+    log_audit_event(
+        db,
+        business_id=invoice.business_id,
+        actor_user_id=actor_user_id,
+        action="invoice.order.sync_paid",
+        target_type="order",
+        target_id=order.id,
+        metadata_json={
+            "invoice_id": invoice.id,
+            "source_event": source_event,
+            "order_status": order.status,
+            "sale_id": order.sale_id,
+            "converted_sale_id": converted_sale_id,
+        },
+    )
+    return order.id, order.status
+
+
+def _ensure_invoice_can_be_reversed(invoice: Invoice) -> None:
+    if to_money(invoice.amount_paid) > ZERO_MONEY:
+        raise HTTPException(
+            status_code=400,
+            detail="Invoices with recorded payments cannot be cancelled or deleted",
+        )
+    if invoice.status == "paid":
+        raise HTTPException(
+            status_code=400,
+            detail="Paid invoices cannot be cancelled or deleted",
+        )
 
 
 def _validate_date_range(start_date: date | None, end_date: date | None) -> None:
@@ -647,6 +1094,11 @@ def get_aging_dashboard(
         key=lambda item: item[1],
         reverse=True,
     )[:5]
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=access.business.id,
+        customer_ids=[customer_id for customer_id, _amount in sorted_customers],
+    )
 
     return InvoiceAgingDashboardOut(
         as_of_date=snapshot_date,
@@ -660,7 +1112,12 @@ def get_aging_dashboard(
         ],
         by_currency={currency: float(to_money(amount)) for currency, amount in by_currency.items()},
         top_customers=[
-            InvoiceAgingCustomerOut(customer_id=customer_id, amount=float(to_money(amount)), count=0)
+            InvoiceAgingCustomerOut(
+                customer_id=customer_id,
+                customer_name=customer_name_map.get(customer_id or ""),
+                amount=float(to_money(amount)),
+                count=0,
+            )
             for customer_id, amount in sorted_customers
         ],
     )
@@ -703,10 +1160,16 @@ def _build_statement_items(
         )
         by_currency = current["by_currency"]
         by_currency[row.currency] = to_money(by_currency.get(row.currency, ZERO_MONEY) + _outstanding_amount(row))
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=business_id,
+        customer_ids=list(grouped.keys()),
+    )
 
     out = [
         InvoiceStatementItemOut(
             customer_id=customer_id,
+            customer_name=customer_name_map.get(customer_id or ""),
             invoices_count=payload["invoices_count"],
             total_invoiced=float(to_money(payload["total_invoiced"])),
             total_paid=float(to_money(payload["total_paid"])),
@@ -749,8 +1212,7 @@ def list_statements(
 
 @router.get(
     "/statements/export",
-    response_model=InvoiceStatementExportOut,
-    summary="Export monthly statements as CSV payload",
+    summary="Export monthly statements as CSV download",
     responses=error_responses(400, 401, 403, 422, 500),
 )
 def export_statements(
@@ -771,6 +1233,7 @@ def export_statements(
         writer_buffer,
         fieldnames=[
             "customer_id",
+            "customer_name",
             "invoices_count",
             "total_invoiced",
             "total_paid",
@@ -783,6 +1246,7 @@ def export_statements(
         writer.writerow(
             {
                 "customer_id": item.customer_id or "",
+                "customer_name": item.customer_name or "",
                 "invoices_count": item.invoices_count,
                 "total_invoiced": item.total_invoiced,
                 "total_paid": item.total_paid,
@@ -790,11 +1254,11 @@ def export_statements(
                 "by_currency": json.dumps(item.by_currency, separators=(",", ":")),
             }
         )
-    return InvoiceStatementExportOut(
-        filename=f"invoice_statements_{start_date.isoformat()}_{end_date.isoformat()}.csv",
-        content_type="text/csv",
-        row_count=len(items),
-        csv_content=writer_buffer.getvalue(),
+    filename = f"invoice_statements_{start_date.isoformat()}_{end_date.isoformat()}.csv"
+    return Response(
+        content=writer_buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -898,27 +1362,28 @@ def create_invoice(
     access: BusinessAccess = Depends(require_business_roles("owner", "admin", "staff")),
     actor: User = Depends(get_current_user),
 ):
-    customer_id = payload.customer_id
-    order: Order | None = None
-    if payload.order_id:
-        order = db.execute(
-            select(Order).where(
-                Order.id == payload.order_id,
-                Order.business_id == access.business.id,
-            )
-        ).scalar_one_or_none()
-        if not order:
-            raise HTTPException(status_code=404, detail="Order not found")
-        if order.customer_id:
-            if customer_id and customer_id != order.customer_id:
-                raise HTTPException(status_code=400, detail="customer_id must match linked order customer")
-            customer_id = order.customer_id
+    order = db.execute(
+        select(Order).where(
+            Order.id == payload.order_id,
+            Order.business_id == access.business.id,
+        )
+    ).scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    _ensure_order_can_be_invoiced(
+        db,
+        business_id=access.business.id,
+        order=order,
+    )
 
-    if customer_id and not _customer_exists(db, business_id=access.business.id, customer_id=customer_id):
-        raise HTTPException(status_code=404, detail="Customer not found")
-
-    if payload.total_amount is None and order is None:
-        raise HTTPException(status_code=400, detail="Provide total_amount or link an order")
+    customer = _resolve_invoice_customer(
+        db,
+        business_id=access.business.id,
+        order=order,
+        customer_id=payload.customer_id,
+        customer_name=payload.customer_name,
+    )
+    customer_id = customer.id
 
     total_amount = to_money(payload.total_amount if payload.total_amount is not None else order.total_amount)
     if total_amount <= ZERO_MONEY:
@@ -994,6 +1459,7 @@ def create_invoice(
         event_type="create",
         metadata_json={
             "customer_id": customer_id,
+            "customer_name": customer.name if customer else None,
             "order_id": payload.order_id,
             "currency": currency,
             "total_amount": float(total_amount),
@@ -1008,6 +1474,7 @@ def create_invoice(
         target_id=invoice.id,
         metadata_json={
             "customer_id": customer_id,
+            "customer_name": customer.name if customer else None,
             "order_id": payload.order_id,
             "status": invoice.status,
             "total_amount": float(total_amount),
@@ -1016,21 +1483,14 @@ def create_invoice(
     )
 
     if payload.send_now:
-        now = datetime.now(timezone.utc)
-        invoice.status = "sent"
-        invoice.last_sent_at = now
-        policy = _reminder_policy_for_invoice(invoice)
-        invoice.next_reminder_at = _compute_next_reminder_at(
-            invoice=invoice,
-            policy=policy,
-            now=now,
-            reset_first=True,
-        )
-        _record_invoice_event(
+        delivery_channel, recipient = _send_invoice_now(
             db,
             invoice=invoice,
+            customer=customer,
+            channel=payload.send_channel,
+            recipient_override=payload.send_recipient_override,
+            note=payload.send_note,
             event_type="send",
-            metadata_json={"channel": "manual"},
         )
         log_audit_event(
             db,
@@ -1039,7 +1499,12 @@ def create_invoice(
             action="invoice.send",
             target_type="invoice",
             target_id=invoice.id,
-            metadata_json={"status": invoice.status},
+            metadata_json={
+                "status": invoice.status,
+                "channel": delivery_channel,
+                "recipient": recipient,
+                "customer_name": customer.name if customer else None,
+            },
         )
 
     db.commit()
@@ -1051,6 +1516,25 @@ def create_invoice(
         total_amount_base=float(to_money(invoice.total_amount_base)),
         currency=invoice.currency,
         base_currency=invoice.base_currency,
+    )
+
+
+@router.get(
+    "/{invoice_id}/preview",
+    response_model=InvoicePreviewOut,
+    summary="Preview invoice content and delivery readiness",
+    responses=error_responses(401, 403, 404, 422, 500),
+)
+def preview_invoice(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin", "staff")),
+):
+    invoice = _invoice_or_404(db, business_id=access.business.id, invoice_id=invoice_id)
+    return _build_invoice_preview(
+        db,
+        business_name=access.business.name,
+        invoice=invoice,
     )
 
 
@@ -1106,7 +1590,15 @@ def list_invoices(
     rows = db.execute(
         stmt.order_by(Invoice.created_at.desc()).offset(offset).limit(limit)
     ).scalars().all()
-    items = [_invoice_out(row) for row in rows]
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=access.business.id,
+        customer_ids=[row.customer_id for row in rows],
+    )
+    items = [
+        _invoice_out(row, customer_name=customer_name_map.get(row.customer_id or ""))
+        for row in rows
+    ]
     count = len(items)
     return InvoiceListOut(
         pagination=PaginationMeta(
@@ -1133,28 +1625,26 @@ def list_invoices(
 )
 def send_invoice(
     invoice_id: str,
+    payload: InvoiceSendIn | None = None,
     db: Session = Depends(get_db),
     access: BusinessAccess = Depends(require_business_roles("owner", "admin", "staff")),
     actor: User = Depends(get_current_user),
 ):
     invoice = _invoice_or_404(db, business_id=access.business.id, invoice_id=invoice_id)
-    if invoice.status in {"paid", "cancelled"}:
-        raise HTTPException(status_code=400, detail="Cannot send paid/cancelled invoice")
-
-    now = datetime.now(timezone.utc)
-    if invoice.status == "draft":
-        invoice.status = "sent"
-    invoice.last_sent_at = now
-    policy = _reminder_policy_for_invoice(invoice)
-    if invoice.next_reminder_at is None:
-        invoice.next_reminder_at = _compute_next_reminder_at(
-            invoice=invoice,
-            policy=policy,
-            now=now,
-            reset_first=True,
-        )
-
-    _record_invoice_event(db, invoice=invoice, event_type="send", metadata_json={"channel": "manual"})
+    customer = _customer_for_invoice(
+        db,
+        business_id=access.business.id,
+        customer_id=invoice.customer_id,
+    )
+    delivery_channel, recipient = _send_invoice_now(
+        db,
+        invoice=invoice,
+        customer=customer,
+        channel=payload.channel if payload else None,
+        recipient_override=payload.recipient_override if payload else None,
+        note=payload.note if payload else None,
+        event_type="send",
+    )
     log_audit_event(
         db,
         business_id=access.business.id,
@@ -1162,11 +1652,21 @@ def send_invoice(
         action="invoice.send",
         target_type="invoice",
         target_id=invoice.id,
-        metadata_json={"status": invoice.status},
+        metadata_json={
+            "status": invoice.status,
+            "channel": delivery_channel,
+            "recipient": recipient,
+            "customer_name": customer.name if customer else None,
+        },
     )
     db.commit()
     db.refresh(invoice)
-    return _invoice_out(invoice)
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=access.business.id,
+        customer_ids=[invoice.customer_id],
+    )
+    return _invoice_out(invoice, customer_name=customer_name_map.get(invoice.customer_id or ""))
 
 
 @router.post(
@@ -1187,6 +1687,16 @@ def remind_invoice(
         raise HTTPException(status_code=400, detail="Cannot remind paid/cancelled invoice")
     if invoice.status not in {"sent", "overdue", "partially_paid"}:
         raise HTTPException(status_code=400, detail="Invoice must be sent before reminders")
+    customer = _customer_for_invoice(
+        db,
+        business_id=access.business.id,
+        customer_id=invoice.customer_id,
+    )
+    delivery_channel, recipient = _resolve_invoice_delivery_target(
+        customer=customer,
+        channel=payload.channel,
+        recipient_override=payload.recipient_override,
+    )
 
     invoice.reminder_count = int(invoice.reminder_count or 0) + 1
     policy = _reminder_policy_for_invoice(invoice)
@@ -1201,7 +1711,12 @@ def remind_invoice(
         db,
         invoice=invoice,
         event_type="reminder_manual",
-        metadata_json={"channel": payload.channel, "note": payload.note},
+        metadata_json={
+            "channel": delivery_channel,
+            "recipient": recipient,
+            "note": payload.note,
+            "delivery_status": "sent",
+        },
     )
     log_audit_event(
         db,
@@ -1210,11 +1725,20 @@ def remind_invoice(
         action="invoice.reminder.manual",
         target_type="invoice",
         target_id=invoice.id,
-        metadata_json={"channel": payload.channel},
+        metadata_json={
+            "channel": delivery_channel,
+            "recipient": recipient,
+            "customer_name": customer.name if customer else None,
+        },
     )
     db.commit()
     db.refresh(invoice)
-    return _invoice_out(invoice)
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=access.business.id,
+        customer_ids=[invoice.customer_id],
+    )
+    return _invoice_out(invoice, customer_name=customer_name_map.get(invoice.customer_id or ""))
 
 
 @router.patch(
@@ -1241,10 +1765,38 @@ def mark_invoice_paid(
             )
         ).scalar_one_or_none()
         if existing:
-            return _invoice_out(invoice)
+            if invoice.status == "paid":
+                _sync_linked_order_paid_from_invoice(
+                    db,
+                    invoice=invoice,
+                    actor_user_id=actor.id,
+                    source_event="mark_paid_idempotent",
+                )
+                db.commit()
+                db.refresh(invoice)
+            customer_name_map = get_customer_name_map(
+                db,
+                business_id=access.business.id,
+                customer_ids=[invoice.customer_id],
+            )
+            return _invoice_out(invoice, customer_name=customer_name_map.get(invoice.customer_id or ""))
 
     if _outstanding_amount(invoice) <= ZERO_MONEY:
-        return _invoice_out(invoice)
+        if invoice.status == "paid":
+            _sync_linked_order_paid_from_invoice(
+                db,
+                invoice=invoice,
+                actor_user_id=actor.id,
+                source_event="mark_paid_already_paid",
+            )
+            db.commit()
+            db.refresh(invoice)
+        customer_name_map = get_customer_name_map(
+            db,
+            business_id=access.business.id,
+            customer_ids=[invoice.customer_id],
+        )
+        return _invoice_out(invoice, customer_name=customer_name_map.get(invoice.customer_id or ""))
 
     payment = _apply_payment(
         db,
@@ -1271,9 +1823,120 @@ def mark_invoice_paid(
             "idempotency_key": payment.idempotency_key,
         },
     )
+    if invoice.status == "paid":
+        _sync_linked_order_paid_from_invoice(
+            db,
+            invoice=invoice,
+            actor_user_id=actor.id,
+            source_event="mark_paid",
+        )
     db.commit()
     db.refresh(invoice)
-    return _invoice_out(invoice)
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=access.business.id,
+        customer_ids=[invoice.customer_id],
+    )
+    return _invoice_out(invoice, customer_name=customer_name_map.get(invoice.customer_id or ""))
+
+
+@router.patch(
+    "/{invoice_id}/cancel",
+    response_model=InvoiceOut,
+    summary="Cancel invoice",
+    responses=error_responses(400, 401, 403, 404, 422, 500),
+)
+def cancel_invoice(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin", "staff")),
+    actor: User = Depends(get_current_user),
+):
+    invoice = _invoice_or_404(db, business_id=access.business.id, invoice_id=invoice_id)
+    _ensure_invoice_can_be_reversed(invoice)
+
+    if invoice.status != "cancelled":
+        invoice.status = "cancelled"
+        invoice.next_reminder_at = None
+        _record_invoice_event(
+            db,
+            invoice=invoice,
+            event_type="cancel",
+            metadata_json={"order_id": invoice.order_id},
+        )
+        log_audit_event(
+            db,
+            business_id=access.business.id,
+            actor_user_id=actor.id,
+            action="invoice.cancel",
+            target_type="invoice",
+            target_id=invoice.id,
+            metadata_json={
+                "order_id": invoice.order_id,
+                "customer_id": invoice.customer_id,
+                "status": invoice.status,
+            },
+        )
+        db.commit()
+        db.refresh(invoice)
+
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=access.business.id,
+        customer_ids=[invoice.customer_id],
+    )
+    return _invoice_out(invoice, customer_name=customer_name_map.get(invoice.customer_id or ""))
+
+
+@router.delete(
+    "/{invoice_id}",
+    status_code=204,
+    summary="Delete invoice",
+    responses=error_responses(400, 401, 403, 404, 422, 500),
+)
+def delete_invoice(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    access: BusinessAccess = Depends(require_business_roles("owner", "admin", "staff")),
+    actor: User = Depends(get_current_user),
+):
+    invoice = _invoice_or_404(db, business_id=access.business.id, invoice_id=invoice_id)
+    _ensure_invoice_can_be_reversed(invoice)
+
+    log_audit_event(
+        db,
+        business_id=access.business.id,
+        actor_user_id=actor.id,
+        action="invoice.delete",
+        target_type="invoice",
+        target_id=invoice.id,
+        metadata_json={
+            "order_id": invoice.order_id,
+            "customer_id": invoice.customer_id,
+            "status": invoice.status,
+        },
+    )
+    db.execute(
+        delete(InvoiceInstallment).where(
+            InvoiceInstallment.business_id == access.business.id,
+            InvoiceInstallment.invoice_id == invoice.id,
+        )
+    )
+    db.execute(
+        delete(InvoiceEvent).where(
+            InvoiceEvent.business_id == access.business.id,
+            InvoiceEvent.invoice_id == invoice.id,
+        )
+    )
+    db.execute(
+        delete(InvoicePayment).where(
+            InvoicePayment.business_id == access.business.id,
+            InvoicePayment.invoice_id == invoice.id,
+        )
+    )
+    db.delete(invoice)
+    db.commit()
+    return Response(status_code=204)
 
 
 @router.post(
@@ -1299,6 +1962,14 @@ def create_invoice_payment(
             )
         ).scalar_one_or_none()
         if existing:
+            if invoice.status == "paid":
+                _sync_linked_order_paid_from_invoice(
+                    db,
+                    invoice=invoice,
+                    actor_user_id=actor.id,
+                    source_event="payment_recorded_idempotent",
+                )
+                db.commit()
             return _payment_out(existing)
 
     payment = _apply_payment(
@@ -1325,6 +1996,13 @@ def create_invoice_payment(
             "currency": payment.currency,
         },
     )
+    if invoice.status == "paid":
+        _sync_linked_order_paid_from_invoice(
+            db,
+            invoice=invoice,
+            actor_user_id=actor.id,
+            source_event="payment_recorded",
+        )
     db.commit()
     db.refresh(payment)
     return _payment_out(payment)

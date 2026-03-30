@@ -14,6 +14,11 @@ class CheckoutSessionItemIn(BaseModel):
     unit_price: Decimal = Field(gt=0)
 
 
+class StorefrontCartItemIn(BaseModel):
+    variant_id: str
+    qty: int = Field(default=1, ge=1, le=500)
+
+
 class CheckoutSessionCreateIn(BaseModel):
     currency: str = Field(default="USD", min_length=3, max_length=3)
     customer_id: Optional[str] = None
@@ -62,8 +67,37 @@ class StorefrontCheckoutSessionCreateIn(BaseModel):
     )
 
 
+class StorefrontCartSessionCreateIn(BaseModel):
+    items: list[StorefrontCartItemIn] = Field(min_length=1, max_length=100)
+    payment_method: PaymentMethod = "transfer"
+    channel: SalesChannel = "instagram"
+    note: str | None = None
+    success_redirect_url: str | None = None
+    cancel_redirect_url: str | None = None
+    expires_in_minutes: int = Field(default=60, ge=5, le=10080)
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "items": [
+                    {"variant_id": "variant-id-1", "qty": 2},
+                    {"variant_id": "variant-id-2", "qty": 1},
+                ],
+                "payment_method": "transfer",
+                "channel": "instagram",
+                "note": "Cart checkout from storefront",
+            }
+        }
+    )
+
+
 class CheckoutSessionItemOut(BaseModel):
     variant_id: str
+    product_id: str | None = None
+    product_name: str | None = None
+    size: str | None = None
+    label: str | None = None
+    sku: str | None = None
     qty: int
     unit_price: float
     line_total: float
@@ -87,6 +121,7 @@ class CheckoutSessionOut(BaseModel):
     status: str
     currency: str
     customer_id: str | None = None
+    customer_name: str | None = None
     payment_method: PaymentMethod
     channel: SalesChannel
     total_amount: float
@@ -94,6 +129,7 @@ class CheckoutSessionOut(BaseModel):
     payment_reference: str | None = None
     payment_checkout_url: str | None = None
     order_id: str | None = None
+    order_reference: str | None = None
     order_status: str | None = None
     sale_id: str | None = None
     has_sale: bool = False
@@ -115,16 +151,24 @@ class CheckoutSessionPublicOut(BaseModel):
     session_token: str
     status: str
     currency: str
+    customer_id: str | None = None
+    customer_name: str | None = None
     payment_method: PaymentMethod
     channel: SalesChannel
     note: str | None = None
     total_amount: float
+    payment_provider: str
+    payment_reference: str | None = None
+    payment_checkout_url: str | None = None
     expires_at: datetime
     items: list[CheckoutSessionItemOut]
 
 
 class CheckoutSessionPlaceOrderIn(BaseModel):
     customer_id: str | None = None
+    customer_name: str | None = None
+    customer_email: str | None = None
+    customer_phone: str | None = None
     payment_method: PaymentMethod | None = None
     note: str | None = None
 
@@ -132,6 +176,9 @@ class CheckoutSessionPlaceOrderIn(BaseModel):
         json_schema_extra={
             "example": {
                 "customer_id": "customer-id",
+                "customer_name": "Jane Buyer",
+                "customer_email": "jane@example.com",
+                "customer_phone": "+2348000000000",
                 "payment_method": "transfer",
                 "note": "Proceeding to payment",
             }
@@ -144,7 +191,10 @@ class CheckoutSessionPlaceOrderOut(BaseModel):
     checkout_session_token: str
     checkout_status: str
     order_id: str
+    order_reference: str | None = None
     order_status: str
+    customer_id: str | None = None
+    customer_name: str | None = None
     total_amount: float
 
 
@@ -188,6 +238,7 @@ class CheckoutWebhookOut(BaseModel):
     checkout_session_id: str | None = None
     checkout_session_status: str | None = None
     order_id: str | None = None
+    order_reference: str | None = None
     order_status: str | None = None
     duplicate: bool = False
 

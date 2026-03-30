@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { authService } from "../api/services";
 import { MoniDeskLogo } from "../components/brand/monidesk-logo";
+import { GoogleAuthButton } from "../components/auth/google-auth-button";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { useAuth } from "../hooks/use-auth";
@@ -139,6 +140,19 @@ export function LoginPage() {
                   Sign in
                 </Button>
               </form>
+
+              <div className="mt-4 w-full sm:w-[80%]">
+                <div className="flex items-center gap-3">
+                  <div className="h-px flex-1 bg-surface-200" />
+                  <span className="text-xs font-medium uppercase tracking-[0.18em] text-surface-500">
+                    Or continue with
+                  </span>
+                  <div className="h-px flex-1 bg-surface-200" />
+                </div>
+                <div className="mt-4">
+                  <GoogleAuthButton mode="login" />
+                </div>
+              </div>
 
               <p className="mt-4 text-sm text-black">
                 No account?{" "}

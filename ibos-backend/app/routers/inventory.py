@@ -25,6 +25,7 @@ from app.schemas.inventory import (
     StockOut,
 )
 from app.services.audit_service import log_audit_event
+from app.services.display_service import get_variant_display_map
 from app.services.inventory_service import add_ledger_entry, get_variant_stock
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
@@ -201,10 +202,20 @@ def list_inventory_ledger(
     total = int(db.execute(count_stmt).scalar_one())
     stmt = stmt.order_by(InventoryLedger.created_at.desc()).offset(offset).limit(limit)
     rows = db.execute(stmt).scalars().all()
+    variant_display_map = get_variant_display_map(
+        db,
+        business_id=biz.id,
+        variant_ids=[row.variant_id for row in rows],
+    )
     items = [
         InventoryLedgerEntryOut(
             id=row.id,
             variant_id=row.variant_id,
+            product_id=variant_display_map.get(row.variant_id).product_id if row.variant_id in variant_display_map else None,
+            product_name=variant_display_map.get(row.variant_id).product_name if row.variant_id in variant_display_map else None,
+            size=variant_display_map.get(row.variant_id).size if row.variant_id in variant_display_map else None,
+            label=variant_display_map.get(row.variant_id).label if row.variant_id in variant_display_map else None,
+            sku=variant_display_map.get(row.variant_id).sku if row.variant_id in variant_display_map else None,
             qty_delta=row.qty_delta,
             reason=row.reason,
             reference_id=row.reference_id,

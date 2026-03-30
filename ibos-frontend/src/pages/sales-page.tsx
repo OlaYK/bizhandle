@@ -2,7 +2,12 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useFieldArray, useForm } from "react-hook-form";
+import {
+  useFieldArray,
+  useForm,
+  useWatch,
+  type UseFormReturn,
+} from "react-hook-form";
 import { z } from "zod";
 import { authService, productService, salesService } from "../api/services";
 import { EmptyState } from "../components/state/empty-state";
@@ -19,6 +24,7 @@ import { Textarea } from "../components/ui/textarea";
 import { useToast } from "../hooks/use-toast";
 import { getApiErrorMessage } from "../lib/api-error";
 import { formatCurrency, formatDateTime } from "../lib/format";
+import type { ProductOut, SaleQuoteLineOut } from "../api/types";
 
 const saleItemSchema = z.object({
   variant_id: z.string().min(1, "Variant is required"),
@@ -63,6 +69,149 @@ function defaultUnitPrice(price: number | null | undefined) {
   return price;
 }
 
+/* ── Per-row line item with its own product + variant selection ── */
+function SaleLineItem({
+  index,
+  saleForm,
+  products,
+  defaultProductId,
+  quoteLine,
+  canRemove,
+  onRemove,
+}: {
+  index: number;
+  saleForm: UseFormReturn<SaleFormData>;
+  products: ProductOut[];
+  defaultProductId: string;
+  quoteLine?: SaleQuoteLineOut;
+  canRemove: boolean;
+  onRemove: () => void;
+}) {
+  const [productId, setProductId] = useState(defaultProductId);
+
+  const variantsQuery = useQuery({
+    queryKey: ["sales", "variants", productId],
+    queryFn: () =>
+      productService.listVariants(productId, { limit: 100, offset: 0 }),
+    enabled: Boolean(productId),
+  });
+
+  /* When the product changes, reset the variant & price for this row */
+  useEffect(() => {
+    const firstVariant = variantsQuery.data?.items[0];
+    if (firstVariant) {
+      saleForm.setValue(`items.${index}.variant_id`, firstVariant.id, {
+        shouldValidate: true,
+      });
+      saleForm.setValue(
+        `items.${index}.unit_price`,
+        defaultUnitPrice(firstVariant.selling_price),
+        { shouldValidate: true },
+      );
+    } else {
+      saleForm.setValue(`items.${index}.variant_id`, "");
+    }
+    // only run when product variants change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variantsQuery.data]);
+
+  const variantField = saleForm.register(`items.${index}.variant_id`);
+
+  return (
+    <div className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12">
+      <div className="md:col-span-3">
+        <Select
+          label="Product"
+          value={productId}
+          onChange={(e) => setProductId(e.target.value)}
+        >
+          {products.map((product) => (
+            <option key={product.id} value={product.id}>
+              {product.name}
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      <div className="md:col-span-3">
+        <Select
+          label="Variant"
+          {...variantField}
+          onChange={(event) => {
+            variantField.onChange(event);
+            const selectedVariant = variantsQuery.data?.items.find(
+              (variant) => variant.id === event.target.value,
+            );
+            if (!selectedVariant) return;
+            saleForm.setValue(
+              `items.${index}.unit_price`,
+              defaultUnitPrice(selectedVariant.selling_price),
+              { shouldDirty: true, shouldValidate: true },
+            );
+          }}
+          error={
+            saleForm.formState.errors.items?.[index]?.variant_id?.message
+          }
+        >
+          <option value="">Select variant</option>
+          {(variantsQuery.data?.items ?? []).map((variant) => (
+            <option key={variant.id} value={variant.id}>
+              {variant.size}{" "}
+              {variant.label ? `- ${variant.label}` : ""} (
+              {variant.stock} in stock)
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      <div className="md:col-span-2">
+        <Input
+          label="Qty"
+          type="number"
+          {...saleForm.register(`items.${index}.qty`)}
+          error={saleForm.formState.errors.items?.[index]?.qty?.message}
+        />
+      </div>
+      <div className="md:col-span-2">
+        <Input
+          label="Unit Price"
+          type="number"
+          step="0.01"
+          {...saleForm.register(`items.${index}.unit_price`)}
+          error={
+            saleForm.formState.errors.items?.[index]?.unit_price?.message
+          }
+        />
+      </div>
+      <div className="md:col-span-1 md:self-end">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="w-full"
+          onClick={onRemove}
+          disabled={!canRemove}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="md:col-span-12 flex flex-wrap items-center gap-3 text-xs">
+        <span className="font-semibold text-surface-600">
+          Line Total: {formatCurrency(quoteLine?.line_total ?? 0)}
+        </span>
+        {quoteLine?.available_stock !== undefined ? (
+          <span className="text-surface-500">
+            Available Stock: {quoteLine.available_stock ?? "-"}
+          </span>
+        ) : null}
+        {quoteLine?.errors?.length ? (
+          <span className="text-red-600">{quoteLine.errors[0]}</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function SalesPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -75,7 +224,6 @@ export function SalesPage() {
   const [includeRefunds, setIncludeRefunds] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [selectedProductId, setSelectedProductId] = useState("");
   const [refundSaleId, setRefundSaleId] = useState<string | null>(null);
 
   const offset = (page - 1) * pageSize;
@@ -89,19 +237,7 @@ export function SalesPage() {
     queryFn: () => productService.list({ limit: 100, offset: 0 }),
   });
 
-  useEffect(() => {
-    if (!productsQuery.data?.items.length) return;
-    if (!selectedProductId) {
-      setSelectedProductId(productsQuery.data.items[0].id);
-    }
-  }, [productsQuery.data, selectedProductId]);
-
-  const variantsQuery = useQuery({
-    queryKey: ["sales", "variants", selectedProductId],
-    queryFn: () =>
-      productService.listVariants(selectedProductId, { limit: 100, offset: 0 }),
-    enabled: Boolean(selectedProductId),
-  });
+  const firstProductId = productsQuery.data?.items[0]?.id ?? "";
 
   const saleForm = useForm<SaleFormData>({
     resolver: zodResolver(saleSchema),
@@ -113,20 +249,49 @@ export function SalesPage() {
     },
   });
 
-  useEffect(() => {
-    const firstVariant = variantsQuery.data?.items[0];
-    if (firstVariant && saleForm.getValues("items.0.variant_id") === "") {
-      saleForm.setValue("items.0.variant_id", firstVariant.id);
-      saleForm.setValue(
-        "items.0.unit_price",
-        defaultUnitPrice(firstVariant.selling_price),
-      );
-    }
-  }, [variantsQuery.data, saleForm]);
-
   const { fields, append, remove } = useFieldArray({
     control: saleForm.control,
     name: "items",
+  });
+  const watchedItems = useWatch({
+    control: saleForm.control,
+    name: "items",
+  }) ?? [];
+
+  const normalizedQuoteItems = useMemo(
+    () =>
+      watchedItems.map((item) => ({
+        variant_id: item?.variant_id || "",
+        qty: Number(item?.qty || 0),
+        unit_price: Number(item?.unit_price || 0),
+      })),
+    [watchedItems],
+  );
+  const [debouncedQuoteItems, setDebouncedQuoteItems] = useState(
+    normalizedQuoteItems,
+  );
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedQuoteItems(normalizedQuoteItems);
+    }, 350);
+    return () => window.clearTimeout(timeout);
+  }, [normalizedQuoteItems]);
+
+  const hasQuoteReadyItems =
+    debouncedQuoteItems.length > 0 &&
+    debouncedQuoteItems.every(
+      (item) => item.variant_id && item.qty > 0 && item.unit_price > 0,
+    );
+
+  const quoteQuery = useQuery({
+    queryKey: ["sales", "quote", debouncedQuoteItems],
+    enabled: hasQuoteReadyItems,
+    retry: false,
+    queryFn: () =>
+      salesService.quote({
+        items: debouncedQuoteItems,
+      }),
   });
 
   const listQuery = useQuery({
@@ -149,6 +314,25 @@ export function SalesPage() {
       }),
   });
 
+  const summaryQuery = useQuery({
+    queryKey: ["sales", "summary", startDate, endDate],
+    queryFn: () =>
+      salesService.summary({
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+      }),
+  });
+
+  const quoteLines = quoteQuery.data?.items ?? [];
+  const draftTotal = quoteQuery.data?.total ?? watchedItems.reduce((sum, item) => {
+    const qty = Number(item?.qty || 0);
+    const unitPrice = Number(item?.unit_price || 0);
+    return sum + qty * unitPrice;
+  }, 0);
+  const quoteHasBlockingErrors = Boolean(
+    hasQuoteReadyItems && quoteQuery.data && !quoteQuery.data.is_valid,
+  );
+
   const createSaleMutation = useMutation({
     mutationFn: salesService.create,
     onSuccess: () => {
@@ -157,15 +341,7 @@ export function SalesPage() {
         payment_method: "cash",
         channel: "walk-in",
         note: "",
-        items: [
-          {
-            variant_id: variantsQuery.data?.items[0]?.id ?? "",
-            qty: 1,
-            unit_price: defaultUnitPrice(
-              variantsQuery.data?.items[0]?.selling_price,
-            ),
-          },
-        ],
+        items: [{ variant_id: "", qty: 1, unit_price: 1 }],
       });
       queryClient.invalidateQueries({ queryKey: ["sales"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -294,22 +470,24 @@ export function SalesPage() {
     },
   });
 
-  if (productsQuery.isLoading || listQuery.isLoading) {
+  if (productsQuery.isLoading || listQuery.isLoading || summaryQuery.isLoading) {
     return <LoadingState label="Loading sales workspace..." />;
   }
 
-  if (productsQuery.isError || listQuery.isError || variantsQuery.isError) {
+  if (productsQuery.isError || listQuery.isError || summaryQuery.isError) {
     return (
       <ErrorState
         message="Failed to load sales data."
         onRetry={() => {
           productsQuery.refetch();
-          variantsQuery.refetch();
           listQuery.refetch();
+          summaryQuery.refetch();
         }}
       />
     );
   }
+
+  const products = productsQuery.data?.items ?? [];
 
   return (
     <div className="space-y-6">
@@ -327,17 +505,6 @@ export function SalesPage() {
           )}
         >
           <div className="grid gap-3 md:grid-cols-3">
-            <Select
-              label="Product"
-              value={selectedProductId}
-              onChange={(e) => setSelectedProductId(e.target.value)}
-            >
-              {(productsQuery.data?.items ?? []).map((product) => (
-                <option key={product.id} value={product.id}>
-                  {product.name}
-                </option>
-              ))}
-            </Select>
             <Select
               label="Payment Method"
               {...saleForm.register("payment_method")}
@@ -368,105 +535,65 @@ export function SalesPage() {
                 size="sm"
                 variant="ghost"
                 onClick={() =>
-                  append({
-                    variant_id: variantsQuery.data?.items[0]?.id ?? "",
-                    qty: 1,
-                    unit_price: defaultUnitPrice(
-                      variantsQuery.data?.items[0]?.selling_price,
-                    ),
-                  })
+                  append({ variant_id: "", qty: 1, unit_price: 1 })
                 }
               >
                 <Plus className="h-4 w-4" /> Add Item
               </Button>
             </div>
 
-            {fields.map((field, index) => {
-              const variantField = saleForm.register(
-                `items.${index}.variant_id`,
-              );
-              return (
-                <div
-                  key={field.id}
-                  className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12"
-                >
-                  <div className="md:col-span-5">
-                    <Select
-                      label="Variant"
-                      {...variantField}
-                      onChange={(event) => {
-                        variantField.onChange(event);
-                        const selectedVariant = variantsQuery.data?.items.find(
-                          (variant) => variant.id === event.target.value,
-                        );
-                        if (!selectedVariant) {
-                          return;
-                        }
-                        saleForm.setValue(
-                          `items.${index}.unit_price`,
-                          defaultUnitPrice(selectedVariant.selling_price),
-                          {
-                            shouldDirty: true,
-                            shouldValidate: true,
-                          },
-                        );
-                      }}
-                      error={
-                        saleForm.formState.errors.items?.[index]?.variant_id
-                          ?.message
-                      }
-                    >
-                      <option value="">Select variant</option>
-                      {(variantsQuery.data?.items ?? []).map((variant) => (
-                        <option key={variant.id} value={variant.id}>
-                          {variant.size}{" "}
-                          {variant.label ? `- ${variant.label}` : ""} (
-                          {variant.stock} in stock)
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="md:col-span-3">
-                    <Input
-                      label="Qty"
-                      type="number"
-                      {...saleForm.register(`items.${index}.qty`)}
-                      error={
-                        saleForm.formState.errors.items?.[index]?.qty?.message
-                      }
-                    />
-                  </div>
-                  <div className="md:col-span-3">
-                    <Input
-                      label="Unit Price"
-                      type="number"
-                      step="0.01"
-                      {...saleForm.register(`items.${index}.unit_price`)}
-                      error={
-                        saleForm.formState.errors.items?.[index]?.unit_price
-                          ?.message
-                      }
-                    />
-                  </div>
-                  <div className="md:col-span-1 md:self-end">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="w-full"
-                      onClick={() => remove(index)}
-                      disabled={fields.length <= 1}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
+            {fields.map((field, index) => (
+              <SaleLineItem
+                key={field.id}
+                index={index}
+                saleForm={saleForm}
+                products={products}
+                defaultProductId={firstProductId}
+                quoteLine={quoteLines[index]}
+                canRemove={fields.length > 1}
+                onRemove={() => remove(index)}
+              />
+            ))}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+              <p className="text-xs uppercase tracking-wide text-surface-500">
+                Draft Total
+              </p>
+              <p className="mt-1 text-lg font-semibold text-mint-700">
+                {formatCurrency(draftTotal, profileQuery.data?.base_currency)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+              <p className="text-xs uppercase tracking-wide text-surface-500">
+                Quote Status
+              </p>
+              <p className="mt-1 text-sm font-semibold text-surface-700">
+                {quoteQuery.isFetching
+                  ? "Refreshing totals..."
+                  : quoteHasBlockingErrors
+                    ? "Fix stock or variant issues"
+                    : "Ready to save"}
+              </p>
+            </div>
+            <div className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+              <p className="text-xs uppercase tracking-wide text-surface-500">
+                Validation
+              </p>
+              <p className="mt-1 text-sm text-surface-600">
+                {quoteQuery.data?.errors?.[0] ||
+                  "Line totals and stock checks update automatically."}
+              </p>
+            </div>
           </div>
 
           <Textarea label="Note" rows={3} {...saleForm.register("note")} />
-          <Button type="submit" loading={createSaleMutation.isPending}>
+          <Button
+            type="submit"
+            loading={createSaleMutation.isPending}
+            disabled={quoteHasBlockingErrors}
+          >
             Save Sale
           </Button>
         </form>
@@ -498,6 +625,27 @@ export function SalesPage() {
             <Badge variant="info">
               {listQuery.data?.pagination.total ?? 0} records
             </Badge>
+          </div>
+        </div>
+        <div className="mb-4 grid gap-3 md:grid-cols-2">
+          <div className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+            <p className="text-xs uppercase tracking-wide text-surface-500">
+              Paid Sales Total
+            </p>
+            <p className="mt-1 text-lg font-semibold text-mint-700">
+              {formatCurrency(
+                summaryQuery.data?.total_amount ?? 0,
+                summaryQuery.data?.base_currency ?? profileQuery.data?.base_currency,
+              )}
+            </p>
+          </div>
+          <div className="rounded-xl border border-surface-100 bg-surface-50 p-3">
+            <p className="text-xs uppercase tracking-wide text-surface-500">
+              Paid Sales Count
+            </p>
+            <p className="mt-1 text-lg font-semibold text-surface-700">
+              {summaryQuery.data?.sales_count ?? 0}
+            </p>
           </div>
         </div>
 

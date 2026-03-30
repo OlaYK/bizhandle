@@ -11,6 +11,21 @@ function downloadBlob(blob: Blob, filename: string) {
   link.remove();
   URL.revokeObjectURL(url);
 }
+
+function getFilenameFromDisposition(disposition?: string) {
+  if (!disposition) {
+    return undefined;
+  }
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1].replace(/["']/g, ""));
+  }
+  const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
+  if (plainMatch?.[1]) {
+    return plainMatch[1];
+  }
+  return undefined;
+}
 import type {
   AIAskIn,
   AIFeatureSnapshotOut,
@@ -24,6 +39,7 @@ import type {
   AIPrescriptiveDecisionIn,
   AIResponseOut,
   AnalyticsDateFilter,
+  AnalyticsOverviewOut,
   AnalyticsMartRefreshOut,
   AutomationOutboxRunOut,
   AutomationRuleCreateIn,
@@ -62,6 +78,8 @@ import type {
   CampaignTemplateOut,
   CampaignTemplateUpdateIn,
   ChangePasswordIn,
+  DeleteAccountIn,
+  DeleteAccountOut,
   CheckoutPaymentsSummaryOut,
   CheckoutSessionCreateIn,
   CheckoutSessionCreateOut,
@@ -137,6 +155,7 @@ import type {
   InvoiceListOut,
   InvoiceMarkPaidIn,
   InvoiceOut,
+  InvoicePreviewOut,
   InvoicePaymentCreateIn,
   InvoicePaymentListOut,
   InvoicePaymentOut,
@@ -144,13 +163,14 @@ import type {
   InvoiceReminderPolicyIn,
   InvoiceReminderPolicyOut,
   InvoiceReminderRunOut,
-  InvoiceStatementExportOut,
+  InvoiceSendIn,
   InvoiceStatementFilter,
   InvoiceStatementListOut,
   InvoiceTemplateFilter,
   InvoiceTemplateListOut,
   InvoiceTemplateOut,
   InvoiceTemplateUpsertIn,
+  GoogleAuthIn,
   LoginIn,
   LocationCreateIn,
   LocationListFilter,
@@ -218,11 +238,13 @@ import type {
   SaleCreateIn,
   SaleCreateOut,
   SaleListOut,
+  SaleQuoteIn,
+  SaleQuoteOut,
   SaleRefundOptionsOut,
+  SaleSummaryOut,
   SalesFilter,
   SegmentPreviewOut,
   ReportExportFilter,
-  ReportExportOut,
   ReportScheduleCreateIn,
   ReportScheduleListOut,
   ReportScheduleOut,
@@ -302,6 +324,11 @@ export const authService = {
       .post<TokenOut>(endpoints.auth.login, payload)
       .then((res) => res.data);
   },
+  google(payload: GoogleAuthIn) {
+    return apiClient
+      .post<TokenOut>(endpoints.auth.google, payload)
+      .then((res) => res.data);
+  },
   refresh(payload: RefreshIn) {
     return apiClient
       .post<TokenOut>(endpoints.auth.refresh, payload)
@@ -315,6 +342,11 @@ export const authService = {
   changePassword(payload: ChangePasswordIn) {
     return apiClient
       .post<OkOut>(endpoints.auth.changePassword, payload)
+      .then((res) => res.data);
+  },
+  deleteAccount(payload: DeleteAccountIn) {
+    return apiClient
+      .post<DeleteAccountOut>(endpoints.auth.deleteAccount, payload)
       .then((res) => res.data);
   },
   me() {
@@ -971,6 +1003,11 @@ export const analyticsService = {
       )
       .then((res) => res.data);
   },
+  overview(params?: AnalyticsDateFilter) {
+    return apiClient
+      .get<AnalyticsOverviewOut>(endpoints.analytics.overview, { params })
+      .then((res) => res.data);
+  },
   channelProfitability(params?: AnalyticsDateFilter) {
     return apiClient
       .get<ChannelProfitabilityOut>(endpoints.analytics.channelProfitability, {
@@ -998,8 +1035,18 @@ export const analyticsService = {
   },
   exportReport(params: ReportExportFilter) {
     return apiClient
-      .get<ReportExportOut>(endpoints.analytics.exportReport, { params })
-      .then((res) => res.data);
+      .get(endpoints.analytics.exportReport, {
+        params,
+        responseType: "blob",
+      })
+      .then((res) => ({
+        blob: res.data as Blob,
+        filename:
+          getFilenameFromDisposition(
+            res.headers["content-disposition"] as string | undefined,
+          ) || "analytics-export.csv",
+        contentType: res.headers["content-type"] as string | undefined,
+      }));
   },
   createReportSchedule(payload: ReportScheduleCreateIn) {
     return apiClient
@@ -1108,6 +1155,16 @@ export const salesService = {
       .get<SaleListOut>(endpoints.sales.base, { params })
       .then((res) => res.data);
   },
+  quote(payload: SaleQuoteIn) {
+    return apiClient
+      .post<SaleQuoteOut>(endpoints.sales.quote, payload)
+      .then((res) => res.data);
+  },
+  summary(params?: DateFilter) {
+    return apiClient
+      .get<SaleSummaryOut>(endpoints.sales.summary, { params })
+      .then((res) => res.data);
+  },
   create(payload: SaleCreateIn) {
     return apiClient
       .post<SaleCreateOut>(endpoints.sales.base, payload)
@@ -1169,10 +1226,25 @@ export const invoiceService = {
       .put<InvoiceTemplateOut>(endpoints.invoices.templates, payload)
       .then((res) => res.data);
   },
-  send(invoiceId: string) {
+  preview(invoiceId: string) {
     return apiClient
-      .post<InvoiceOut>(endpoints.invoices.send(invoiceId))
+      .get<InvoicePreviewOut>(endpoints.invoices.preview(invoiceId))
       .then((res) => res.data);
+  },
+  send(invoiceId: string, payload?: InvoiceSendIn) {
+    return apiClient
+      .post<InvoiceOut>(endpoints.invoices.send(invoiceId), payload ?? {})
+      .then((res) => res.data);
+  },
+  cancel(invoiceId: string) {
+    return apiClient
+      .patch<InvoiceOut>(endpoints.invoices.cancel(invoiceId))
+      .then((res) => res.data);
+  },
+  remove(invoiceId: string) {
+    return apiClient
+      .delete<void>(endpoints.invoices.invoice(invoiceId))
+      .then(() => undefined);
   },
   markPaid(invoiceId: string, payload: InvoiceMarkPaidIn) {
     return apiClient
@@ -1243,10 +1315,18 @@ export const invoiceService = {
   },
   exportStatements(params: InvoiceStatementFilter) {
     return apiClient
-      .get<InvoiceStatementExportOut>(endpoints.invoices.statementsExport, {
+      .get(endpoints.invoices.statementsExport, {
         params,
+        responseType: "blob",
       })
-      .then((res) => res.data);
+      .then((res) => ({
+        blob: res.data as Blob,
+        filename:
+          getFilenameFromDisposition(
+            res.headers["content-disposition"] as string | undefined,
+          ) || "invoice-statements.csv",
+        contentType: res.headers["content-type"] as string | undefined,
+      }));
   },
 };
 
@@ -1409,6 +1489,22 @@ export const auditService = {
     return apiClient
       .get<AuditLogListOut>(endpoints.audit.base, { params })
       .then((res) => res.data);
+  },
+  export(params?: AuditLogFilter & { format?: "csv" | "pdf" }) {
+    const format = params?.format ?? "csv";
+    return apiClient
+      .get(endpoints.audit.export, {
+        params,
+        responseType: "blob",
+      })
+      .then((res) => ({
+        blob: res.data as Blob,
+        filename:
+          getFilenameFromDisposition(
+            res.headers["content-disposition"] as string | undefined,
+          ) || `audit-logs.${format}`,
+        contentType: res.headers["content-type"] as string | undefined,
+      }));
   },
 };
 

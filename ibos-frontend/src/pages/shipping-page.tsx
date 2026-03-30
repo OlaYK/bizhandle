@@ -2,7 +2,7 @@ import axios from "axios";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { authService, shippingService } from "../api/services";
-import type { ShippingQuoteOptionOut } from "../api/types";
+// import type { ShippingQuoteOptionOut } from "../api/types";
 import { EmptyState } from "../components/state/empty-state";
 import { ErrorState } from "../components/state/error-state";
 import { LoadingState } from "../components/state/loading-state";
@@ -121,12 +121,12 @@ export function ShippingPage() {
     createRuleDraft({ zone_name: "Domestic" }),
   ]);
 
-  const [quoteSessionToken, setQuoteSessionToken] = useState("");
-  const [destinationCountry, setDestinationCountry] = useState("NG");
-  const [destinationState, setDestinationState] = useState("");
-  const [destinationCity, setDestinationCity] = useState("");
-  const [destinationPostalCode, setDestinationPostalCode] = useState("");
-  const [totalWeightKg, setTotalWeightKg] = useState(1);
+  // const [quoteSessionToken] = useState("");
+  // const [destinationCountry] = useState("NG");
+  // const [destinationState] = useState("");
+  // const [destinationCity] = useState("");
+  // const [destinationPostalCode] = useState("");
+  // const [totalWeightKg] = useState(1);
 
   const [orderId, setOrderId] = useState("");
   const [checkoutSessionId, setCheckoutSessionId] = useState("");
@@ -232,21 +232,21 @@ export function ShippingPage() {
     );
   };
 
-  const updateRuleDraft = (
-    id: string,
-    patch: Partial<ShippingServiceRuleDraft>,
-  ) => {
-    setServiceRules((prev) =>
-      prev.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)),
-    );
-  };
+  // const updateRuleDraft = (
+  //   id: string,
+  //   patch: Partial<ShippingServiceRuleDraft>,
+  // ) => {
+  //   setServiceRules((prev) =>
+  //     prev.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)),
+  //   );
+  // };
 
-  const removeRuleDraft = (id: string) => {
-    setServiceRules((prev) => {
-      const next = prev.filter((rule) => rule.id !== id);
-      return next.length ? next : [createRuleDraft()];
-    });
-  };
+  // const removeRuleDraft = (id: string) => {
+  //   setServiceRules((prev) => {
+  //     const next = prev.filter((rule) => rule.id !== id);
+  //     return next.length ? next : [createRuleDraft()];
+  //   });
+  // };
 
   const shipmentsQuery = useQuery({
     queryKey: [
@@ -295,47 +295,47 @@ export function ShippingPage() {
     },
   });
 
-  const quoteMutation = useMutation({
-    mutationFn: () =>
-      shippingService.quoteCheckoutRate(quoteSessionToken.trim(), {
-        destination_country: destinationCountry.trim().toUpperCase(),
-        destination_state: normalizeOptional(destinationState),
-        destination_city: normalizeOptional(destinationCity),
-        destination_postal_code: normalizeOptional(destinationPostalCode),
-        total_weight_kg: Number(totalWeightKg || 1),
-      }),
-    onError: (error) => {
-      showToast({
-        title: "Quote failed",
-        description: getApiErrorMessage(error),
-        variant: "error",
-      });
-    },
-  });
+  // const quoteMutation = useMutation({
+  //   mutationFn: () =>
+  //     shippingService.quoteCheckoutRate(quoteSessionToken.trim(), {
+  //       destination_country: destinationCountry.trim().toUpperCase(),
+  //       destination_state: normalizeOptional(destinationState),
+  //       destination_city: normalizeOptional(destinationCity),
+  //       destination_postal_code: normalizeOptional(destinationPostalCode),
+  //       total_weight_kg: Number(totalWeightKg || 1),
+  //     }),
+  //   onError: (error) => {
+  //     showToast({
+  //       title: "Quote failed",
+  //       description: getApiErrorMessage(error),
+  //       variant: "error",
+  //     });
+  //   },
+  // });
 
-  const selectRateMutation = useMutation({
-    mutationFn: (rate: ShippingQuoteOptionOut) =>
-      shippingService.selectCheckoutRate(quoteSessionToken.trim(), {
-        provider: rate.provider,
-        service_code: rate.service_code,
-        service_name: rate.service_name,
-        zone_name: rate.zone_name,
-        amount: rate.amount,
-        currency: rate.currency,
-        eta_min_days: rate.eta_min_days,
-        eta_max_days: rate.eta_max_days,
-      }),
-    onSuccess: () => {
-      showToast({ title: "Shipping rate selected", variant: "success" });
-    },
-    onError: (error) => {
-      showToast({
-        title: "Could not select rate",
-        description: getApiErrorMessage(error),
-        variant: "error",
-      });
-    },
-  });
+  // const selectRateMutation = useMutation({
+  //   mutationFn: (rate: ShippingQuoteOptionOut) =>
+  //     shippingService.selectCheckoutRate(quoteSessionToken.trim(), {
+  //       provider: rate.provider,
+  //       service_code: rate.service_code,
+  //       service_name: rate.service_name,
+  //       zone_name: rate.zone_name,
+  //       amount: rate.amount,
+  //       currency: rate.currency,
+  //       eta_min_days: rate.eta_min_days,
+  //       eta_max_days: rate.eta_max_days,
+  //     }),
+  //   onSuccess: () => {
+  //     showToast({ title: "Shipping rate selected", variant: "success" });
+  //   },
+  //   onError: (error) => {
+  //     showToast({
+  //       title: "Could not select rate",
+  //       description: getApiErrorMessage(error),
+  //       variant: "error",
+  //     });
+  //   },
+  // });
 
   const createShipmentMutation = useMutation({
     mutationFn: () =>
@@ -399,13 +399,13 @@ export function ShippingPage() {
     },
   });
 
-  const zoneNameOptions = Array.from(
-    new Set(
-      zones
-        .map((zone) => zone.zone_name.trim())
-        .filter((name) => name.length > 0),
-    ),
-  );
+  // const zoneNameOptions = Array.from(
+  //   new Set(
+  //     zones
+  //       .map((zone) => zone.zone_name.trim())
+  //       .filter((name) => name.length > 0),
+  //   ),
+  // );
 
   if (
     (settingsQuery.isLoading && !settingsNotConfigured) ||
@@ -484,7 +484,7 @@ export function ShippingPage() {
             value={currency}
             onChange={(e) => setCurrency(e.target.value)}
           />
-          <div className="space-y-3 rounded-xl border border-surface-100 bg-surface-50 p-3 md:col-span-3">
+          <div className="relative space-y-3 rounded-xl border border-surface-100 bg-surface-50 p-3 md:col-span-3 after:absolute after:inset-0 after:flex after:items-center after:justify-center after:rounded-2xl after:bg-surface-50 after:text-2xl after:font-black after:text-white after:content-['Coming_Soon'] after:cursor-not-allowed ">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h4 className="font-semibold text-surface-700">
@@ -580,7 +580,7 @@ export function ShippingPage() {
               </article>
             ))}
           </div>
-          <div className="space-y-3 rounded-xl border border-surface-100 bg-surface-50 p-3 md:col-span-3">
+          {/* <div className="space-y-3 rounded-xl border border-surface-100 bg-surface-50 p-3 md:col-span-3">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h4 className="font-semibold text-surface-700">
@@ -725,7 +725,7 @@ export function ShippingPage() {
                 </div>
               </article>
             ))}
-          </div>
+          </div> */}
         </div>
         <div className="mt-4 flex justify-end">
           <Button
@@ -859,7 +859,7 @@ export function ShippingPage() {
         </div>
       </Card>
 
-      <Card>
+      {/* <Card>
         <h3 className="font-heading text-lg font-bold text-surface-800">
           Checkout Rate Quote
         </h3>
@@ -958,7 +958,7 @@ export function ShippingPage() {
             ) : null}
           </div>
         ) : null}
-      </Card>
+      </Card> */}
 
       <Card>
         <h3 className="font-heading text-lg font-bold text-surface-800">

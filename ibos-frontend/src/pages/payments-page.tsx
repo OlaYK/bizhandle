@@ -144,7 +144,7 @@ export function PaymentsPage() {
   const sessions = sessionsQuery.data;
 
   return (
-    <div className="space-y-6">
+    <div className="relative space-y-6 after:absolute after:inset-0 after:rounded-2xl after:bg-surface-50 after:cursor-not-allowed after:content-['Coming_Soon'] after:flex after:items-center after:justify-center after:text-2xl after:font-black after:text-white ">
       <Card className="animate-fade-up bg-[linear-gradient(135deg,#132a42_0%,#1a3a59_45%,#254e70_100%)] text-white">
         <h3 className="font-heading text-xl font-black">Payments Operations</h3>
         <p className="mt-1 text-sm text-white/80">

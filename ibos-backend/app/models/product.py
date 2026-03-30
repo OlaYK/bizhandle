@@ -35,6 +35,7 @@ class ProductVariant(Base):
     size: Mapped[str] = mapped_column(String(50), nullable=False)  # e.g., 6by6ft
     label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True) # e.g., "Plain", "Pattern"
     sku: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    image_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     reorder_level: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
     cost_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)

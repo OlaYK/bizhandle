@@ -34,6 +34,11 @@ class StockLevelOut(BaseModel):
 class InventoryLedgerEntryOut(BaseModel):
     id: str
     variant_id: str
+    product_id: str | None = None
+    product_name: str | None = None
+    size: str | None = None
+    label: str | None = None
+    sku: str | None = None
     qty_delta: int
     reason: str
     reference_id: str | None = None

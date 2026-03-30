@@ -77,3 +77,4 @@ from app.models.automation import (
     AutomationTask,
 )
 from app.models.refresh_token import RefreshToken
+from app.models.privacy_document import CustomerDocument

@@ -67,6 +67,8 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    if user.is_deleted or not user.is_active:
+        raise HTTPException(status_code=401, detail="User account is inactive")
     return user
 
 

@@ -98,7 +98,9 @@ class CampaignTemplateOut(BaseModel):
     content: str
     status: CampaignTemplateStatus
     created_by_user_id: str
+    created_by_name: str | None = None
     approved_by_user_id: str | None = None
+    approved_by_name: str | None = None
     approved_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
@@ -120,6 +122,7 @@ class CustomerConsentUpsertIn(BaseModel):
 class CustomerConsentOut(BaseModel):
     id: str
     customer_id: str
+    customer_name: str | None = None
     channel: CampaignChannel
     status: ConsentStatus
     source: str | None = None
@@ -151,7 +154,9 @@ class CampaignOut(BaseModel):
     id: str
     name: str
     segment_id: str | None = None
+    segment_name: str | None = None
     template_id: str | None = None
+    template_name: str | None = None
     channel: CampaignChannel
     provider: str
     message_content: str
@@ -168,6 +173,7 @@ class CampaignOut(BaseModel):
     suppressed_count: int
     skipped_count: int
     created_by_user_id: str
+    created_by_name: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -196,6 +202,7 @@ class CampaignRecipientOut(BaseModel):
     id: str
     campaign_id: str
     customer_id: str
+    customer_name: str | None = None
     recipient: str
     status: CampaignRecipientStatus
     outbound_message_id: str | None = None
@@ -245,11 +252,14 @@ class RetentionTriggerOut(BaseModel):
     trigger_type: str
     status: RetentionTriggerStatus
     segment_id: str | None = None
+    segment_name: str | None = None
     template_id: str | None = None
+    template_name: str | None = None
     channel: CampaignChannel
     provider: str
     config_json: dict[str, Any] | None = None
     created_by_user_id: str
+    created_by_name: str | None = None
     last_run_at: datetime | None = None
     created_at: datetime
     updated_at: datetime

@@ -6,6 +6,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { z } from "zod";
 import { authService } from "../api/services";
 // import { MoniDeskLogo } from "../components/brand/monidesk-logo";
+import { GoogleAuthButton } from "../components/auth/google-auth-button";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { useAuth } from "../hooks/use-auth";
@@ -181,6 +182,25 @@ export function RegisterPage({
           Create account
         </Button>
       </form>
+
+      {!invitationToken ? (
+        <div className="mt-4">
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-surface-200" />
+            <span className="text-xs font-medium uppercase tracking-[0.18em] text-surface-500">
+              Or continue with
+            </span>
+            <div className="h-px flex-1 bg-surface-200" />
+          </div>
+          <div className="mt-4">
+            <GoogleAuthButton
+              mode="register"
+              businessName={form.watch("business_name")}
+              username={form.watch("username")}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <p className="mt-4 text-sm text-black">
         Already registered?{" "}

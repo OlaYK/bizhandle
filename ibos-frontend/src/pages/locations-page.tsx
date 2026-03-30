@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { locationService } from "../api/services";
+import { locationService, orderService, productService } from "../api/services";
 import { EmptyState } from "../components/state/empty-state";
 import { ErrorState } from "../components/state/error-state";
 import { LoadingState } from "../components/state/loading-state";
@@ -19,6 +19,20 @@ function normalizeOptional(value: string) {
   return cleaned || undefined;
 }
 
+function formatVariantLabel(
+  productName: string | undefined,
+  size: string,
+  label?: string | null,
+  sku?: string | null,
+) {
+  const parts = [productName, size];
+  if (label) {
+    parts.push(label);
+  }
+  const base = parts.filter(Boolean).join(" - ");
+  return sku ? `${base} (${sku})` : base;
+}
+
 export function LocationsPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -34,23 +48,31 @@ export function LocationsPage() {
   const [adjustReason, setAdjustReason] = useState("correction");
   const [adjustNote, setAdjustNote] = useState("");
   const [stockResult, setStockResult] = useState<number | null>(null);
+  const [overviewProductId, setOverviewProductId] = useState("");
   const [overviewVariantId, setOverviewVariantId] = useState("");
   const [overviewRows, setOverviewRows] = useState<
-    Array<{ location_id: string; stock: number }>
+    Array<{ location_id: string; stock: number; location_name: string }>
   >([]);
   const [transferFromLocationId, setTransferFromLocationId] = useState("");
   const [transferToLocationId, setTransferToLocationId] = useState("");
+  const [transferProductId, setTransferProductId] = useState("");
   const [transferVariantId, setTransferVariantId] = useState("");
   const [transferQty, setTransferQty] = useState(1);
   const [transferNote, setTransferNote] = useState("");
   const [allocationOrderId, setAllocationOrderId] = useState("");
   const [allocationLocationId, setAllocationLocationId] = useState("");
+  const [lastAllocation, setLastAllocation] = useState<{
+    order_id: string;
+    location_name?: string | null;
+    allocated_at: string;
+  } | null>(null);
   const [lowStockLocationFilter, setLowStockLocationFilter] = useState("");
   const [lowStockThreshold, setLowStockThreshold] = useState(0);
   const [transferPage, setTransferPage] = useState(1);
   const [transferPageSize, setTransferPageSize] = useState(20);
   const [lowStockPage, setLowStockPage] = useState(1);
   const [lowStockPageSize, setLowStockPageSize] = useState(20);
+  const [selectedProductId, setSelectedProductId] = useState("");
 
   const transferOffset = (transferPage - 1) * transferPageSize;
   const lowStockOffset = (lowStockPage - 1) * lowStockPageSize;
@@ -72,6 +94,101 @@ export function LocationsPage() {
         offset: 0,
       }),
   });
+
+  const productsQuery = useQuery({
+    queryKey: ["products", "list"],
+    queryFn: () =>
+      productService.list({
+        limit: 200,
+        offset: 0,
+      }),
+  });
+
+  useEffect(() => {
+    if (!productsQuery.data?.items.length) {
+      setSelectedProductId("");
+      setOverviewProductId("");
+      setTransferProductId("");
+      return;
+    }
+    if (!selectedProductId) {
+      setSelectedProductId(productsQuery.data.items[0].id);
+    }
+    if (!overviewProductId) {
+      setOverviewProductId(productsQuery.data.items[0].id);
+    }
+    if (!transferProductId) {
+      setTransferProductId(productsQuery.data.items[0].id);
+    }
+  }, [overviewProductId, productsQuery.data, selectedProductId, transferProductId]);
+
+  const variantsQuery = useQuery({
+    queryKey: ["variants", "list", selectedProductId],
+    queryFn: () =>
+      productService.listVariants(selectedProductId, {
+        limit: 200,
+        offset: 0,
+      }),
+    enabled: Boolean(selectedProductId),
+  });
+
+  const overviewVariantsQuery = useQuery({
+    queryKey: ["variants", "overview", overviewProductId],
+    queryFn: () =>
+      productService.listVariants(overviewProductId, {
+        limit: 200,
+        offset: 0,
+      }),
+    enabled: Boolean(overviewProductId),
+  });
+
+  const transferVariantsQuery = useQuery({
+    queryKey: ["variants", "transfer", transferProductId],
+    queryFn: () =>
+      productService.listVariants(transferProductId, {
+        limit: 200,
+        offset: 0,
+      }),
+    enabled: Boolean(transferProductId),
+  });
+
+  const ordersQuery = useQuery({
+    queryKey: ["locations", "orders"],
+    queryFn: () => orderService.list({ limit: 200, offset: 0 }),
+  });
+
+  useEffect(() => {
+    const firstVariantId = variantsQuery.data?.items[0]?.id ?? "";
+    if (!firstVariantId) {
+      setStockVariantId("");
+      return;
+    }
+    if (!stockVariantId) {
+      setStockVariantId(firstVariantId);
+    }
+  }, [stockVariantId, variantsQuery.data]);
+
+  useEffect(() => {
+    const firstVariantId = overviewVariantsQuery.data?.items[0]?.id ?? "";
+    if (!firstVariantId) {
+      setOverviewVariantId("");
+      return;
+    }
+    if (!overviewVariantId) {
+      setOverviewVariantId(firstVariantId);
+    }
+  }, [overviewVariantId, overviewVariantsQuery.data]);
+
+  useEffect(() => {
+    const firstVariantId = transferVariantsQuery.data?.items[0]?.id ?? "";
+    if (!firstVariantId) {
+      setTransferVariantId("");
+      return;
+    }
+    if (!transferVariantId) {
+      setTransferVariantId(firstVariantId);
+    }
+  }, [transferVariantId, transferVariantsQuery.data]);
 
   useEffect(() => {
     if (!locationsQuery.data?.items.length) return;
@@ -221,6 +338,7 @@ export function LocationsPage() {
         result.by_location.map((row) => ({
           location_id: row.location_id,
           stock: row.stock,
+          location_name: row.location_name,
         })),
       );
     },
@@ -274,11 +392,16 @@ export function LocationsPage() {
         order_id: allocationOrderId.trim(),
         location_id: allocationLocationId,
       }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       showToast({
         title: "Order allocated",
         description: "Order items have been reserved at the selected location.",
         variant: "success",
+      });
+      setLastAllocation({
+        order_id: result.order_id,
+        location_name: result.location_name,
+        allocated_at: result.allocated_at,
       });
       setAllocationOrderId("");
       queryClient.invalidateQueries({ queryKey: ["locations", "low-stock"] });
@@ -295,6 +418,8 @@ export function LocationsPage() {
   });
 
   if (
+    productsQuery.isLoading ||
+    ordersQuery.isLoading ||
     locationsQuery.isLoading ||
     transfersQuery.isLoading ||
     lowStockQuery.isLoading
@@ -303,6 +428,8 @@ export function LocationsPage() {
   }
 
   if (
+    productsQuery.isError ||
+    ordersQuery.isError ||
     locationsQuery.isError ||
     transfersQuery.isError ||
     lowStockQuery.isError ||
@@ -315,6 +442,8 @@ export function LocationsPage() {
         message="Unable to load location operations."
         onRetry={() => {
           locationsQuery.refetch();
+          productsQuery.refetch();
+          ordersQuery.refetch();
           transfersQuery.refetch();
           lowStockQuery.refetch();
         }}
@@ -323,6 +452,15 @@ export function LocationsPage() {
   }
 
   const locations = locationsQuery.data.items;
+  const products = productsQuery.data?.items || [];
+  const productsById = useMemo(
+    () => Object.fromEntries(products.map((product) => [product.id, product])),
+    [products],
+  );
+  const variants = variantsQuery.data?.items || [];
+  const overviewVariants = overviewVariantsQuery.data?.items ?? [];
+  const transferVariants = transferVariantsQuery.data?.items ?? [];
+  const orders = ordersQuery.data?.items ?? [];
 
   return (
     <div className="space-y-6">
@@ -452,12 +590,40 @@ export function LocationsPage() {
               </option>
             ))}
           </Select>
-          <Input
-            label="Variant ID"
+
+          <Select
+            label="Product"
+            value={selectedProductId}
+            onChange={(event) => {
+              setSelectedProductId(event.target.value);
+              setStockVariantId("");
+            }}
+          >
+            <option value="">Select product</option>
+            {products.map((product) => (
+              <option key={product.id} value={product.id}>
+                {product.name}
+              </option>
+            ))}
+          </Select>
+
+          <Select
+            label="Variant"
             value={stockVariantId}
             onChange={(event) => setStockVariantId(event.target.value)}
-            placeholder="variant-id"
-          />
+          >
+            <option value="">Select variant</option>
+            {variants.map((variant) => (
+              <option key={variant.id} value={variant.id}>
+                {formatVariantLabel(
+                  productsById[variant.product_id]?.name,
+                  variant.size,
+                  variant.label,
+                  variant.sku,
+                )}
+              </option>
+            ))}
+          </Select>
           <Input
             label="Stock In Qty"
             type="number"
@@ -542,11 +708,38 @@ export function LocationsPage() {
           Variant Stock Overview
         </h3>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
-          <Input
-            label="Variant ID"
+          <Select
+            label="Product"
+            value={overviewProductId}
+            onChange={(event) => {
+              setOverviewProductId(event.target.value);
+              setOverviewVariantId("");
+            }}
+          >
+            <option value="">Select product</option>
+            {products.map((product) => (
+              <option key={product.id} value={product.id}>
+                {product.name}
+              </option>
+            ))}
+          </Select>
+          <Select
+            label="Variant"
             value={overviewVariantId}
             onChange={(event) => setOverviewVariantId(event.target.value)}
-          />
+          >
+            <option value="">Select variant</option>
+            {overviewVariants.map((variant) => (
+              <option key={variant.id} value={variant.id}>
+                {formatVariantLabel(
+                  productsById[variant.product_id]?.name,
+                  variant.size,
+                  variant.label,
+                  variant.sku,
+                )}
+              </option>
+            ))}
+          </Select>
           <div className="md:pt-7">
             <Button
               type="button"
@@ -566,7 +759,7 @@ export function LocationsPage() {
                 className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm"
               >
                 <p className="font-semibold text-surface-700">
-                  Location: {row.location_id}
+                  Location: {row.location_name}
                 </p>
                 <p className="text-surface-500">Stock: {row.stock}</p>
               </div>
@@ -604,11 +797,38 @@ export function LocationsPage() {
               </option>
             ))}
           </Select>
-          <Input
-            label="Variant ID"
+          <Select
+            label="Product"
+            value={transferProductId}
+            onChange={(event) => {
+              setTransferProductId(event.target.value);
+              setTransferVariantId("");
+            }}
+          >
+            <option value="">Select product</option>
+            {products.map((product) => (
+              <option key={product.id} value={product.id}>
+                {product.name}
+              </option>
+            ))}
+          </Select>
+          <Select
+            label="Variant"
             value={transferVariantId}
             onChange={(event) => setTransferVariantId(event.target.value)}
-          />
+          >
+            <option value="">Select variant</option>
+            {transferVariants.map((variant) => (
+              <option key={variant.id} value={variant.id}>
+                {formatVariantLabel(
+                  productsById[variant.product_id]?.name,
+                  variant.size,
+                  variant.label,
+                  variant.sku,
+                )}
+              </option>
+            ))}
+          </Select>
           <Input
             label="Qty"
             type="number"
@@ -647,11 +867,20 @@ export function LocationsPage() {
           Order Allocation
         </h3>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
-          <Input
-            label="Order ID"
+          <Select
+            label="Order"
             value={allocationOrderId}
             onChange={(event) => setAllocationOrderId(event.target.value)}
-          />
+          >
+            <option value="">Select order</option>
+            {orders.map((order) => (
+              <option key={order.id} value={order.id}>
+                {(order.customer_name || "No customer") +
+                  " - " +
+                  `${order.id.slice(0, 8)}...`}
+              </option>
+            ))}
+          </Select>
           <Select
             label="Location"
             value={allocationLocationId}
@@ -675,6 +904,17 @@ export function LocationsPage() {
             </Button>
           </div>
         </div>
+        {lastAllocation ? (
+          <div className="mt-4 rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm">
+            <p className="font-semibold text-surface-700">
+              Last allocation: {lastAllocation.location_name || "Selected location"}
+            </p>
+            <p className="text-surface-500">
+              Order {lastAllocation.order_id.slice(0, 8)}... allocated at{" "}
+              {formatDateTime(lastAllocation.allocated_at)}
+            </p>
+          </div>
+        ) : null}
       </Card>
 
       <Card>
@@ -698,12 +938,14 @@ export function LocationsPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold text-surface-700">
-                      {transfer.from_location_id} {"->"}{" "}
-                      {transfer.to_location_id}
+                      {transfer.from_location_name || transfer.from_location_id} {"->"}{" "}
+                      {transfer.to_location_name || transfer.to_location_id}
                     </p>
                     <p className="text-xs text-surface-500">
                       {transfer.items
-                        .map((item) => `${item.variant_id} x${item.qty}`)
+                        .map((item) =>
+                          `${item.product_name || item.sku || item.variant_id} x${item.qty}`,
+                        )
                         .join(", ")}
                     </p>
                   </div>
@@ -785,7 +1027,8 @@ export function LocationsPage() {
                 className="rounded-xl border border-surface-100 bg-surface-50 p-3"
               >
                 <p className="font-semibold text-surface-700">
-                  Location {item.location_id} | Variant {item.variant_id}
+                  Location- {item.location_name} | Product- {item.product_name}{" "}
+                  {item.sku}
                 </p>
                 <p className="text-sm text-surface-500">
                   Stock: {item.stock} | Reorder Level: {item.reorder_level}

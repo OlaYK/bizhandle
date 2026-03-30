@@ -1,6 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BarChart3, Download, RefreshCcw } from "lucide-react";
 import { useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { analyticsService, authService } from "../api/services";
 import { ErrorState } from "../components/state/error-state";
 import { LoadingState } from "../components/state/loading-state";
@@ -9,6 +19,7 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
+import { useTheme } from "../hooks/use-theme";
 import { useToast } from "../hooks/use-toast";
 import { getApiErrorMessage } from "../lib/api-error";
 import { formatCurrency } from "../lib/format";
@@ -33,6 +44,10 @@ export function AnalyticsPage() {
     "channel_profitability" | "cohorts" | "inventory_aging"
   >("channel_profitability");
   const [recipientEmail, setRecipientEmail] = useState("");
+  const { resolvedTheme } = useTheme();
+
+  const chartGridColor = resolvedTheme === "dark" ? "#2f4d6e" : "#d2dde7";
+  const chartAxisColor = resolvedTheme === "dark" ? "#b9d0e6" : "#456885";
 
   const channelQuery = useQuery({
     queryKey: ["analytics", "channel-profitability", startDate, endDate],
@@ -94,20 +109,17 @@ export function AnalyticsPage() {
         end_date: endDate,
       }),
     onSuccess: (result) => {
-      const blob = new Blob([result.csv_content], {
-        type: result.content_type || "text/csv",
-      });
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(result.blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = result.filename || "analytics-export.csv";
+      link.download = result.filename;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
       showToast({
         title: "Export ready",
-        description: `${result.row_count} rows downloaded.`,
+        description: "Analytics export downloaded successfully.",
         variant: "success",
       });
     },
@@ -183,7 +195,6 @@ export function AnalyticsPage() {
       />
     );
   }
-
   return (
     <div className="space-y-6">
       <Card>
@@ -275,6 +286,59 @@ export function AnalyticsPage() {
         </div>
       </Card>
 
+      <Card>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="font-heading text-lg font-bold">
+            Channel Revenue vs Net Profit
+          </h3>
+          <p className="text-xs text-surface-500">
+            {channelQuery.data?.items.length ?? 0} channels
+          </p>
+        </div>
+        {(channelQuery.data?.items ?? []).length === 0 ? (
+          <p className="py-8 text-center text-sm text-surface-500">
+            No channel data for the selected period.
+          </p>
+        ) : (
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={channelQuery.data?.items ?? []}>
+                <defs>
+                  <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#27c25c" stopOpacity={0.85} />
+                    <stop offset="95%" stopColor="#27c25c" stopOpacity={0.35} />
+                  </linearGradient>
+                  <linearGradient id="profitFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#497cf2" stopOpacity={0.85} />
+                    <stop offset="95%" stopColor="#497cf2" stopOpacity={0.35} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} />
+                <XAxis
+                  dataKey="channel"
+                  tick={{ fill: chartAxisColor, fontSize: 12 }}
+                />
+                <YAxis tick={{ fill: chartAxisColor, fontSize: 12 }} />
+                <Tooltip />
+                <Legend />
+                <Bar
+                  dataKey="revenue"
+                  name="Revenue"
+                  fill="url(#revenueFill)"
+                  radius={[4, 4, 0, 0]}
+                />
+                <Bar
+                  dataKey="net_profit"
+                  name="Net Profit"
+                  fill="url(#profitFill)"
+                  radius={[4, 4, 0, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Card>
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <h3 className="font-heading text-lg font-bold">Cohort Retention</h3>
@@ -311,7 +375,8 @@ export function AnalyticsPage() {
               >
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold text-surface-700">
-                    {row.variant_id.slice(0, 8)}...
+                    {/* {row.variant_id.slice(0, 8)}... */}
+                    {row.product_name}- {row.sku}
                   </p>
                   <Badge variant="neutral">{row.bucket}</Badge>
                 </div>

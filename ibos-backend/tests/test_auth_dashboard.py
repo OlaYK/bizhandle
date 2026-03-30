@@ -13,9 +13,10 @@ from app.core.security import hash_password
 from app.models.business import Business
 from app.models.business_membership import BusinessMembership
 from app.models.checkout import CheckoutSession, CheckoutWebhookEvent
+from app.models.customer import Customer
 from app.models.developer import MarketplaceAppListing, PublicApiKey, WebhookEventDelivery
 from app.models.expense import Expense
-from app.models.invoice import InvoiceEvent
+from app.models.invoice import Invoice, InvoiceEvent
 from app.models.order import Order
 from app.models.pos import PosShiftSession
 from app.models.sales import Sale
@@ -39,7 +40,7 @@ def _auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _create_product_with_variant(client, token: str) -> tuple[str, str]:
+def _create_product_with_variant(client, token: str, *, qty: int | None = None) -> tuple[str, str]:
     create_product_res = client.post(
         "/products",
         json={"name": "Ankara Fabric", "category": "fabrics"},
@@ -57,6 +58,7 @@ def _create_product_with_variant(client, token: str) -> tuple[str, str]:
             "reorder_level": 4,
             "cost_price": 50.0,
             "selling_price": 100.0,
+            **({"qty": qty} if qty is not None else {}),
         },
         headers=_auth_headers(token),
     )
@@ -671,7 +673,7 @@ def test_dashboard_credit_profile_returns_weighted_breakdown(test_context):
     assert owner.status_code == 200, owner.text
     token = owner.json()["access_token"]
 
-    _, variant_id = _create_product_with_variant(client, token)
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
 
     stock_res = client.post(
         "/inventory/stock-in",
@@ -718,7 +720,7 @@ def test_sales_prevent_duplicate_variant_oversell(test_context):
     assert owner.status_code == 200, owner.text
     token = owner.json()["access_token"]
 
-    _, variant_id = _create_product_with_variant(client, token)
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
 
     stock_res = client.post(
         "/inventory/stock-in",
@@ -741,6 +743,94 @@ def test_sales_prevent_duplicate_variant_oversell(test_context):
     )
     assert oversell_res.status_code == 400, oversell_res.text
     assert "Insufficient stock" in oversell_res.text
+
+
+def test_sales_quote_returns_line_totals_and_currency(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="sales-quote-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    product_id, variant_id_1 = _create_product_with_variant(client, token)
+    create_variant_res = client.post(
+        f"/products/{product_id}/variants",
+        json={"size": "Medium", "reorder_level": 1, "selling_price": 80},
+        headers=_auth_headers(token),
+    )
+    assert create_variant_res.status_code == 200, create_variant_res.text
+    variant_id_2 = create_variant_res.json()["id"]
+
+    stock_res = client.post(
+        "/inventory/stock-in",
+        json={"variant_id": variant_id_1, "qty": 5},
+        headers=_auth_headers(token),
+    )
+    assert stock_res.status_code == 200, stock_res.text
+
+    stock_res = client.post(
+        "/inventory/stock-in",
+        json={"variant_id": variant_id_2, "qty": 3},
+        headers=_auth_headers(token),
+    )
+    assert stock_res.status_code == 200, stock_res.text
+
+    quote_res = client.post(
+        "/sales/quote",
+        json={
+            "items": [
+                {"variant_id": variant_id_1, "qty": 2, "unit_price": 100},
+                {"variant_id": variant_id_2, "qty": 1, "unit_price": 80},
+            ]
+        },
+        headers=_auth_headers(token),
+    )
+    assert quote_res.status_code == 200, quote_res.text
+
+    payload = quote_res.json()
+    assert payload["is_valid"] is True
+    assert payload["errors"] == []
+    assert payload["currency"] == "USD"
+    assert payload["total"] == pytest.approx(280.0)
+    assert payload["items"][0]["line_total"] == pytest.approx(200.0)
+    assert payload["items"][0]["available_stock"] == 5
+    assert payload["items"][1]["line_total"] == pytest.approx(80.0)
+    assert payload["items"][1]["available_stock"] == 3
+
+
+def test_sales_quote_returns_stock_validation_errors_without_creating_sale(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="sales-quote-error-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
+
+    stock_res = client.post(
+        "/inventory/stock-in",
+        json={"variant_id": variant_id, "qty": 2},
+        headers=_auth_headers(token),
+    )
+    assert stock_res.status_code == 200, stock_res.text
+
+    quote_res = client.post(
+        "/sales/quote",
+        json={"items": [{"variant_id": variant_id, "qty": 3, "unit_price": 100}]},
+        headers=_auth_headers(token),
+    )
+    assert quote_res.status_code == 200, quote_res.text
+
+    payload = quote_res.json()
+    assert payload["is_valid"] is False
+    assert payload["total"] == pytest.approx(300.0)
+    assert "Insufficient stock" in payload["errors"][0]
+    assert payload["items"][0]["is_valid"] is False
+    assert payload["items"][0]["available_stock"] == 2
+
+    sales_list = client.get("/sales?limit=10&offset=0", headers=_auth_headers(token))
+    assert sales_list.status_code == 200, sales_list.text
+    assert sales_list.json()["pagination"]["total"] == 0
 
 
 def test_inventory_stock_endpoint_is_tenant_isolated(test_context):
@@ -808,6 +898,53 @@ def test_sales_and_expenses_list_endpoints(test_context):
     expenses_payload = expenses_list.json()
     assert expenses_payload["pagination"]["total"] == 1
     assert expenses_payload["items"][0]["category"] == "logistics"
+
+
+def test_sales_summary_returns_gross_paid_sales_only(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="sales-summary-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    _, variant_id = _create_product_with_variant(client, token, qty=10)
+
+    first_sale = client.post(
+        "/sales",
+        json={
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 2, "unit_price": 100}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert first_sale.status_code == 200, first_sale.text
+    first_sale_id = first_sale.json()["id"]
+
+    second_sale = client.post(
+        "/sales",
+        json={
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 150}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert second_sale.status_code == 200, second_sale.text
+
+    refund = client.post(
+        f"/sales/{first_sale_id}/refund",
+        json={"items": [{"variant_id": variant_id, "qty": 1}]},
+        headers=_auth_headers(token),
+    )
+    assert refund.status_code == 200, refund.text
+
+    summary = client.get("/sales/summary", headers=_auth_headers(token))
+    assert summary.status_code == 200, summary.text
+    payload = summary.json()
+    assert payload["base_currency"] == "USD"
+    assert payload["sales_count"] == 2
+    assert payload["total_amount"] == 350.0
 
 
 def test_refund_restocks_inventory_and_reduces_net_sales(test_context):
@@ -957,6 +1094,16 @@ def test_inventory_adjustment_and_low_stock_listing(test_context):
     assert stock_after.status_code == 200, stock_after.text
     assert stock_after.json()["stock"] == 3
 
+    ledger_res = client.get("/inventory/ledger", headers=_auth_headers(token))
+    assert ledger_res.status_code == 200, ledger_res.text
+    ledger_item = next((item for item in ledger_res.json()["items"] if item["variant_id"] == variant_id), None)
+    assert ledger_item is not None
+    assert ledger_item["product_id"] == product_id
+    assert ledger_item["product_name"] == "Ankara Fabric"
+    assert ledger_item["size"] == "6x6"
+    assert ledger_item["label"] == "Plain"
+    assert ledger_item["sku"]
+
     low_stock_res = client.get("/inventory/low-stock", headers=_auth_headers(token))
     assert low_stock_res.status_code == 200, low_stock_res.text
     low_stock_items = low_stock_res.json()["items"]
@@ -965,6 +1112,50 @@ def test_inventory_adjustment_and_low_stock_listing(test_context):
     variants_res = client.get(f"/products/{product_id}/variants", headers=_auth_headers(token))
     assert variants_res.status_code == 200, variants_res.text
     assert variants_res.json()["items"][0]["reorder_level"] == 4
+
+
+def test_variant_create_can_seed_opening_stock(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="variant-opening-stock-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    create_product_res = client.post(
+        "/products",
+        json={"name": "Bedsheet", "category": "bedding"},
+        headers=_auth_headers(token),
+    )
+    assert create_product_res.status_code == 200, create_product_res.text
+    product_id = create_product_res.json()["id"]
+
+    create_variant_res = client.post(
+        f"/products/{product_id}/variants",
+        json={
+            "size": "King",
+            "label": "Blue",
+            "sku": f"BED-{uuid.uuid4().hex[:6]}",
+            "reorder_level": 3,
+            "qty": 8,
+            "cost_price": 25.0,
+            "selling_price": 45.0,
+        },
+        headers=_auth_headers(token),
+    )
+    assert create_variant_res.status_code == 200, create_variant_res.text
+    variant_id = create_variant_res.json()["id"]
+
+    variants_res = client.get(f"/products/{product_id}/variants", headers=_auth_headers(token))
+    assert variants_res.status_code == 200, variants_res.text
+    variant_row = next((item for item in variants_res.json()["items"] if item["id"] == variant_id), None)
+    assert variant_row is not None
+    assert variant_row["stock"] == 8
+
+    ledger_res = client.get(f"/inventory/ledger?variant_id={variant_id}", headers=_auth_headers(token))
+    assert ledger_res.status_code == 200, ledger_res.text
+    ledger_item = ledger_res.json()["items"][0]
+    assert ledger_item["qty_delta"] == 8
+    assert ledger_item["reason"] == "stock_in"
 
 
 def test_products_variants_list_accepts_limit_300_for_frontend_prefetch(test_context):
@@ -1722,13 +1913,17 @@ def test_invoices_create_send_reminder_mark_paid_flow(test_context):
 
     create_customer = client.post(
         "/customers",
-        json={"name": "Invoice Flow Customer", "email": "invoice.flow@example.com"},
+        json={
+            "name": "Invoice Flow Customer",
+            "email": "invoice.flow@example.com",
+            "phone": "+2348000000100",
+        },
         headers=_auth_headers(token),
     )
     assert create_customer.status_code == 200, create_customer.text
     customer_id = create_customer.json()["id"]
 
-    _, variant_id = _create_product_with_variant(client, token)
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
     create_order = client.post(
         "/orders",
         json={
@@ -1741,14 +1936,16 @@ def test_invoices_create_send_reminder_mark_paid_flow(test_context):
     )
     assert create_order.status_code == 200, create_order.text
     order_id = create_order.json()["id"]
+    due_date = (date.today() + timedelta(days=7)).isoformat()
 
     create_invoice = client.post(
         "/invoices",
         json={
             "customer_id": customer_id,
+            "customer_name": "Invoice Flow Customer",
             "order_id": order_id,
             "currency": "usd",
-            "due_date": "2026-02-28",
+            "due_date": due_date,
             "note": "Net 7",
         },
         headers=_auth_headers(token),
@@ -1814,9 +2011,34 @@ def test_invoices_mark_paid_idempotency_key_is_safe(test_context):
     assert owner.status_code == 200, owner.text
     token = owner.json()["access_token"]
 
+    customer = client.post(
+        "/customers",
+        json={"name": "Idempotency Customer", "email": "invoice.idem@example.com"},
+        headers=_auth_headers(token),
+    )
+    assert customer.status_code == 200, customer.text
+    customer_id = customer.json()["id"]
+
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
+    order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 2, "unit_price": 120}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert order.status_code == 200, order.text
+    order_id = order.json()["id"]
+
     create_invoice = client.post(
         "/invoices",
         json={
+            "customer_id": customer_id,
+            "customer_name": "Idempotency Customer",
+            "order_id": order_id,
             "currency": "USD",
             "total_amount": 240,
             "send_now": True,
@@ -1864,11 +2086,37 @@ def test_invoices_auto_overdue_on_list(test_context):
     assert owner.status_code == 200, owner.text
     token = owner.json()["access_token"]
 
+    customer = client.post(
+        "/customers",
+        json={"name": "Overdue Customer", "email": "invoice.overdue@example.com"},
+        headers=_auth_headers(token),
+    )
+    assert customer.status_code == 200, customer.text
+    customer_id = customer.json()["id"]
+
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
+    order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 90}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert order.status_code == 200, order.text
+    order_id = order.json()["id"]
+
     create_invoice = client.post(
         "/invoices",
         json={
+            "customer_id": customer_id,
+            "customer_name": "Overdue Customer",
+            "order_id": order_id,
             "currency": "USD",
             "total_amount": 90,
+            "issue_date": "2019-12-01",
             "due_date": "2020-01-01",
             "send_now": True,
         },
@@ -2052,6 +2300,7 @@ def test_orders_and_invoices_validate_customer_linkage(test_context):
         json={
             "order_id": order_id,
             "customer_id": customer_id,
+            "customer_name": "Customer Link",
             "currency": "USD",
         },
         headers=_auth_headers(token),
@@ -2059,11 +2308,24 @@ def test_orders_and_invoices_validate_customer_linkage(test_context):
     assert valid_invoice.status_code == 200, valid_invoice.text
     assert valid_invoice.json()["status"] == "draft"
 
+    mismatched_order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 100}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert mismatched_order.status_code == 200, mismatched_order.text
+
     mismatched_invoice = client.post(
         "/invoices",
         json={
-            "order_id": order_id,
+            "order_id": mismatched_order.json()["id"],
             "customer_id": other_customer_id,
+            "customer_name": "Other Invoice Customer",
             "currency": "USD",
         },
         headers=_auth_headers(token),
@@ -2071,10 +2333,24 @@ def test_orders_and_invoices_validate_customer_linkage(test_context):
     assert mismatched_invoice.status_code == 400, mismatched_invoice.text
     assert "must match linked order customer" in mismatched_invoice.text
 
+    order_without_customer = client.post(
+        "/orders",
+        json={
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 50}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert order_without_customer.status_code == 200, order_without_customer.text
+    order_without_customer_id = order_without_customer.json()["id"]
+
     invalid_customer_invoice = client.post(
         "/invoices",
         json={
+            "order_id": order_without_customer_id,
             "customer_id": "missing-customer-id",
+            "customer_name": "Missing Customer",
             "currency": "USD",
             "total_amount": 50,
         },
@@ -2082,6 +2358,336 @@ def test_orders_and_invoices_validate_customer_linkage(test_context):
     )
     assert invalid_customer_invoice.status_code == 404, invalid_customer_invoice.text
     assert "Customer not found" in invalid_customer_invoice.text
+
+
+def test_invoice_create_requires_effective_due_date_not_before_today(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="invoice-date-hardening-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    customer = client.post(
+        "/customers",
+        json={"name": "Date Hardening Customer", "email": "invoice.date@example.com"},
+        headers=_auth_headers(token),
+    )
+    assert customer.status_code == 200, customer.text
+    customer_id = customer.json()["id"]
+
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
+    order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 75}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert order.status_code == 200, order.text
+
+    create_invoice = client.post(
+        "/invoices",
+        json={
+            "customer_id": customer_id,
+            "customer_name": "Date Hardening Customer",
+            "order_id": order.json()["id"],
+            "currency": "USD",
+            "due_date": "2020-01-01",
+        },
+        headers=_auth_headers(token),
+    )
+    assert create_invoice.status_code == 422, create_invoice.text
+    assert "due_date cannot be before issue_date" in create_invoice.text
+
+
+def test_invoice_create_auto_creates_customer_from_name_when_order_has_none(test_context):
+    client, session_local = test_context
+
+    owner = _register(client, email="invoice-manual-customer-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
+    order = client.post(
+        "/orders",
+        json={
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 110}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert order.status_code == 200, order.text
+    order_id = order.json()["id"]
+
+    create_invoice = client.post(
+        "/invoices",
+        json={
+            "customer_name": "Manual Invoice Customer",
+            "order_id": order_id,
+            "currency": "USD",
+        },
+        headers=_auth_headers(token),
+    )
+    assert create_invoice.status_code == 200, create_invoice.text
+    invoice_id = create_invoice.json()["id"]
+
+    db = session_local()
+    try:
+        order_row = db.execute(select(Order).where(Order.id == order_id)).scalar_one()
+        invoice_row = db.execute(select(Invoice).where(Invoice.id == invoice_id)).scalar_one()
+        customer_row = db.execute(select(Customer).where(Customer.id == invoice_row.customer_id)).scalar_one()
+    finally:
+        db.close()
+
+    assert customer_row.name == "Manual Invoice Customer"
+    assert invoice_row.customer_id == customer_row.id
+    assert order_row.customer_id == customer_row.id
+
+
+def test_orders_invoice_eligible_filter_and_invoice_reversal_flow(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="invoice-eligible-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    customer = client.post(
+        "/customers",
+        json={"name": "Invoice Eligible Customer", "email": "eligible@example.com"},
+        headers=_auth_headers(token),
+    )
+    assert customer.status_code == 200, customer.text
+    customer_id = customer.json()["id"]
+
+    _, variant_id = _create_product_with_variant(client, token, qty=3)
+
+    eligible_order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 140}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert eligible_order.status_code == 200, eligible_order.text
+    eligible_order_id = eligible_order.json()["id"]
+
+    invoiced_order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 155}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert invoiced_order.status_code == 200, invoiced_order.text
+    invoiced_order_id = invoiced_order.json()["id"]
+
+    invoice = client.post(
+        "/invoices",
+        json={
+            "customer_id": customer_id,
+            "customer_name": "Invoice Eligible Customer",
+            "order_id": invoiced_order_id,
+            "currency": "USD",
+        },
+        headers=_auth_headers(token),
+    )
+    assert invoice.status_code == 200, invoice.text
+    invoice_id = invoice.json()["id"]
+
+    duplicate_invoice = client.post(
+        "/invoices",
+        json={
+            "customer_id": customer_id,
+            "customer_name": "Invoice Eligible Customer",
+            "order_id": invoiced_order_id,
+            "currency": "USD",
+        },
+        headers=_auth_headers(token),
+    )
+    assert duplicate_invoice.status_code == 409, duplicate_invoice.text
+    assert "active invoice" in duplicate_invoice.text
+
+    paid_order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 170}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert paid_order.status_code == 200, paid_order.text
+    paid_order_id = paid_order.json()["id"]
+
+    mark_order_paid = client.patch(
+        f"/orders/{paid_order_id}/status",
+        json={"status": "paid"},
+        headers=_auth_headers(token),
+    )
+    assert mark_order_paid.status_code == 200, mark_order_paid.text
+
+    eligible_listing = client.get("/orders?invoice_eligible=true", headers=_auth_headers(token))
+    assert eligible_listing.status_code == 200, eligible_listing.text
+    eligible_ids = {item["id"] for item in eligible_listing.json()["items"]}
+    assert eligible_order_id in eligible_ids
+    assert invoiced_order_id not in eligible_ids
+    assert paid_order_id not in eligible_ids
+
+    cancel_invoice = client.patch(f"/invoices/{invoice_id}/cancel", headers=_auth_headers(token))
+    assert cancel_invoice.status_code == 200, cancel_invoice.text
+    assert cancel_invoice.json()["status"] == "cancelled"
+
+    eligible_after_cancel = client.get("/orders?invoice_eligible=true", headers=_auth_headers(token))
+    assert eligible_after_cancel.status_code == 200, eligible_after_cancel.text
+    assert invoiced_order_id in {item["id"] for item in eligible_after_cancel.json()["items"]}
+
+    recreated_invoice = client.post(
+        "/invoices",
+        json={
+            "customer_id": customer_id,
+            "customer_name": "Invoice Eligible Customer",
+            "order_id": invoiced_order_id,
+            "currency": "USD",
+        },
+        headers=_auth_headers(token),
+    )
+    assert recreated_invoice.status_code == 200, recreated_invoice.text
+    recreated_invoice_id = recreated_invoice.json()["id"]
+
+    delete_invoice = client.delete(
+        f"/invoices/{recreated_invoice_id}",
+        headers=_auth_headers(token),
+    )
+    assert delete_invoice.status_code == 204, delete_invoice.text
+
+    eligible_after_delete = client.get("/orders?invoice_eligible=true", headers=_auth_headers(token))
+    assert eligible_after_delete.status_code == 200, eligible_after_delete.text
+    assert invoiced_order_id in {item["id"] for item in eligible_after_delete.json()["items"]}
+
+
+def test_invoice_mark_paid_syncs_order_status_and_invoice_eligibility(test_context):
+    client, session_local = test_context
+
+    owner = _register(client, email="invoice-order-sync-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    customer = client.post(
+        "/customers",
+        json={"name": "Invoice Order Sync", "email": "invoice.sync@example.com"},
+        headers=_auth_headers(token),
+    )
+    assert customer.status_code == 200, customer.text
+    customer_id = customer.json()["id"]
+
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
+    order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 2, "unit_price": 125}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert order.status_code == 200, order.text
+    order_id = order.json()["id"]
+
+    invoice = client.post(
+        "/invoices",
+        json={
+            "customer_id": customer_id,
+            "customer_name": "Invoice Order Sync",
+            "order_id": order_id,
+            "currency": "USD",
+        },
+        headers=_auth_headers(token),
+    )
+    assert invoice.status_code == 200, invoice.text
+    invoice_id = invoice.json()["id"]
+
+    mark_paid = client.patch(
+        f"/invoices/{invoice_id}/mark-paid",
+        json={"payment_method": "transfer", "idempotency_key": "invoice-order-sync-paid-1"},
+        headers=_auth_headers(token),
+    )
+    assert mark_paid.status_code == 200, mark_paid.text
+    assert mark_paid.json()["status"] == "paid"
+
+    db = session_local()
+    try:
+        order_row = db.execute(select(Order).where(Order.id == order_id)).scalar_one()
+    finally:
+        db.close()
+
+    assert order_row.status == "paid"
+    assert order_row.sale_id is not None
+
+    eligible_listing = client.get("/orders?invoice_eligible=true", headers=_auth_headers(token))
+    assert eligible_listing.status_code == 200, eligible_listing.text
+    assert order_id not in {item["id"] for item in eligible_listing.json()["items"]}
+
+
+def test_invoice_create_rejects_orders_that_are_not_invoice_eligible(test_context):
+    client, _ = test_context
+
+    owner = _register(client, email="invoice-order-eligibility-owner@example.com")
+    assert owner.status_code == 200, owner.text
+    token = owner.json()["access_token"]
+
+    customer = client.post(
+        "/customers",
+        json={"name": "Invoice Eligibility Block", "email": "invoice.block@example.com"},
+        headers=_auth_headers(token),
+    )
+    assert customer.status_code == 200, customer.text
+    customer_id = customer.json()["id"]
+
+    _, variant_id = _create_product_with_variant(client, token, qty=5)
+    order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 90}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert order.status_code == 200, order.text
+    order_id = order.json()["id"]
+
+    mark_order_paid = client.patch(
+        f"/orders/{order_id}/status",
+        json={"status": "paid"},
+        headers=_auth_headers(token),
+    )
+    assert mark_order_paid.status_code == 200, mark_order_paid.text
+
+    create_invoice = client.post(
+        "/invoices",
+        json={
+            "customer_id": customer_id,
+            "customer_name": "Invoice Eligibility Block",
+            "order_id": order_id,
+            "currency": "USD",
+        },
+        headers=_auth_headers(token),
+    )
+    assert create_invoice.status_code == 400, create_invoice.text
+    assert "cannot be assigned to a new invoice" in create_invoice.text
 
 
 def test_customers_import_csv_reports_summary_and_rejections(test_context):
@@ -2234,10 +2840,25 @@ def test_dashboard_customer_insights_returns_repeat_buyers_and_top_customers(tes
     )
     assert second_paid.status_code == 200, second_paid.text
 
+    third_order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_b_id,
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 80}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert third_order.status_code == 200, third_order.text
+    third_order_id = third_order.json()["id"]
+
     invoice_res = client.post(
         "/invoices",
         json={
             "customer_id": customer_b_id,
+            "customer_name": "Tunde Ade",
+            "order_id": third_order_id,
             "currency": "USD",
             "total_amount": 80,
             "due_date": "2026-02-28",
@@ -2665,12 +3286,19 @@ def test_checkout_session_create_public_view_and_place_order(test_context):
 
     placed = client.post(
         f"/checkout/{session_token}/place-order",
-        json={"payment_method": "transfer", "note": "Placed from public checkout"},
+        json={
+            "payment_method": "transfer",
+            "note": "Placed from public checkout",
+            "customer_name": "Checkout Buyer",
+            "customer_email": "checkout.buyer@example.com",
+        },
     )
     assert placed.status_code == 200, placed.text
     placed_payload = placed.json()
     assert placed_payload["checkout_status"] == "pending_payment"
     assert placed_payload["order_status"] == "pending"
+    assert placed_payload["order_reference"].startswith("ORD-")
+    assert placed_payload["customer_name"] == "Checkout Buyer"
     assert placed_payload["total_amount"] == pytest.approx(250.0)
 
     orders = client.get("/orders?status=pending", headers=_auth_headers(token))
@@ -2782,6 +3410,7 @@ def test_checkout_webhook_marks_order_paid_and_is_idempotent(test_context):
     assert webhook_json["checkout_session_id"] == checkout_session_id
     assert webhook_json["checkout_session_status"] == "paid"
     assert webhook_json["order_id"] == order_id
+    assert webhook_json["order_reference"].startswith("ORD-")
     assert webhook_json["order_status"] == "paid"
 
     duplicate_res = client.post("/payment-webhooks/stub", content=body, headers=headers)
@@ -3029,7 +3658,11 @@ def test_shipping_quote_selection_and_shipment_tracking_flow(test_context):
 
     placed = client.post(
         f"/checkout/{session_token}/place-order",
-        json={"payment_method": "transfer"},
+        json={
+            "payment_method": "transfer",
+            "customer_name": "Shipping Buyer",
+            "customer_email": "shipping.buyer@example.com",
+        },
     )
     assert placed.status_code == 200, placed.text
     order_id = placed.json()["order_id"]
@@ -3069,6 +3702,8 @@ def test_shipping_quote_selection_and_shipment_tracking_flow(test_context):
     shipment_payload = shipment.json()
     shipment_id = shipment_payload["id"]
     assert shipment_payload["status"] == "label_purchased"
+    assert shipment_payload["order_reference"].startswith("ORD-")
+    assert shipment_payload["customer_name"] == "Shipping Buyer"
     assert shipment_payload["tracking_number"]
 
     sync_first = client.post(
@@ -3077,6 +3712,8 @@ def test_shipping_quote_selection_and_shipment_tracking_flow(test_context):
     )
     assert sync_first.status_code == 200, sync_first.text
     assert sync_first.json()["shipment_status"] == "in_transit"
+    assert sync_first.json()["order_reference"].startswith("ORD-")
+    assert sync_first.json()["customer_name"] == "Shipping Buyer"
     assert sync_first.json()["order_status"] == "processing"
 
     sync_second = client.post(
@@ -3433,6 +4070,7 @@ def test_campaigns_segments_consent_dispatch_metrics_and_retention_trigger_flow(
     assert template.status_code == 200, template.text
     template_id = template.json()["id"]
     assert template.json()["status"] == "draft"
+    assert template.json()["created_by_name"] == "Owner"
 
     blocked_send = client.post(
         "/campaigns",
@@ -3456,6 +4094,7 @@ def test_campaigns_segments_consent_dispatch_metrics_and_retention_trigger_flow(
     )
     assert approve_template.status_code == 200, approve_template.text
     assert approve_template.json()["status"] == "approved"
+    assert approve_template.json()["approved_by_name"] == "Owner"
 
     connect_whatsapp = client.post(
         "/integrations/apps/install",
@@ -3480,6 +4119,7 @@ def test_campaigns_segments_consent_dispatch_metrics_and_retention_trigger_flow(
     )
     assert unsubscribe.status_code == 200, unsubscribe.text
     assert unsubscribe.json()["status"] == "unsubscribed"
+    assert unsubscribe.json()["customer_name"] == "Campaign Customer Two"
 
     campaign = client.post(
         "/campaigns",
@@ -3496,12 +4136,19 @@ def test_campaigns_segments_consent_dispatch_metrics_and_retention_trigger_flow(
     assert campaign.status_code == 200, campaign.text
     campaign_payload = campaign.json()
     campaign_id = campaign_payload["id"]
+    assert campaign_payload["segment_name"] == "Customers With Phone"
+    assert campaign_payload["template_name"] == "Winback WhatsApp Template"
+    assert campaign_payload["created_by_name"] == "Owner"
     assert campaign_payload["total_recipients"] == 2
     assert campaign_payload["suppressed_count"] >= 1
     assert campaign_payload["sent_count"] + campaign_payload["failed_count"] >= 1
 
     recipients = client.get(f"/campaigns/{campaign_id}/recipients", headers=_auth_headers(token))
     assert recipients.status_code == 200, recipients.text
+    assert {item["customer_name"] for item in recipients.json()["items"]} == {
+        "Campaign Customer One",
+        "Campaign Customer Two",
+    }
     recipient_statuses = {item["status"] for item in recipients.json()["items"]}
     assert "suppressed" in recipient_statuses
     assert "sent" in recipient_statuses or "delivered" in recipient_statuses or "failed" in recipient_statuses
@@ -3537,6 +4184,9 @@ def test_campaigns_segments_consent_dispatch_metrics_and_retention_trigger_flow(
     )
     assert trigger.status_code == 200, trigger.text
     trigger_id = trigger.json()["id"]
+    assert trigger.json()["segment_name"] == "Customers With Phone"
+    assert trigger.json()["template_name"] == "Winback WhatsApp Template"
+    assert trigger.json()["created_by_name"] == "Owner"
 
     trigger_run = client.post(
         f"/campaigns/retention-triggers/{trigger_id}/run",
@@ -3552,7 +4202,10 @@ def test_campaigns_segments_consent_dispatch_metrics_and_retention_trigger_flow(
 
     campaigns_list = client.get("/campaigns?limit=20&offset=0", headers=_auth_headers(token))
     assert campaigns_list.status_code == 200, campaigns_list.text
-    assert any(item["id"] == campaign_id for item in campaigns_list.json()["items"])
+    listed_campaign = next((item for item in campaigns_list.json()["items"] if item["id"] == campaign_id), None)
+    assert listed_campaign is not None
+    assert listed_campaign["segment_name"] == "Customers With Phone"
+    assert listed_campaign["template_name"] == "Winback WhatsApp Template"
 
 
 def test_invoices_advanced_receivables_templates_partials_aging_and_statements(test_context):
@@ -3582,6 +4235,40 @@ def test_invoices_advanced_receivables_templates_partials_aging_and_statements(t
     assert fx_quote.json()["to_currency"] == "USD"
     assert fx_quote.json()["rate"] > 0
 
+    _, variant_id = _create_product_with_variant(client, token, qty=3)
+    stock_seed = client.post(
+        "/inventory/stock-in",
+        json={"variant_id": variant_id, "qty": 10, "unit_cost": 50},
+        headers=_auth_headers(token),
+    )
+    assert stock_seed.status_code == 200, stock_seed.text
+
+    invoice_order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "transfer",
+            "channel": "instagram",
+            "items": [{"variant_id": variant_id, "qty": 3, "unit_price": 100}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert invoice_order.status_code == 200, invoice_order.text
+    invoice_order_id = invoice_order.json()["id"]
+
+    old_due_order = client.post(
+        "/orders",
+        json={
+            "customer_id": customer_id,
+            "payment_method": "cash",
+            "channel": "walk-in",
+            "items": [{"variant_id": variant_id, "qty": 1, "unit_price": 90}],
+        },
+        headers=_auth_headers(token),
+    )
+    assert old_due_order.status_code == 200, old_due_order.text
+    old_due_order_id = old_due_order.json()["id"]
+
     template = client.put(
         "/invoices/templates",
         json={
@@ -3604,6 +4291,8 @@ def test_invoices_advanced_receivables_templates_partials_aging_and_statements(t
         "/invoices",
         json={
             "customer_id": customer_id,
+            "customer_name": "Advanced Receivables Customer",
+            "order_id": invoice_order_id,
             "currency": "EUR",
             "total_amount": 300,
             "issue_date": today.isoformat(),
@@ -3700,8 +4389,11 @@ def test_invoices_advanced_receivables_templates_partials_aging_and_statements(t
         "/invoices",
         json={
             "customer_id": customer_id,
+            "customer_name": "Advanced Receivables Customer",
+            "order_id": old_due_order_id,
             "currency": "USD",
             "total_amount": 90,
+            "issue_date": "2024-12-01",
             "due_date": "2025-01-01",
             "reminder_policy": {
                 "enabled": True,
@@ -3751,8 +4443,9 @@ def test_invoices_advanced_receivables_templates_partials_aging_and_statements(t
         headers=_auth_headers(token),
     )
     assert export.status_code == 200, export.text
-    assert export.json()["row_count"] >= 1
-    assert "customer_id" in export.json()["csv_content"]
+    assert export.headers["content-type"].startswith("text/csv")
+    assert "attachment; filename=" in export.headers["content-disposition"]
+    assert "customer_id,customer_name,invoices_count" in export.text
 
 
 def test_analytics_pos_offline_and_privacy_hardening_flow(test_context):
@@ -3885,7 +4578,9 @@ def test_analytics_pos_offline_and_privacy_hardening_flow(test_context):
         headers=_auth_headers(token),
     )
     assert export_report.status_code == 200, export_report.text
-    assert "channel" in export_report.json()["csv_content"]
+    assert export_report.headers["content-type"].startswith("text/csv")
+    assert "attachment; filename=" in export_report.headers["content-disposition"]
+    assert "channel,revenue,cogs,expenses,gross_profit,net_profit" in export_report.text
 
     customer = client.post(
         "/customers",
@@ -3915,6 +4610,8 @@ def test_analytics_pos_offline_and_privacy_hardening_flow(test_context):
         "/invoices",
         json={
             "customer_id": customer_id,
+            "customer_name": "Privacy Customer",
+            "order_id": order.json()["id"],
             "currency": "USD",
             "total_amount": 100,
         },
@@ -3933,6 +4630,8 @@ def test_analytics_pos_offline_and_privacy_hardening_flow(test_context):
     )
     assert pii_export.status_code == 200, pii_export.text
     assert pii_export.json()["customer"]["email"] == "privacy.customer@example.com"
+    assert pii_export.json()["orders"][0]["reference"].startswith("ORD-")
+    assert pii_export.json()["invoices"][0]["reference"].startswith("INV-")
     pii_export_pdf = client.get(
         f"/privacy/customers/{customer_id}/export/download",
         headers=_auth_headers(token),

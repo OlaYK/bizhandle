@@ -2,10 +2,15 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, ScanLine, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useFieldArray, useForm } from "react-hook-form";
+import { useFieldArray, useForm, type UseFormReturn } from "react-hook-form";
 import { z } from "zod";
-import { authService, orderService, productService } from "../api/services";
-import type { OrderStatus } from "../api/types";
+import {
+  authService,
+  customerService,
+  orderService,
+  productService,
+} from "../api/services";
+import type { OrderStatus, ProductOut } from "../api/types";
 import { EmptyState } from "../components/state/empty-state";
 import { ErrorState } from "../components/state/error-state";
 import { LoadingState } from "../components/state/loading-state";
@@ -74,6 +79,132 @@ function defaultUnitPrice(price: number | null | undefined) {
   return price;
 }
 
+/* ── Per-row line item with its own product + variant selection ── */
+function OrderLineItem({
+  index,
+  orderForm,
+  products,
+  // customers,
+  defaultProductId,
+  canRemove,
+  onRemove,
+}: {
+  index: number;
+  orderForm: UseFormReturn<OrderCreateFormData>;
+  products: ProductOut[];
+  // customers: CustomerOut[];
+  defaultProductId: string;
+  canRemove: boolean;
+  onRemove: () => void;
+}) {
+  const [productId, setProductId] = useState(defaultProductId);
+
+  const variantsQuery = useQuery({
+    queryKey: ["orders", "variants", productId],
+    queryFn: () =>
+      productService.listVariants(productId, { limit: 300, offset: 0 }),
+    enabled: Boolean(productId),
+  });
+
+  /* When the product changes, reset the variant & price for this row */
+  useEffect(() => {
+    const firstVariant = variantsQuery.data?.items[0];
+    if (firstVariant) {
+      orderForm.setValue(`items.${index}.variant_id`, firstVariant.id, {
+        shouldValidate: true,
+      });
+      orderForm.setValue(
+        `items.${index}.unit_price`,
+        defaultUnitPrice(firstVariant.selling_price),
+        { shouldValidate: true },
+      );
+    } else {
+      orderForm.setValue(`items.${index}.variant_id`, "");
+    }
+    // only run when product variants change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variantsQuery.data]);
+
+  const variantField = orderForm.register(`items.${index}.variant_id`);
+
+  return (
+    <div className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12">
+      <div className="md:col-span-3">
+        <Select
+          label="Product"
+          value={productId}
+          onChange={(e) => setProductId(e.target.value)}
+        >
+          {products.map((product) => (
+            <option key={product.id} value={product.id}>
+              {product.name}
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      <div className="md:col-span-3">
+        <Select
+          label="Variant"
+          {...variantField}
+          onChange={(event) => {
+            variantField.onChange(event);
+            const selectedVariant = variantsQuery.data?.items.find(
+              (variant) => variant.id === event.target.value,
+            );
+            if (!selectedVariant) return;
+            orderForm.setValue(
+              `items.${index}.unit_price`,
+              defaultUnitPrice(selectedVariant.selling_price),
+              { shouldDirty: true, shouldValidate: true },
+            );
+          }}
+          error={orderForm.formState.errors.items?.[index]?.variant_id?.message}
+        >
+          <option value="">Select variant</option>
+          {(variantsQuery.data?.items ?? []).map((variant) => (
+            <option key={variant.id} value={variant.id}>
+              {variant.size}
+              {variant.label ? ` - ${variant.label}` : ""}
+              {variant.sku ? ` (${variant.sku})` : ""}
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      <div className="md:col-span-2">
+        <Input
+          label="Qty"
+          type="number"
+          {...orderForm.register(`items.${index}.qty`)}
+          error={orderForm.formState.errors.items?.[index]?.qty?.message}
+        />
+      </div>
+      <div className="md:col-span-3">
+        <Input
+          label="Unit Price"
+          type="number"
+          step="0.01"
+          {...orderForm.register(`items.${index}.unit_price`)}
+          error={orderForm.formState.errors.items?.[index]?.unit_price?.message}
+        />
+      </div>
+      <div className="md:col-span-1 md:self-end">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="w-full"
+          onClick={onRemove}
+          disabled={!canRemove}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function OrdersPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -83,7 +214,7 @@ export function OrdersPage() {
   });
   const quickInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [selectedProductId, setSelectedProductId] = useState("");
+  const [scannerProductId, setScannerProductId] = useState("");
   const [quickCode, setQuickCode] = useState("");
   const [statusFilter, setStatusFilter] = useState<OrderStatus | "">("");
   const [channelFilter, setChannelFilter] = useState<
@@ -109,18 +240,25 @@ export function OrdersPage() {
     queryFn: () => productService.list({ limit: 200, offset: 0 }),
   });
 
-  useEffect(() => {
-    if (!productsQuery.data?.items.length) return;
-    if (!selectedProductId) {
-      setSelectedProductId(productsQuery.data.items[0].id);
-    }
-  }, [productsQuery.data, selectedProductId]);
+  const customersQuery = useQuery({
+    queryKey: ["orders", "customers"],
+    queryFn: () => customerService.list({ limit: 200, offset: 0 }),
+  });
 
+  const firstProductId = productsQuery.data?.items[0]?.id ?? "";
+
+  useEffect(() => {
+    if (firstProductId && !scannerProductId) {
+      setScannerProductId(firstProductId);
+    }
+  }, [firstProductId, scannerProductId]);
+
+  /* Variants query kept for Quick-Add scanner only */
   const variantsQuery = useQuery({
-    queryKey: ["orders", "variants", selectedProductId],
+    queryKey: ["orders", "variants", scannerProductId],
     queryFn: () =>
-      productService.listVariants(selectedProductId, { limit: 300, offset: 0 }),
-    enabled: Boolean(selectedProductId),
+      productService.listVariants(scannerProductId, { limit: 300, offset: 0 }),
+    enabled: Boolean(scannerProductId),
   });
 
   const orderForm = useForm<OrderCreateFormData>({
@@ -138,18 +276,6 @@ export function OrdersPage() {
     control: orderForm.control,
     name: "items",
   });
-
-  useEffect(() => {
-    const firstVariant = variantsQuery.data?.items[0];
-    if (!firstVariant) return;
-    if (!orderForm.getValues("items.0.variant_id")) {
-      orderForm.setValue("items.0.variant_id", firstVariant.id);
-      orderForm.setValue(
-        "items.0.unit_price",
-        defaultUnitPrice(firstVariant.selling_price),
-      );
-    }
-  }, [variantsQuery.data, orderForm]);
 
   const orderItems = orderForm.watch("items");
   const orderTotal = useMemo(
@@ -211,15 +337,7 @@ export function OrdersPage() {
         payment_method: "cash",
         channel: "walk-in",
         note: "",
-        items: [
-          {
-            variant_id: variantsQuery.data?.items[0]?.id ?? "",
-            qty: 1,
-            unit_price: defaultUnitPrice(
-              variantsQuery.data?.items[0]?.selling_price,
-            ),
-          },
-        ],
+        items: [{ variant_id: "", qty: 1, unit_price: 1 }],
       });
       setQuickCode("");
       queryClient.invalidateQueries({ queryKey: ["orders"] });
@@ -325,22 +443,32 @@ export function OrdersPage() {
     quickInputRef.current?.focus();
   }
 
-  if (productsQuery.isLoading || listQuery.isLoading) {
+  if (
+    productsQuery.isLoading ||
+    listQuery.isLoading ||
+    customersQuery.isLoading
+  ) {
     return <LoadingState label="Loading orders workspace..." />;
   }
 
-  if (productsQuery.isError || variantsQuery.isError || listQuery.isError) {
+  if (productsQuery.isError || listQuery.isError || customersQuery.isError) {
     return (
       <ErrorState
         message="Failed to load order workspace."
         onRetry={() => {
           productsQuery.refetch();
-          variantsQuery.refetch();
           listQuery.refetch();
+          customersQuery.refetch();
         }}
       />
     );
   }
+
+  const products = productsQuery.data?.items ?? [];
+  const customers = customersQuery.data?.items ?? [];
+
+  console.log("customers", customers);
+  console.log("list", listQuery.data?.items);
 
   return (
     <div className="space-y-6">
@@ -367,21 +495,17 @@ export function OrdersPage() {
         >
           <div className="grid gap-3 md:grid-cols-4">
             <Select
-              label="Product"
-              value={selectedProductId}
-              onChange={(event) => setSelectedProductId(event.target.value)}
+              label="Customer"
+              {...orderForm.register("customer_id")}
+              error={orderForm.formState.errors.customer_id?.message}
             >
-              {(productsQuery.data?.items ?? []).map((product) => (
-                <option key={product.id} value={product.id}>
-                  {product.name}
+              <option value="">Select customer</option>
+              {(customers ?? []).map((customer) => (
+                <option key={customer.id} value={customer.id}>
+                  {customer.name}
                 </option>
               ))}
             </Select>
-            <Input
-              label="Customer ID (optional)"
-              placeholder="customer-001"
-              {...orderForm.register("customer_id")}
-            />
             <Select
               label="Payment Method"
               {...orderForm.register("payment_method")}
@@ -402,8 +526,19 @@ export function OrdersPage() {
             </Select>
           </div>
 
-          <div className="rounded-2xl border border-surface-100 p-3">
-            <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+          <div className="rounded-2xl border border-surface-100 p-3 relative before:absolute before:inset-0 before:bg-surface-50 before:rounded-2xl cursor-not-allowed ">
+            <div className="grid gap-3 md:grid-cols-[auto_1fr_auto]">
+              <Select
+                label="Scanner Product"
+                value={scannerProductId}
+                onChange={(e) => setScannerProductId(e.target.value)}
+              >
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name}
+                  </option>
+                ))}
+              </Select>
               <Input
                 ref={quickInputRef}
                 label="Quick Add (SKU / size / label)"
@@ -441,13 +576,7 @@ export function OrdersPage() {
                 size="sm"
                 variant="ghost"
                 onClick={() =>
-                  append({
-                    variant_id: variantsQuery.data?.items[0]?.id ?? "",
-                    qty: 1,
-                    unit_price: defaultUnitPrice(
-                      variantsQuery.data?.items[0]?.selling_price,
-                    ),
-                  })
+                  append({ variant_id: "", qty: 1, unit_price: 1 })
                 }
               >
                 <Plus className="h-4 w-4" />
@@ -455,88 +584,18 @@ export function OrdersPage() {
               </Button>
             </div>
 
-            {fields.map((field, index) => {
-              const variantField = orderForm.register(
-                `items.${index}.variant_id`,
-              );
-              return (
-                <div
-                  key={field.id}
-                  className="grid gap-3 rounded-xl border border-surface-100 p-3 md:grid-cols-12"
-                >
-                  <div className="md:col-span-6">
-                    <Select
-                      label="Variant"
-                      {...variantField}
-                      onChange={(event) => {
-                        variantField.onChange(event);
-                        const selectedVariant = variantsQuery.data?.items.find(
-                          (variant) => variant.id === event.target.value,
-                        );
-                        if (!selectedVariant) {
-                          return;
-                        }
-                        orderForm.setValue(
-                          `items.${index}.unit_price`,
-                          defaultUnitPrice(selectedVariant.selling_price),
-                          {
-                            shouldDirty: true,
-                            shouldValidate: true,
-                          },
-                        );
-                      }}
-                      error={
-                        orderForm.formState.errors.items?.[index]?.variant_id
-                          ?.message
-                      }
-                    >
-                      <option value="">Select variant</option>
-                      {(variantsQuery.data?.items ?? []).map((variant) => (
-                        <option key={variant.id} value={variant.id}>
-                          {variant.size}
-                          {variant.label ? ` - ${variant.label}` : ""}
-                          {variant.sku ? ` (${variant.sku})` : ""}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="md:col-span-2">
-                    <Input
-                      label="Qty"
-                      type="number"
-                      {...orderForm.register(`items.${index}.qty`)}
-                      error={
-                        orderForm.formState.errors.items?.[index]?.qty?.message
-                      }
-                    />
-                  </div>
-                  <div className="md:col-span-3">
-                    <Input
-                      label="Unit Price"
-                      type="number"
-                      step="0.01"
-                      {...orderForm.register(`items.${index}.unit_price`)}
-                      error={
-                        orderForm.formState.errors.items?.[index]?.unit_price
-                          ?.message
-                      }
-                    />
-                  </div>
-                  <div className="md:col-span-1 md:self-end">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="w-full"
-                      onClick={() => remove(index)}
-                      disabled={fields.length <= 1}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
+            {fields.map((field, index) => (
+              <OrderLineItem
+                key={field.id}
+                index={index}
+                orderForm={orderForm}
+                products={products}
+                // customers={customers}
+                defaultProductId={firstProductId}
+                canRemove={fields.length > 1}
+                onRemove={() => remove(index)}
+              />
+            ))}
           </div>
 
           <Textarea label="Note" rows={3} {...orderForm.register("note")} />
@@ -595,12 +654,18 @@ export function OrdersPage() {
             <option value="whatsapp">WhatsApp</option>
             <option value="instagram">Instagram</option>
           </Select>
-          <Input
-            label="Customer ID"
-            placeholder="customer-001"
+          <Select
+            label="Customer"
             value={customerFilter}
             onChange={(event) => setCustomerFilter(event.target.value)}
-          />
+          >
+            <option value="">All customers</option>
+            {customers.map((customer) => (
+              <option key={customer.id} value={customer.id}>
+                {customer.name}
+              </option>
+            ))}
+          </Select>
           <div className="mt-7">
             <Badge variant="info">
               {listQuery.data?.pagination.total ?? 0} orders
@@ -643,7 +708,13 @@ export function OrdersPage() {
                       {formatDateTime(order.created_at)}
                     </p>
                     <p className="mt-1 text-xs text-surface-500">
-                      Customer: {order.customer_id || "-"}
+                      Customer: {order.customer_name || "-"}
+                    </p>
+                    <p className="mt-1 text-xs text-surface-500">
+                      Allocation:{" "}
+                      {order.allocation
+                        ? `${order.allocation.location_name || order.allocation.location_id} · ${formatDateTime(order.allocation.allocated_at)}`
+                        : "-"}
                     </p>
                     <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
                       <select
@@ -695,6 +766,7 @@ export function OrdersPage() {
                     <th className="px-2 py-2">Channel</th>
                     <th className="px-2 py-2">Payment</th>
                     <th className="px-2 py-2">Customer</th>
+                    <th className="px-2 py-2">Allocation</th>
                     <th className="px-2 py-2">Date</th>
                     <th className="px-2 py-2">Lifecycle</th>
                   </tr>
@@ -726,7 +798,22 @@ export function OrdersPage() {
                           {order.payment_method}
                         </td>
                         <td className="px-2 py-2 text-surface-600">
-                          {order.customer_id || "-"}
+                          {order.customer_name || "-"}
+                        </td>
+                        <td className="px-2 py-2 text-surface-600">
+                          {order.allocation ? (
+                            <>
+                              <p>
+                                {order.allocation.location_name ||
+                                  order.allocation.location_id}
+                              </p>
+                              <p className="text-xs text-surface-500">
+                                {formatDateTime(order.allocation.allocated_at)}
+                              </p>
+                            </>
+                          ) : (
+                            "-"
+                          )}
                         </td>
                         <td className="px-2 py-2 text-surface-500">
                           {formatDateTime(order.created_at)}

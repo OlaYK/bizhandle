@@ -14,6 +14,7 @@ from app.core.money import ZERO_MONEY, to_money
 from app.core.permissions import require_business_roles
 from app.core.security_current import BusinessAccess, get_current_user
 from app.models.customer import Customer
+from app.models.invoice import Invoice
 from app.models.order import Order, OrderItem
 from app.models.product import ProductVariant
 from app.models.sales import Sale, SaleItem
@@ -23,12 +24,14 @@ from app.schemas.order import (
     ALLOWED_ORDER_STATUSES,
     OrderCreate,
     OrderCreateOut,
+    OrderAllocationSummaryOut,
     OrderListOut,
     OrderMaintenanceOut,
     OrderOut,
     OrderStatusUpdateIn,
 )
 from app.services.audit_service import log_audit_event
+from app.services.display_service import get_customer_name_map, get_order_allocation_map
 from app.services.inventory_service import add_ledger_entry, get_variant_stock
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -72,7 +75,13 @@ def _ensure_transition_allowed(current_status: str, next_status: str) -> None:
         )
 
 
-def _order_out(order: Order) -> OrderOut:
+def _order_out(
+    order: Order,
+    *,
+    currency: str,
+    customer_name: str | None = None,
+    allocation: OrderAllocationSummaryOut | None = None,
+) -> OrderOut:
     normalized_payment_method = (order.payment_method or "").strip().lower()
     if normalized_payment_method not in ALLOWED_ORDER_PAYMENT_METHODS:
         normalized_payment_method = "cash"
@@ -84,11 +93,14 @@ def _order_out(order: Order) -> OrderOut:
     return OrderOut(
         id=order.id,
         customer_id=order.customer_id,
+        customer_name=customer_name,
         payment_method=normalized_payment_method,
         channel=normalized_channel,
         status=order.status,
+        currency=currency,
         total_amount=float(to_money(order.total_amount)),
         sale_id=order.sale_id,
+        allocation=allocation,
         note=order.note,
         created_at=order.created_at,
         updated_at=order.updated_at,
@@ -173,6 +185,28 @@ def _resolve_customer_id(
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
     return normalized_customer_id
+
+
+def _order_allocation_summary_map(
+    db: Session,
+    *,
+    business_id: str,
+    order_ids: list[str],
+) -> dict[str, OrderAllocationSummaryOut]:
+    allocation_map = get_order_allocation_map(
+        db,
+        business_id=business_id,
+        order_ids=order_ids,
+    )
+    return {
+        order_id: OrderAllocationSummaryOut(
+            id=allocation.allocation_id,
+            location_id=allocation.location_id,
+            location_name=allocation.location_name,
+            allocated_at=allocation.allocated_at,
+        )
+        for order_id, allocation in allocation_map.items()
+    }
 
 
 def _convert_order_to_sale(
@@ -275,6 +309,11 @@ def create_order(
         business_id=biz.id,
         customer_id=payload.customer_id,
     )
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=biz.id,
+        customer_ids=[resolved_customer_id],
+    )
     quantity_by_variant: dict[str, int] = {}
     total = ZERO_MONEY
     for item in payload.items:
@@ -328,12 +367,19 @@ def create_order(
             "payment_method": payload.payment_method,
             "channel": payload.channel,
             "customer_id": resolved_customer_id,
+            "customer_name": customer_name_map.get(resolved_customer_id or ""),
             "items_count": len(payload.items),
             "total": float(to_money(total)),
         },
     )
     db.commit()
-    return OrderCreateOut(id=order_id, total=float(to_money(total)), status="pending", sale_id=None)
+    return OrderCreateOut(
+        id=order_id,
+        total=float(to_money(total)),
+        currency=biz.base_currency,
+        status="pending",
+        sale_id=None,
+    )
 
 
 @router.get(
@@ -346,6 +392,7 @@ def list_orders(
     status: str | None = Query(default=None),
     channel: str | None = Query(default=None),
     customer_id: str | None = Query(default=None),
+    invoice_eligible: bool = Query(default=False),
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
@@ -372,6 +419,20 @@ def list_orders(
     if normalized_customer_id:
         count_stmt = count_stmt.where(Order.customer_id == normalized_customer_id)
         data_stmt = data_stmt.where(Order.customer_id == normalized_customer_id)
+    if invoice_eligible:
+        active_invoice_order_ids = select(Invoice.order_id).where(
+            Invoice.business_id == access.business.id,
+            Invoice.order_id.is_not(None),
+            Invoice.status != "cancelled",
+        )
+        count_stmt = count_stmt.where(
+            Order.status == "pending",
+            ~Order.id.in_(active_invoice_order_ids),
+        )
+        data_stmt = data_stmt.where(
+            Order.status == "pending",
+            ~Order.id.in_(active_invoice_order_ids),
+        )
     if start_date:
         count_stmt = count_stmt.where(func.date(Order.created_at) >= start_date)
         data_stmt = data_stmt.where(func.date(Order.created_at) >= start_date)
@@ -383,7 +444,25 @@ def list_orders(
     rows = db.execute(
         data_stmt.order_by(Order.created_at.desc()).offset(offset).limit(limit)
     ).scalars().all()
-    items = [_order_out(row) for row in rows]
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=access.business.id,
+        customer_ids=[row.customer_id for row in rows],
+    )
+    allocation_map = _order_allocation_summary_map(
+        db,
+        business_id=access.business.id,
+        order_ids=[row.id for row in rows],
+    )
+    items = [
+        _order_out(
+            row,
+            currency=access.business.base_currency,
+            customer_name=customer_name_map.get(row.customer_id or ""),
+            allocation=allocation_map.get(row.id),
+        )
+        for row in rows
+    ]
     count = len(items)
 
     return OrderListOut(
@@ -394,6 +473,7 @@ def list_orders(
             count=count,
             has_next=(offset + count) < total_count,
         ),
+        base_currency=access.business.base_currency,
         start_date=start_date,
         end_date=end_date,
         status=normalized_status,
@@ -489,4 +569,19 @@ def update_order_status(
             detail="Order update failed due to related data constraints. Refresh and try again.",
         ) from None
     db.refresh(order)
-    return _order_out(order)
+    customer_name_map = get_customer_name_map(
+        db,
+        business_id=access.business.id,
+        customer_ids=[order.customer_id],
+    )
+    allocation_map = _order_allocation_summary_map(
+        db,
+        business_id=access.business.id,
+        order_ids=[order.id],
+    )
+    return _order_out(
+        order,
+        currency=access.business.base_currency,
+        customer_name=customer_name_map.get(order.customer_id or ""),
+        allocation=allocation_map.get(order.id),
+    )

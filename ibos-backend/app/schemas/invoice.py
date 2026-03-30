@@ -51,7 +51,8 @@ class InvoiceReminderPolicyIn(BaseModel):
 
 class InvoiceCreate(BaseModel):
     customer_id: Optional[str] = None
-    order_id: Optional[str] = None
+    customer_name: str = Field(min_length=2, max_length=120)
+    order_id: str
     currency: str = "USD"
     fx_rate_to_base: Decimal | None = Field(default=None, gt=0)
     total_amount: Decimal | None = Field(default=None, gt=0)
@@ -62,14 +63,44 @@ class InvoiceCreate(BaseModel):
     reminder_policy: InvoiceReminderPolicyIn | None = None
     installments: list[InvoiceInstallmentCreateIn] = Field(default_factory=list)
     send_now: bool = False
+    send_channel: ReminderChannel | None = None
+    send_recipient_override: str | None = None
+    send_note: str | None = None
 
-    @field_validator("customer_id", "order_id", "note", "template_id")
+    @field_validator(
+        "customer_id",
+        "customer_name",
+        "order_id",
+        "note",
+        "template_id",
+        "send_recipient_override",
+        "send_note",
+    )
     @classmethod
     def _normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
         cleaned = value.strip()
         return cleaned or None
+
+    @field_validator("customer_name")
+    @classmethod
+    def _normalize_customer_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if len(cleaned) < 2:
+            raise ValueError("customer_name is required")
+        return cleaned
+
+    @field_validator("send_channel")
+    @classmethod
+    def _normalize_send_channel(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if normalized not in ALLOWED_REMINDER_CHANNELS:
+            allowed = ", ".join(sorted(ALLOWED_REMINDER_CHANNELS))
+            raise ValueError(f"Invalid send_channel. Allowed: {allowed}")
+        return normalized
 
     @field_validator("currency")
     @classmethod
@@ -83,17 +114,18 @@ class InvoiceCreate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_dates_and_installments(self) -> "InvoiceCreate":
-        if self.issue_date and self.due_date and self.due_date < self.issue_date:
+        effective_issue_date = self.issue_date or date.today()
+        if self.due_date and self.due_date < effective_issue_date:
             raise ValueError("due_date cannot be before issue_date")
         if self.installments:
-            issue = self.issue_date or date.today()
-            if any(item.due_date < issue for item in self.installments):
+            if any(item.due_date < effective_issue_date for item in self.installments):
                 raise ValueError("installment due_date cannot be before issue_date")
         return self
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
+                "customer_name": "Jane Buyer",
                 "customer_id": "customer-id",
                 "order_id": "order-id",
                 "currency": "EUR",
@@ -178,6 +210,7 @@ class InvoiceInstallmentUpsertIn(BaseModel):
 
 class InvoiceReminderIn(BaseModel):
     channel: ReminderChannel = "email"
+    recipient_override: str | None = None
     note: str | None = None
 
     @field_validator("channel")
@@ -189,9 +222,9 @@ class InvoiceReminderIn(BaseModel):
             raise ValueError(f"Invalid reminder channel. Allowed: {allowed}")
         return normalized
 
-    @field_validator("note")
+    @field_validator("recipient_override", "note")
     @classmethod
-    def _normalize_note(cls, value: str | None) -> str | None:
+    def _normalize_optional_text(cls, value: str | None) -> str | None:
         if value is None:
             return None
         cleaned = value.strip()
@@ -201,7 +234,43 @@ class InvoiceReminderIn(BaseModel):
         json_schema_extra={
             "example": {
                 "channel": "whatsapp",
+                "recipient_override": "+2348000000000",
                 "note": "Customer requested WhatsApp reminder",
+            }
+        }
+    )
+
+
+class InvoiceSendIn(BaseModel):
+    channel: ReminderChannel | None = None
+    recipient_override: str | None = None
+    note: str | None = None
+
+    @field_validator("channel")
+    @classmethod
+    def _normalize_channel(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if normalized not in ALLOWED_REMINDER_CHANNELS:
+            allowed = ", ".join(sorted(ALLOWED_REMINDER_CHANNELS))
+            raise ValueError(f"Invalid send channel. Allowed: {allowed}")
+        return normalized
+
+    @field_validator("recipient_override", "note")
+    @classmethod
+    def _normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "channel": "email",
+                "recipient_override": "ops@example.com",
+                "note": "Send as final reviewed invoice",
             }
         }
     )
@@ -322,6 +391,7 @@ class InvoiceReminderRunOut(BaseModel):
 class InvoiceOut(BaseModel):
     id: str
     customer_id: str | None = None
+    customer_name: str | None = None
     order_id: str | None = None
     status: InvoiceStatus
     currency: str
@@ -373,6 +443,7 @@ class InvoiceAgingBucketOut(BaseModel):
 
 class InvoiceAgingCustomerOut(BaseModel):
     customer_id: str | None = None
+    customer_name: str | None = None
     amount: float
     count: int
 
@@ -390,6 +461,7 @@ class InvoiceAgingDashboardOut(BaseModel):
 
 class InvoiceStatementItemOut(BaseModel):
     customer_id: str | None = None
+    customer_name: str | None = None
     invoices_count: int
     total_invoiced: float
     total_paid: float
@@ -408,3 +480,38 @@ class InvoiceStatementExportOut(BaseModel):
     content_type: str
     row_count: int
     csv_content: str
+
+
+class InvoiceDeliveryOptionOut(BaseModel):
+    channel: str
+    recipient: str | None = None
+    ready: bool
+    reason: str | None = None
+    suggested: bool = False
+
+
+class InvoicePreviewLineItemOut(BaseModel):
+    variant_id: str
+    product_id: str
+    product_name: str
+    size: str
+    label: str | None = None
+    sku: str | None = None
+    qty: int
+    unit_price: float
+    line_total: float
+
+
+class InvoicePreviewOut(BaseModel):
+    invoice: InvoiceOut
+    customer_name: str | None = None
+    customer_email: str | None = None
+    customer_phone: str | None = None
+    template: InvoiceTemplateOut | None = None
+    delivery_options: list[InvoiceDeliveryOptionOut]
+    recommended_channel: str | None = None
+    subject: str
+    message_preview: str
+    line_items: list[InvoicePreviewLineItemOut]
+    installments: list[InvoiceInstallmentOut]
+    reminder_policy: InvoiceReminderPolicyOut
