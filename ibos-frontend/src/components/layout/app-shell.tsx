@@ -17,7 +17,7 @@ import {
   ShoppingCart,
   Sun,
   User,
-  Users,
+  // Users,
   // Workflow,
   X,
 } from "lucide-react";
@@ -51,7 +51,7 @@ const navItems = [
   // { to: "/pos", label: "POS", icon: Radio },
   // { to: "/insights", label: "AI", icon: Bot },
   // { to: "/credit-profile", label: "Credit", icon: CreditCard },
-  { to: "/team", label: "Team", icon: Users },
+  // { to: "/team", label: "Team", icon: Users },
   { to: "/audit-logs", label: "Audit", icon: ClipboardCheck },
   // { to: "/privacy", label: "Privacy", icon: LockKeyhole },
   { to: "/settings", label: "Settings", icon: Settings },
