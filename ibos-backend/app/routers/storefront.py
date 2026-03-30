@@ -449,8 +449,6 @@ def list_public_storefront_products(
         .where(
             Product.business_id == config.business_id,
             Product.active.is_(True),
-            Product.is_published.is_(True),
-            ProductVariant.is_published.is_(True),
         )
         .group_by(Product.id, Product.name, Product.category)
     )
@@ -515,7 +513,6 @@ def get_public_storefront_product_detail(
             Product.id == product_id,
             Product.business_id == config.business_id,
             Product.active.is_(True),
-            Product.is_published.is_(True),
         )
     ).scalar_one_or_none()
     if not product:
@@ -526,7 +523,6 @@ def get_public_storefront_product_detail(
         .where(
             ProductVariant.product_id == product.id,
             ProductVariant.business_id == config.business_id,
-            ProductVariant.is_published.is_(True),
         )
         .order_by(ProductVariant.created_at.asc())
     ).scalars().all()
