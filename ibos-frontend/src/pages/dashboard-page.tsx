@@ -221,7 +221,7 @@ export function DashboardPage() {
           <p className="text-xs uppercase tracking-wide text-surface-500">
             Profit (Simple)
           </p>
-          <p className="mt-2 font-heading text-2xl font-black text-surface-800">
+          <p className={`mt-2 font-heading text-2xl font-black ${summaryQuery.data.profit_simple < 0 ? "text-red-600" : "text-surface-800"}`}>
             {formatCurrency(
               summaryQuery.data.profit_simple,
               profileQuery.data?.base_currency,

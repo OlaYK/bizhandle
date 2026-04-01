@@ -11,7 +11,7 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { PaginationControls } from "../components/ui/pagination-controls";
-import { Select } from "../components/ui/select";
+// import { Select } from "../components/ui/select";
 import { useToast } from "../hooks/use-toast";
 import { getApiErrorMessage } from "../lib/api-error";
 import { formatCurrency, formatDateTime } from "../lib/format";
@@ -207,30 +207,30 @@ export function ShippingPage() {
     );
   }, [settingsQuery.data]);
 
-  const updateZoneDraft = (id: string, patch: Partial<ShippingZoneDraft>) => {
-    setZones((prev) =>
-      prev.map((zone) => (zone.id === id ? { ...zone, ...patch } : zone)),
-    );
-  };
+  // const updateZoneDraft = (id: string, patch: Partial<ShippingZoneDraft>) => {
+  //   setZones((prev) =>
+  //     prev.map((zone) => (zone.id === id ? { ...zone, ...patch } : zone)),
+  //   );
+  // };
 
-  const removeZoneDraft = (id: string) => {
-    const removedZone = zones.find((zone) => zone.id === id);
-    setZones((prev) => {
-      const next = prev.filter((zone) => zone.id !== id);
-      return next.length ? next : [createZoneDraft()];
-    });
-    if (!removedZone) {
-      return;
-    }
-    const removedZoneName = removedZone.zone_name.trim().toLowerCase();
-    setServiceRules((prev) =>
-      prev.map((rule) =>
-        rule.zone_name.trim().toLowerCase() === removedZoneName
-          ? { ...rule, zone_name: "" }
-          : rule,
-      ),
-    );
-  };
+  // const removeZoneDraft = (id: string) => {
+  //   const removedZone = zones.find((zone) => zone.id === id);
+  //   setZones((prev) => {
+  //     const next = prev.filter((zone) => zone.id !== id);
+  //     return next.length ? next : [createZoneDraft()];
+  //   });
+  //   if (!removedZone) {
+  //     return;
+  //   }
+  //   const removedZoneName = removedZone.zone_name.trim().toLowerCase();
+  //   setServiceRules((prev) =>
+  //     prev.map((rule) =>
+  //       rule.zone_name.trim().toLowerCase() === removedZoneName
+  //         ? { ...rule, zone_name: "" }
+  //         : rule,
+  //     ),
+  //   );
+  // };
 
   // const updateRuleDraft = (
   //   id: string,
@@ -484,7 +484,9 @@ export function ShippingPage() {
             value={currency}
             onChange={(e) => setCurrency(e.target.value)}
           />
-          <div className="relative space-y-3 rounded-xl border border-surface-100 bg-surface-50 p-3 md:col-span-3 after:absolute after:inset-0 after:flex after:items-center after:justify-center after:rounded-2xl after:bg-surface-50 after:text-2xl after:font-black after:text-white after:content-['Coming_Soon'] after:cursor-not-allowed ">
+
+          {/* Shiping zones */}
+          {/* <div className="relative space-y-3 rounded-xl border border-surface-100 bg-surface-50 p-3 md:col-span-3 after:absolute after:inset-0 after:flex after:items-center after:justify-center after:rounded-2xl after:bg-surface-50 after:text-2xl after:font-black after:text-white after:content-['Coming_Soon'] after:cursor-not-allowed ">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h4 className="font-semibold text-surface-700">
@@ -579,7 +581,7 @@ export function ShippingPage() {
                 </div>
               </article>
             ))}
-          </div>
+          </div> */}
           {/* <div className="space-y-3 rounded-xl border border-surface-100 bg-surface-50 p-3 md:col-span-3">
             <div className="flex items-center justify-between gap-3">
               <div>

@@ -126,7 +126,11 @@ function badgeVariantForInvoiceStatus(
 }
 
 function canCancelInvoice(invoice: InvoiceOut) {
-  return invoice.status !== "paid" && invoice.status !== "cancelled" && invoice.amount_paid === 0;
+  return (
+    invoice.status !== "paid" &&
+    invoice.status !== "cancelled" &&
+    invoice.amount_paid === 0
+  );
 }
 
 function canDeleteInvoice(invoice: InvoiceOut) {
@@ -245,7 +249,8 @@ export function InvoicesPage() {
     [orderOptions],
   );
   const customersById = useMemo(
-    () => Object.fromEntries(customers.map((customer) => [customer.id, customer])),
+    () =>
+      Object.fromEntries(customers.map((customer) => [customer.id, customer])),
     [customers],
   );
   const selectedOrderId = createForm.watch("order_id");
@@ -579,7 +584,11 @@ export function InvoicesPage() {
     },
   });
 
-  if (ordersQuery.isLoading || customersQuery.isLoading || listQuery.isLoading) {
+  if (
+    ordersQuery.isLoading ||
+    customersQuery.isLoading ||
+    listQuery.isLoading
+  ) {
     return <LoadingState label="Loading invoice workspace..." />;
   }
 
@@ -645,7 +654,7 @@ export function InvoicesPage() {
               <option value="">Select eligible order</option>
               {orderOptions.map((order) => (
                 <option key={order.id} value={order.id}>
-                  {(order.customer_name || "No customer")} -{" "}
+                  {order.customer_name || "No customer"} -{" "}
                   {formatCurrency(
                     order.total_amount,
                     profileQuery.data?.base_currency,
@@ -922,7 +931,8 @@ export function InvoicesPage() {
                     Due: {invoice.due_date ? formatDate(invoice.due_date) : "-"}
                   </p>
                   <p className="mt-1 text-xs text-surface-500">
-                    Customer: {invoice.customer_name || invoice.customer_id || "-"}
+                    Customer:{" "}
+                    {invoice.customer_name || invoice.customer_id || "-"}
                   </p>
                   <p className="mt-1 text-xs text-surface-500">
                     {formatDateTime(invoice.created_at)}
@@ -997,7 +1007,11 @@ export function InvoicesPage() {
                         size="sm"
                         variant="danger"
                         onClick={() => {
-                          if (window.confirm("Delete this invoice? This cannot be undone.")) {
+                          if (
+                            window.confirm(
+                              "Delete this invoice? This cannot be undone.",
+                            )
+                          ) {
                             deleteMutation.mutate(invoice.id);
                           }
                         }}
@@ -1128,7 +1142,11 @@ export function InvoicesPage() {
                               size="sm"
                               variant="danger"
                               onClick={() => {
-                                if (window.confirm("Delete this invoice? This cannot be undone.")) {
+                                if (
+                                  window.confirm(
+                                    "Delete this invoice? This cannot be undone.",
+                                  )
+                                ) {
                                   deleteMutation.mutate(invoice.id);
                                 }
                               }}
@@ -1253,7 +1271,7 @@ export function InvoicesPage() {
             onRetry={() => previewQuery.refetch()}
           />
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-4 overflow-y-auto max-h-[70vh]">
             <div className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm dark:border-surface-700 dark:bg-surface-800/60">
               <p className="text-xs uppercase tracking-wide text-surface-500">
                 Subject
@@ -1356,7 +1374,9 @@ export function InvoicesPage() {
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-surface-500">No line items available.</p>
+                <p className="text-sm text-surface-500">
+                  No line items available.
+                </p>
               )}
             </div>
 
@@ -1405,7 +1425,7 @@ export function InvoicesPage() {
               sendMutation.mutate({
                 invoiceId: sendInvoiceTarget.id,
                 values,
-              })
+              }),
             )}
           >
             <div className="rounded-xl border border-surface-100 bg-surface-50 p-3 text-sm dark:border-surface-700 dark:bg-surface-800/60">
