@@ -1420,7 +1420,7 @@ export function InvoicesPage() {
           />
         ) : (
           <form
-            className="grid gap-3"
+            className="grid gap-3 max-h-[70vh] overflow-y-auto"
             onSubmit={sendForm.handleSubmit((values) =>
               sendMutation.mutate({
                 invoiceId: sendInvoiceTarget.id,
