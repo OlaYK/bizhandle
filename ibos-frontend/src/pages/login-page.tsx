@@ -103,7 +103,7 @@ export function LoginPage() {
           {/* Sign in */}
           {authState === "login" ? (
             <div className="w-full flex flex-col items-center justify-center">
-              <h2 className="font-heading font-semibold text-xl md:text-2xl text-color-dark relative md:after:absolute md:after:-bottom-1.5 md:after:left-1/2 md:after:-translate-x-1/2 md:after:rounded-full md:after:h-1 md:after:w-[70%] md:after:bg-[#17314e] text-left md:text-center w-full md:w-fit  ">
+              <h2 className="font-heading font-semibold text-xl md:text-2xl text-color relative md:after:absolute md:after:-bottom-1.5 md:after:left-1/2 md:after:-translate-x-1/2 md:after:rounded-full md:after:h-1 md:after:w-[70%] md:after:bg-[#17314e] text-left md:text-center w-full md:w-fit  ">
                 Sign in
               </h2>
               <p className="lg:mt-6 mt-0 md:text-sm text-xs hidden lg:block text-left lg:text-center w-full text-black">
