@@ -65,7 +65,7 @@ export function LoginPage() {
   });
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[linear-gradient(135deg,#0f2238_0,#17314e_45%,#203f62_100%)]">
+    <div className="relative h-screen overflow-hidden bg-[linear-gradient(135deg,#0f2238_0,#17314e_45%,#203f62_100%)]">
       <div className="pointer-events-none absolute left-0 top-0 h-72 w-72 rounded-full bg-mint-300/25 blur-3xl animate-float-slow" />
       <div className="pointer-events-none absolute right-0 top-24 h-72 w-72 rounded-full bg-cobalt-300/20 blur-3xl animate-float-mid" />
       <div className="pointer-events-none absolute bottom-0 left-1/3 h-56 w-56 rounded-full bg-accent-300/20 blur-3xl animate-pulse-glow" />
@@ -103,7 +103,7 @@ export function LoginPage() {
           {/* Sign in */}
           {authState === "login" ? (
             <div className="w-full flex flex-col items-center justify-center">
-              <h2 className="font-heading font-semibold text-xl md:text-2xl text-color-dark relative md:after:absolute md:after:-bottom-1.5 md:after:left-1/2 md:after:-translate-x-1/2 md:after:rounded-full md:after:h-1 md:after:w-[70%] md:after:bg-[#17314e] text-left md:text-center w-full md:w-fit  ">
+              <h2 className="font-heading font-semibold text-xl md:text-2xl text-[#17314e] relative md:after:absolute md:after:-bottom-1.5 md:after:left-1/2 md:after:-translate-x-1/2 md:after:rounded-full md:after:h-1 md:after:w-[70%] md:after:bg-[#17314e] text-left md:text-center w-full md:w-fit  ">
                 Sign in
               </h2>
               <p className="lg:mt-6 mt-0 md:text-sm text-xs hidden lg:block text-left lg:text-center w-full text-black">

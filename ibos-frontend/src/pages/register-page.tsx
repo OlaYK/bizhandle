@@ -108,12 +108,12 @@ export function RegisterPage({
   });
 
   return (
-    <div className="w-full">
+    <div className="w-full h-screen overflow-y-scroll ">
       {/* <MoniDeskLogo tone="auth" size="md" className="mb-4" />*/}
-      <h1 className="font-heading w-fit text-2xl font-bold text-color-dark relative md:after:absolute md:after:-bottom-[2px] md:after:left-1/2 md:after:-translate-x-1/2 md:after:rounded-full md:after:h-[3px] md:after:w-[70%] md:after:bg-[#17314e]">
+      <h1 className="font-heading w-fit text-2xl font-bold text-[#17314e] relative md:after:absolute md:after:-bottom-[2px] md:after:left-1/2 md:after:-translate-x-1/2 md:after:rounded-full md:after:h-[3px] md:after:w-[70%] md:after:bg-[#17314e]">
         Create Account
       </h1>
-      <p className="mt-3 text-sm text-color-dark">
+      <p className="mt-3 text-sm text-[#17314e]">
         Set up your MoniDesk workspace.
       </p>
 
